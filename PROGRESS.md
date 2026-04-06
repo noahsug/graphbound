@@ -17,4 +17,9 @@ Original prompt: Create a GitHub repo for this web game project, write a detaile
 - Environment gotcha for this Codex session: the skill client required `/Users/noahsug/.codex/node_modules` to resolve `playwright`, so a symlink to the project `node_modules` was created locally outside the repo.
 - Enabled GitHub Pages with workflow deployment for `https://noahsug.github.io/graphbound/`.
 - First deploy attempt failed on Linux because Vite's transitive wasm runtime peers (`@emnapi/core` and `@emnapi/runtime`) were not explicit in the project. Added them as dev dependencies and confirmed both `npm run build` and `npm ci` now pass.
-- Pending next: confirm the repaired Pages deployment succeeds, then start on multi-graph progression and tile unlock rewards for v1.
+- Replaced the single-board prototype with a deterministic multi-section architecture for v1.
+- Fixed the rough.js redraw wobble by giving the hand-drawn primitives stable seeds, so holding or dragging a tile no longer makes the whole screen visually jitter.
+- Implemented the v1 linear progression chain: `Sprout -> Ridge -> Cove`, with unlockable tiles `2`, `+`, and `5`.
+- Added multi-slot equations, section-specific rewards, and persistent unlocked-section state.
+- Browser-verified the full v1 chain with the Playwright game client. Latest artifacts: `output/web-game/v1-flow/shot-0.png` and `output/web-game/v1-flow/state-0.json`.
+- Pending next: checkpoint the v1 work in git, then build the open-world map, revisitable branches, and multi-goal graphs for the full-game pass.

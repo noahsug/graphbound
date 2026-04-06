@@ -149,7 +149,7 @@ Implemented in this pass:
 
 ### Phase 2: v1 Linear Unlock Flow
 
-Status: `pending`
+Status: `completed`
 
 - Support multiple graph sections
 - Unlock the next graph after solving the current graph
@@ -157,9 +157,20 @@ Status: `pending`
 - Add revisitable earlier graphs
 - Add content-driven puzzle sequencing rather than hardcoded flow
 
+Implemented in this pass:
+
+- Three-section progression strip for `Sprout -> Ridge -> Cove`
+- New tile rewards unlocked in sequence: `2`, then `+`, then `5`
+- Reusable section runtime data for slots, equation assembly, graph plotting, and unlock state
+- Deterministic rough.js seeds on hand-drawn elements so redraws stay stable during drag interactions
+
+Current limitation before the full-game pass:
+
+- Navigation is still a linear unlocked-section strip rather than a freely pannable world map
+
 ### Phase 3: Open World
 
-Status: `pending`
+Status: `in progress`
 
 - Camera panning across a world map of graph sections
 - Sections appear or animate into existence when unlocked

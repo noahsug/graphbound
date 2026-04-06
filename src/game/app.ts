@@ -1,15 +1,26 @@
 import rough from 'roughjs'
 
-import { AXIS_MAX, GAME_TITLE, PLOT_DURATION_MS, TILE_LABEL } from './content'
-import type { GameState, Layout, Point, Rect } from './types'
+import { AXIS_MAX, GAME_TITLE, PLOT_DURATION_MS, TILE_DEFINITIONS, V1_SECTIONS } from './content'
+import { evaluateSectionPlot } from './math'
+import type {
+  DragState,
+  GoalDefinition,
+  Layout,
+  PlotPoint,
+  Point,
+  Rect,
+  SectionDefinition,
+  SectionRuntime,
+  TileDefinition,
+  TileId,
+  TokenLayout,
+} from './types'
 
 const INK = '#48382a'
 const PAPER = '#fffaf0'
 const BOARD_FILL = '#fff5dd'
 const GRID = '#d9c7a1'
 const AXIS = '#8f7352'
-const TILE_FILL = '#f9d36d'
-const TILE_ACTIVE = '#f3b744'
 const SLOT_GLOW = '#6bb9b2'
 const PLOT = '#238b84'
 const GOAL = '#eb6f5a'
@@ -36,11 +47,7 @@ function distance(a: Point, b: Point): number {
   return Math.hypot(a.x - b.x, a.y - b.y)
 }
 
-function roundRectPath(
-  context: CanvasRenderingContext2D,
-  rect: Rect,
-  radius: number,
-): void {
+function roundRectPath(context: CanvasRenderingContext2D, rect: Rect, radius: number): void {
   const corner = Math.min(radius, rect.width / 2, rect.height / 2)
 
   context.beginPath()
@@ -71,102 +78,86 @@ function fillRoundedRect(
   context.restore()
 }
 
+function hashSeed(key: string): number {
+  let hash = 2166136261
+
+  for (let index = 0; index < key.length; index += 1) {
+    hash ^= key.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+
+  return Math.abs(hash % 2147483646) + 1
+}
+
+function seeded(key: string, options: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...options,
+    seed: hashSeed(key),
+  }
+}
+
 function createLayout(width: number, height: number): Layout {
-  const isCompact = width < 720
-  const inset = clamp(width * 0.028, 14, 26)
-  const boardWidth = Math.min(width - inset * 2, 740)
-  const graphSize = Math.min(
-    boardWidth - clamp(boardWidth * 0.16, 56, 110),
-    height * (width < 720 ? 0.37 : 0.46),
-    width < 720 ? 320 : 420,
-  )
-  const equationHeight = clamp(graphSize * 0.18, 54, 74)
-  const trayHeight = clamp(graphSize * 0.24, 92, 118)
-  const contentPad = clamp(boardWidth * 0.07, 18, 28)
-  const sectionGap = isCompact ? 16 : 24
-  const noteWidth = isCompact
-    ? clamp(boardWidth * 0.68, 180, 260)
-    : clamp(boardWidth * 0.2, 148, 168)
-  const noteHeight = isCompact ? 92 : 126
-  const topPad = clamp(graphSize * 0.16, 48, 68)
-  const bottomPad = clamp(graphSize * 0.16, 46, 68)
+  const inset = clamp(width * 0.03, 14, 26)
+  const progressionHeight = clamp(height * 0.12, 84, 108)
+  const boardWidth = Math.min(width - inset * 2, 760)
+  const graphSize = Math.min(boardWidth * 0.58, height * 0.42, 410)
+  const equationHeight = clamp(graphSize * 0.18, 56, 72)
+  const trayHeight = clamp(graphSize * 0.26, 94, 122)
   const boardHeight =
-    topPad +
+    clamp(graphSize * 0.14, 44, 60) +
     equationHeight +
-    sectionGap +
+    clamp(graphSize * 0.1, 18, 28) +
     graphSize +
-    sectionGap +
+    clamp(graphSize * 0.1, 18, 28) +
     trayHeight +
-    bottomPad +
-    (isCompact ? noteHeight + sectionGap : 0)
+    76
   const board = {
     x: (width - boardWidth) / 2,
-    y: Math.max(inset + 48, (height - boardHeight) / 2),
+    y: progressionHeight + 56,
     width: boardWidth,
-    height: boardHeight,
+    height: Math.min(boardHeight, height - progressionHeight - 80),
   }
-  const equationBar = {
-    x: board.x + contentPad,
-    y: board.y + topPad,
-    width: isCompact ? boardWidth - contentPad * 2 : graphSize,
+  const equation = {
+    x: board.x + 24,
+    y: board.y + 40,
+    width: board.width - 48,
     height: equationHeight,
   }
-  const graphX = isCompact ? board.x + (boardWidth - graphSize) / 2 : board.x + contentPad
   const graph = {
-    x: graphX,
-    y: equationBar.y + equationBar.height + sectionGap,
+    x: board.x + 28,
+    y: equation.y + equation.height + 24,
     width: graphSize,
     height: graphSize,
   }
-  const tileSize = clamp(graphSize * 0.19, 56, 72)
-  const noteY = isCompact ? graph.y + graph.height + sectionGap : graph.y + 12
-  const tray = {
-    x: board.x + contentPad,
-    y: isCompact ? noteY + noteHeight + sectionGap : graph.y + graph.height + sectionGap,
-    width: boardWidth - contentPad * 2,
-    height: trayHeight,
-  }
-  const tileHome = {
-    x: tray.x + clamp(tray.width * 0.06, 12, 24),
-    y: tray.y + (tray.height - tileSize) / 2,
-    width: tileSize,
-    height: tileSize,
-  }
-  const slotSize = equationHeight - 18
-  const slot = {
-    x: equationBar.x + clamp(equationBar.width * 0.36, 84, 126),
-    y: equationBar.y + (equationBar.height - slotSize) / 2,
-    width: slotSize,
-    height: slotSize,
-  }
   const note = {
-    x: isCompact
-      ? board.x + (boardWidth - noteWidth) / 2
-      : graph.x + graph.width + sectionGap + 18,
-    y: noteY,
-    width: noteWidth,
-    height: noteHeight,
+    x: graph.x + graph.width + 26,
+    y: graph.y + 8,
+    width: board.x + board.width - (graph.x + graph.width + 54),
+    height: Math.max(130, graph.height * 0.52),
   }
-  const gateSize = clamp(graphSize * 0.15, 36, 52)
-  const goalGate = {
-    x: graph.x + graph.width - gateSize * 0.4,
-    y: graph.y - gateSize * 0.55,
-    width: gateSize,
-    height: gateSize,
+  const tray = {
+    x: board.x + 24,
+    y: graph.y + graph.height + 24,
+    width: board.width - 48,
+    height: trayHeight,
   }
 
   return {
     width,
     height,
+    titleY: 36,
+    progression: {
+      x: inset,
+      y: 62,
+      width: width - inset * 2,
+      height: progressionHeight,
+    },
     board,
+    equation,
     graph,
-    equationBar,
-    slot,
-    tray,
-    tileHome,
     note,
-    goalGate,
-    titleY: Math.max(inset + 10, board.y - 34),
+    tray,
+    footerY: board.y + board.height - 18,
   }
 }
 
@@ -175,17 +166,19 @@ class GraphboundApp {
   private readonly context: CanvasRenderingContext2D
   private readonly roughCanvas: RoughCanvas
   private readonly resizeObserver: ResizeObserver
+  private readonly sections = V1_SECTIONS
+  private readonly sectionById = new Map(this.sections.map((section) => [section.id, section]))
+  private readonly sectionRuntimes = new Map<string, SectionRuntime>()
+  private readonly completedGoals = new Set<string>()
+  private readonly completedSections = new Set<string>()
+  private readonly unlockedSections = new Set<string>()
+  private readonly unlockedTiles = new Set<TileId>(['x'])
 
   private layout: Layout
-  private state: GameState = {
-    tilePlacement: 'tray',
-    selectedTile: false,
-    drag: null,
-    plotProgress: 0,
-    goalReached: false,
-    statusMessage: 'Drag the x tile into the blank box.',
-  }
-
+  private drag: DragState | null = null
+  private selectedTileId: TileId | null = null
+  private activeSectionId = this.sections[0].id
+  private statusMessage = 'Drag x into the slot to begin the chain.'
   private animationFrame: number | null = null
   private lastFrameTime: number | null = null
 
@@ -200,32 +193,49 @@ class GraphboundApp {
     this.context = context
     this.roughCanvas = rough.canvas(canvas)
     this.layout = createLayout(960, 720)
-    this.resizeObserver = new ResizeObserver(() => {
-      this.resize()
-    })
 
+    for (const section of this.sections) {
+      const placements: Record<string, TileId | null> = {}
+      for (const slot of section.slots) {
+        placements[slot.id] = null
+      }
+      this.sectionRuntimes.set(section.id, {
+        placements,
+        plotResult: null,
+        plotProgress: 0,
+        animating: false,
+        statusMessage: section.blurb,
+        pendingGoalIds: [],
+        solvedGoalIds: [],
+      })
+
+      if (section.initialUnlocked) {
+        this.unlockedSections.add(section.id)
+      }
+    }
+
+    this.resizeObserver = new ResizeObserver(() => this.resize())
     this.resizeObserver.observe(this.canvas)
+
     this.canvas.addEventListener('pointerdown', this.handlePointerDown)
     this.canvas.addEventListener('pointermove', this.handlePointerMove)
     this.canvas.addEventListener('pointerup', this.handlePointerUp)
     this.canvas.addEventListener('pointercancel', this.handlePointerCancel)
     window.addEventListener('keydown', this.handleKeyDown)
 
-    this.resize()
     this.attachDebugHooks()
+    this.resize()
   }
 
   private attachDebugHooks(): void {
     window.render_game_to_text = () => this.renderGameToText()
-    window.advanceTime = (ms: number) => {
-      this.advanceTime(ms)
-    }
+    window.advanceTime = (ms: number) => this.advanceTime(ms)
   }
 
   private resize(): void {
     const bounds = this.canvas.getBoundingClientRect()
-    const width = Math.max(360, Math.round(bounds.width))
-    const height = Math.max(520, Math.round(bounds.height))
+    const width = Math.max(380, Math.round(bounds.width))
+    const height = Math.max(640, Math.round(bounds.height))
 
     if (this.canvas.width !== width || this.canvas.height !== height) {
       this.canvas.width = width
@@ -234,6 +244,24 @@ class GraphboundApp {
 
     this.layout = createLayout(width, height)
     this.render()
+  }
+
+  private get activeSection(): SectionDefinition {
+    return this.sectionById.get(this.activeSectionId) ?? this.sections[0]
+  }
+
+  private get activeRuntime(): SectionRuntime {
+    const runtime = this.sectionRuntimes.get(this.activeSectionId)
+
+    if (!runtime) {
+      throw new Error(`Missing runtime for section ${this.activeSectionId}`)
+    }
+
+    return runtime
+  }
+
+  private activeTileIds(): TileId[] {
+    return [...this.unlockedTiles]
   }
 
   private getPointerPoint(event: PointerEvent): Point {
@@ -245,58 +273,245 @@ class GraphboundApp {
     }
   }
 
-  private getVisibleTileRect(): Rect {
-    if (this.state.drag?.dragging) {
-      return {
-        x: this.state.drag.current.x - this.state.drag.offset.x,
-        y: this.state.drag.current.y - this.state.drag.offset.y,
-        width: this.layout.tileHome.width,
-        height: this.layout.tileHome.height,
+  private progressionCardRect(index: number, count: number): Rect {
+    const gap = 14
+    const width = Math.min(156, (this.layout.progression.width - gap * (count - 1)) / count)
+    return {
+      x: this.layout.progression.x + index * (width + gap),
+      y: this.layout.progression.y + 28,
+      width,
+      height: this.layout.progression.height - 36,
+    }
+  }
+
+  private trayTileRects(): Array<{ tileId: TileId; rect: Rect }> {
+    const used = new Set(Object.values(this.activeRuntime.placements).filter(Boolean) as TileId[])
+    const available = this.activeTileIds().filter((tileId) => !used.has(tileId))
+    const size = clamp(this.layout.tray.height * 0.54, 54, 68)
+    const gap = 14
+    const startX = this.layout.tray.x + 22
+    const centerY = this.layout.tray.y + this.layout.tray.height / 2 + 10
+
+    return available.map((tileId, index) => ({
+      tileId,
+      rect: {
+        x: startX + index * (size + gap),
+        y: centerY - size / 2,
+        width: size,
+        height: size,
+      },
+    }))
+  }
+
+  private tokenLayouts(): TokenLayout[] {
+    const section = this.activeSection
+    const width = clamp(this.layout.equation.height - 12, 42, 58)
+    const gap = 12
+    const prefixWidth = 54
+    const totalWidth =
+      prefixWidth + section.equation.length * width + (section.equation.length - 1) * gap
+    let cursor = this.layout.equation.x + (this.layout.equation.width - totalWidth) / 2 + prefixWidth
+
+    return section.equation.map((part) => {
+      const rect = {
+        x: cursor,
+        y: this.layout.equation.y + (this.layout.equation.height - width) / 2,
+        width,
+        height: width,
+      }
+      cursor += width + gap
+      return { rect, part }
+    })
+  }
+
+  private slotRect(slotId: string): Rect | null {
+    const token = this.tokenLayouts().find(
+      (layout) => layout.part.type === 'slot' && layout.part.slotId === slotId,
+    )
+
+    return token?.rect ?? null
+  }
+
+  private slottedTileRect(slotId: string): Rect | null {
+    const rect = this.slotRect(slotId)
+    if (!rect) {
+      return null
+    }
+
+    return {
+      x: rect.x + 2,
+      y: rect.y + 2,
+      width: rect.width - 4,
+      height: rect.height - 4,
+    }
+  }
+
+  private compatibleSlots(tileId: TileId): string[] {
+    return this.activeSection.slots
+      .filter((slot) => slot.allowedTiles.includes(tileId))
+      .map((slot) => slot.id)
+  }
+
+  private placementExpression(sectionId: string): string {
+    const section = this.sectionById.get(sectionId)
+    const runtime = this.sectionRuntimes.get(sectionId)
+
+    if (!section || !runtime) {
+      return 'y = _'
+    }
+
+    const tokens = section.equation.map((part) => {
+      if (part.type === 'fixed') {
+        return part.value
+      }
+      const tileId = runtime.placements[part.slotId]
+      return tileId ? TILE_DEFINITIONS[tileId].label : '_'
+    })
+
+    return `y = ${tokens.join(' ')}`
+  }
+
+  private updateSectionPlot(sectionId: string, animated: boolean): void {
+    const section = this.sectionById.get(sectionId)
+    const runtime = this.sectionRuntimes.get(sectionId)
+
+    if (!section || !runtime) {
+      return
+    }
+
+    const result = evaluateSectionPlot(section, runtime.placements)
+    runtime.plotResult = result
+    runtime.pendingGoalIds = result?.achievedGoalIds ?? []
+
+    if (!result) {
+      runtime.plotProgress = 0
+      runtime.animating = false
+      runtime.statusMessage = section.blurb
+      if (this.activeSectionId === sectionId) {
+        this.statusMessage = 'Fill every slot to draw the line.'
+      }
+      return
+    }
+
+    const newGoals = result.achievedGoalIds.filter(
+      (goalId) => !this.completedGoals.has(`${sectionId}:${goalId}`),
+    )
+    runtime.statusMessage =
+      newGoals.length > 0
+        ? `A route is lined up: ${newGoals.map((goalId) => this.goalLabel(section, goalId)).join(', ')}`
+        : 'That line is already known. Try another route.'
+
+    if (!result.hasVisiblePath) {
+      runtime.plotProgress = 0
+      runtime.animating = false
+      runtime.statusMessage = 'The line never enters the graph bounds.'
+      if (this.activeSectionId === sectionId) {
+        this.statusMessage = runtime.statusMessage
+      }
+      return
+    }
+
+    runtime.plotProgress = animated ? 0 : 1
+    runtime.animating = animated
+
+    if (!animated && newGoals.length > 0) {
+      this.finalizeGoals(sectionId)
+    }
+
+    if (this.activeSectionId === sectionId) {
+      this.statusMessage = animated ? `Plotting ${result.screenLabel}...` : runtime.statusMessage
+    }
+  }
+
+  private finalizeGoals(sectionId: string): void {
+    const section = this.sectionById.get(sectionId)
+    const runtime = this.sectionRuntimes.get(sectionId)
+
+    if (!section || !runtime || !runtime.plotResult) {
+      return
+    }
+
+    const newGoals = runtime.plotResult.achievedGoalIds.filter(
+      (goalId) => !this.completedGoals.has(`${sectionId}:${goalId}`),
+    )
+
+    if (newGoals.length === 0) {
+      this.statusMessage = runtime.statusMessage
+      return
+    }
+
+    for (const goalId of newGoals) {
+      this.completedGoals.add(`${sectionId}:${goalId}`)
+      const goal = section.goals.find((candidate) => candidate.id === goalId)
+      for (const unlockId of goal?.unlocks ?? []) {
+        this.unlockedSections.add(unlockId)
       }
     }
 
-    if (this.state.tilePlacement === 'slot') {
-      return this.layout.slot
-    }
+    runtime.solvedGoalIds = section.goals
+      .filter((goal) => this.completedGoals.has(`${sectionId}:${goal.id}`))
+      .map((goal) => goal.id)
 
-    return this.layout.tileHome
-  }
-
-  private beginPlot(): void {
-    this.state.plotProgress = 0
-    this.state.goalReached = false
-    this.state.statusMessage = 'Plotting y = x toward the gate...'
-    this.ensureAnimation()
-  }
-
-  private clearPlot(message?: string): void {
-    this.state.plotProgress = 0
-    this.state.goalReached = false
-
-    if (this.animationFrame !== null) {
-      window.cancelAnimationFrame(this.animationFrame)
-      this.animationFrame = null
-      this.lastFrameTime = null
-    }
-
-    if (message) {
-      this.state.statusMessage = message
+    if (runtime.solvedGoalIds.length === section.goals.length) {
+      if (!this.completedSections.has(sectionId)) {
+        this.completedSections.add(sectionId)
+        if (section.rewardTileId) {
+          this.unlockedTiles.add(section.rewardTileId)
+          this.statusMessage = `Section complete. New tile unlocked: ${TILE_DEFINITIONS[section.rewardTileId].label}`
+        } else {
+          this.statusMessage = `${section.title} is fully solved.`
+        }
+      }
+    } else {
+      this.statusMessage = `New path unlocked from ${section.title}.`
     }
   }
 
-  private placeTileInSlot(): void {
-    this.state.tilePlacement = 'slot'
-    this.state.selectedTile = false
-    this.state.drag = null
-    this.beginPlot()
+  private goalLabel(section: SectionDefinition, goalId: string): string {
+    return section.goals.find((goal) => goal.id === goalId)?.label ?? goalId
+  }
+
+  private setSelectedTile(tileId: TileId | null): void {
+    this.selectedTileId = tileId
     this.render()
   }
 
-  private liftTileToTray(message: string): void {
-    this.state.tilePlacement = 'tray'
-    this.state.selectedTile = true
-    this.state.drag = null
-    this.clearPlot(message)
+  private pickUpSlotTile(slotId: string): void {
+    const tileId = this.activeRuntime.placements[slotId]
+    if (!tileId) {
+      return
+    }
+
+    this.activeRuntime.placements[slotId] = null
+    this.setSelectedTile(tileId)
+    this.updateSectionPlot(this.activeSectionId, false)
+    this.statusMessage = `Picked up ${TILE_DEFINITIONS[tileId].label}.`
+  }
+
+  private placeTileInSlot(tileId: TileId, slotId: string, animated: boolean): void {
+    const slot = this.activeSection.slots.find((candidate) => candidate.id === slotId)
+
+    if (!slot || !slot.allowedTiles.includes(tileId)) {
+      return
+    }
+
+    for (const currentSlot of this.activeSection.slots) {
+      if (this.activeRuntime.placements[currentSlot.id] === tileId) {
+        this.activeRuntime.placements[currentSlot.id] = null
+      }
+    }
+
+    this.activeRuntime.placements[slotId] = tileId
+    this.setSelectedTile(null)
+    this.updateSectionPlot(this.activeSectionId, animated)
+    this.ensureAnimation()
+    this.render()
+  }
+
+  private beginAnimationIfNeeded(): void {
+    if (this.activeRuntime.animating) {
+      this.ensureAnimation()
+    }
   }
 
   private ensureAnimation(): void {
@@ -328,27 +543,24 @@ class GraphboundApp {
   }
 
   private step(deltaMs: number): boolean {
-    if (this.state.tilePlacement !== 'slot') {
-      return false
+    let keepGoing = false
+
+    for (const section of this.sections) {
+      const runtime = this.sectionRuntimes.get(section.id)
+      if (!runtime || !runtime.animating) {
+        continue
+      }
+
+      runtime.plotProgress = clamp(runtime.plotProgress + deltaMs / PLOT_DURATION_MS, 0, 1)
+      if (runtime.plotProgress >= 1) {
+        runtime.animating = false
+        this.finalizeGoals(section.id)
+      } else {
+        keepGoing = true
+      }
     }
 
-    if (this.state.plotProgress >= 1) {
-      return false
-    }
-
-    this.state.plotProgress = clamp(
-      this.state.plotProgress + deltaMs / PLOT_DURATION_MS,
-      0,
-      1,
-    )
-
-    if (this.state.plotProgress >= 1 && !this.state.goalReached) {
-      this.state.goalReached = true
-      this.state.statusMessage = 'Success! y = x reaches the top-right gate.'
-      return false
-    }
-
-    return this.state.plotProgress < 1
+    return keepGoing
   }
 
   private advanceTime(ms: number): void {
@@ -364,55 +576,97 @@ class GraphboundApp {
 
   private handlePointerDown = (event: PointerEvent): void => {
     const point = this.getPointerPoint(event)
-    const tileRect = this.getVisibleTileRect()
+    const activeCards = this.sections.filter((section) => this.unlockedSections.has(section.id))
 
-    if (pointInRect(point, tileRect)) {
-      this.state.drag = {
+    activeCards.forEach((section, index) => {
+      const rect = this.progressionCardRect(index, activeCards.length)
+      if (!pointInRect(point, rect)) {
+        return
+      }
+
+      this.activeSectionId = section.id
+      this.statusMessage = this.activeRuntime.statusMessage
+      this.render()
+      this.drag = null
+    })
+
+    for (const { tileId, rect } of this.trayTileRects()) {
+      if (!pointInRect(point, rect)) {
+        continue
+      }
+
+      this.drag = {
+        kind: 'tile',
         pointerId: event.pointerId,
-        start: point,
+        tileId,
         current: point,
         offset: {
-          x: point.x - tileRect.x,
-          y: point.y - tileRect.y,
+          x: point.x - rect.x,
+          y: point.y - rect.y,
         },
-        originPlacement: this.state.tilePlacement,
+        sourceSlotId: null,
         dragging: false,
+        start: point,
       }
       this.canvas.setPointerCapture(event.pointerId)
       this.render()
       return
     }
 
-    if (this.state.selectedTile && pointInRect(point, this.layout.slot)) {
-      this.placeTileInSlot()
+    for (const slot of this.activeSection.slots) {
+      const rect = this.slottedTileRect(slot.id)
+      const tileId = this.activeRuntime.placements[slot.id]
+      if (!rect || !tileId || !pointInRect(point, rect)) {
+        continue
+      }
+
+      this.drag = {
+        kind: 'tile',
+        pointerId: event.pointerId,
+        tileId,
+        current: point,
+        offset: {
+          x: point.x - rect.x,
+          y: point.y - rect.y,
+        },
+        sourceSlotId: slot.id,
+        dragging: false,
+        start: point,
+      }
+      this.canvas.setPointerCapture(event.pointerId)
+      this.render()
       return
     }
 
-    if (this.state.selectedTile) {
-      this.state.selectedTile = false
-      this.state.statusMessage = 'Tile set back down in the tray.'
-      this.render()
+    if (this.selectedTileId) {
+      const target = this.compatibleSlots(this.selectedTileId).find((slotId) => {
+        const rect = this.slotRect(slotId)
+        return rect ? pointInRect(point, rect) : false
+      })
+
+      if (target) {
+        this.placeTileInSlot(this.selectedTileId, target, true)
+        return
+      }
+
+      this.setSelectedTile(null)
+      this.statusMessage = 'Tile set back in the tray.'
     }
   }
 
   private handlePointerMove = (event: PointerEvent): void => {
-    const activeDrag = this.state.drag
-
-    if (!activeDrag || activeDrag.pointerId !== event.pointerId) {
+    if (!this.drag || this.drag.pointerId !== event.pointerId) {
       return
     }
 
-    activeDrag.current = this.getPointerPoint(event)
+    this.drag.current = this.getPointerPoint(event)
 
-    if (!activeDrag.dragging && distance(activeDrag.start, activeDrag.current) > 10) {
-      activeDrag.dragging = true
-      this.state.selectedTile = false
+    if (!this.drag.dragging && distance(this.drag.start, this.drag.current) > 10) {
+      this.drag.dragging = true
 
-      if (activeDrag.originPlacement === 'slot') {
-        this.state.tilePlacement = 'tray'
-        this.clearPlot('Tile lifted. Drop it back into the blank box to redraw.')
-      } else {
-        this.state.statusMessage = 'Release over the blank box to complete the equation.'
+      if (this.drag.kind === 'tile' && this.drag.sourceSlotId) {
+        this.activeRuntime.placements[this.drag.sourceSlotId] = null
+        this.updateSectionPlot(this.activeSectionId, false)
       }
     }
 
@@ -420,9 +674,7 @@ class GraphboundApp {
   }
 
   private handlePointerUp = (event: PointerEvent): void => {
-    const activeDrag = this.state.drag
-
-    if (!activeDrag || activeDrag.pointerId !== event.pointerId) {
+    if (!this.drag || this.drag.pointerId !== event.pointerId) {
       return
     }
 
@@ -431,66 +683,74 @@ class GraphboundApp {
     try {
       this.canvas.releasePointerCapture(event.pointerId)
     } catch {
-      // No-op: pointer capture can already be released on some browsers.
+      // No-op.
     }
 
-    if (activeDrag.dragging) {
-      if (pointInRect(point, this.layout.slot)) {
-        this.placeTileInSlot()
-        return
-      }
+    if (this.drag.kind === 'tile') {
+      const targetSlot = this.compatibleSlots(this.drag.tileId).find((slotId) => {
+        const rect = this.slotRect(slotId)
+        return rect ? pointInRect(point, rect) : false
+      })
 
-      this.state.drag = null
-      this.state.tilePlacement = activeDrag.originPlacement
-      this.state.selectedTile = false
-
-      if (activeDrag.originPlacement === 'slot') {
-        this.beginPlot()
+      if (this.drag.dragging) {
+        if (targetSlot) {
+          this.placeTileInSlot(this.drag.tileId, targetSlot, true)
+        } else if (this.drag.sourceSlotId) {
+          this.activeRuntime.placements[this.drag.sourceSlotId] = this.drag.tileId
+          this.updateSectionPlot(this.activeSectionId, false)
+          this.statusMessage = 'The tile snapped back to its slot.'
+          this.render()
+        } else {
+          this.statusMessage = 'The tile returned to the tray.'
+          this.render()
+        }
+      } else if (this.drag.sourceSlotId) {
+        this.pickUpSlotTile(this.drag.sourceSlotId)
       } else {
-        this.clearPlot('The tile snapped back to the tray.')
+        this.setSelectedTile(this.drag.tileId === this.selectedTileId ? null : this.drag.tileId)
+        this.statusMessage = this.selectedTileId
+          ? `Picked up ${TILE_DEFINITIONS[this.selectedTileId].label}. Tap a matching slot.`
+          : 'Tile deselected.'
       }
-
-      this.render()
-      return
     }
 
-    this.state.drag = null
-
-    if (activeDrag.originPlacement === 'slot') {
-      this.liftTileToTray('Tile picked up. Tap the blank box or drag it back in.')
-      this.render()
-      return
-    }
-
-    this.state.selectedTile = !this.state.selectedTile
-    this.state.statusMessage = this.state.selectedTile
-      ? 'Tile selected. Tap the blank box or drag it into place.'
-      : 'Tile deselected.'
+    this.drag = null
+    this.beginAnimationIfNeeded()
     this.render()
   }
 
   private handlePointerCancel = (): void => {
-    this.state.drag = null
+    this.drag = null
     this.render()
   }
 
   private handleKeyDown = (event: KeyboardEvent): void => {
-    if (event.key.toLowerCase() !== 'f') {
+    if (event.key.toLowerCase() === 'f') {
+      if (document.fullscreenElement) {
+        void document.exitFullscreen()
+      } else {
+        void this.canvas.requestFullscreen()
+      }
       return
     }
 
-    if (document.fullscreenElement) {
-      void document.exitFullscreen()
+    if (!this.selectedTileId) {
       return
     }
 
-    void this.canvas.requestFullscreen()
+    const quickPlace = this.compatibleSlots(this.selectedTileId).find(
+      (slotId) => !this.activeRuntime.placements[slotId],
+    )
+
+    if (event.key === 'Enter' && quickPlace) {
+      this.placeTileInSlot(this.selectedTileId, quickPlace, true)
+    }
   }
 
-  private graphPointToScreen(x: number, y: number): Point {
+  private graphPointToScreen(point: PlotPoint): Point {
     return {
-      x: this.layout.graph.x + (x / AXIS_MAX) * this.layout.graph.width,
-      y: this.layout.graph.y + this.layout.graph.height - (y / AXIS_MAX) * this.layout.graph.height,
+      x: this.layout.graph.x + (point.x / AXIS_MAX) * this.layout.graph.width,
+      y: this.layout.graph.y + this.layout.graph.height - (point.y / AXIS_MAX) * this.layout.graph.height,
     }
   }
 
@@ -506,26 +766,111 @@ class GraphboundApp {
     context.fillStyle = sky
     context.fillRect(0, 0, width, height)
 
-    context.fillStyle = 'rgba(255, 255, 255, 0.35)'
+    context.fillStyle = 'rgba(255, 255, 255, 0.38)'
     context.beginPath()
-    context.ellipse(width * 0.25, height * 0.16, width * 0.22, height * 0.12, -0.2, 0, Math.PI * 2)
+    context.ellipse(width * 0.22, height * 0.14, width * 0.2, height * 0.1, -0.2, 0, Math.PI * 2)
     context.fill()
     context.beginPath()
-    context.ellipse(width * 0.82, height * 0.12, width * 0.18, height * 0.1, 0.18, 0, Math.PI * 2)
+    context.ellipse(width * 0.78, height * 0.13, width * 0.18, height * 0.08, 0.12, 0, Math.PI * 2)
     context.fill()
 
-    this.roughCanvas.circle(width * 0.12, height * 0.78, 84, {
-      stroke: 'rgba(120, 93, 58, 0.18)',
-      strokeWidth: 1.5,
-      fillStyle: 'zigzag',
-      fill: 'rgba(244, 214, 164, 0.16)',
-      roughness: 1.5,
+    this.roughCanvas.circle(
+      width * 0.1,
+      height * 0.78,
+      84,
+      seeded('bg-circle', {
+        stroke: 'rgba(120, 93, 58, 0.18)',
+        strokeWidth: 1.5,
+        fillStyle: 'zigzag',
+        fill: 'rgba(244, 214, 164, 0.16)',
+        roughness: 1.5,
+      }),
+    )
+    this.roughCanvas.rectangle(
+      width * 0.84,
+      height * 0.72,
+      86,
+      62,
+      seeded('bg-rect', {
+        stroke: 'rgba(120, 93, 58, 0.18)',
+        strokeWidth: 1.2,
+        roughness: 1.7,
+      }),
+    )
+  }
+
+  private drawTitle(): void {
+    const context = this.context
+    const centerX = this.layout.width / 2
+
+    context.save()
+    context.fillStyle = INK
+    context.font = "30px 'Short Stack', cursive"
+    context.textAlign = 'center'
+    context.fillText(GAME_TITLE, centerX, this.layout.titleY)
+    context.font = "18px 'Patrick Hand', cursive"
+    context.fillStyle = '#7b6246'
+    context.fillText('v1 - linear chain', centerX, this.layout.titleY + 26)
+    context.restore()
+  }
+
+  private drawProgression(): void {
+    const context = this.context
+    const visibleSections = this.sections.filter((section) => this.unlockedSections.has(section.id))
+
+    this.roughCanvas.rectangle(
+      this.layout.progression.x,
+      this.layout.progression.y,
+      this.layout.progression.width,
+      this.layout.progression.height,
+      seeded('progression-shell', {
+        stroke: INK,
+        strokeWidth: 2.2,
+        fill: '#fff4d5',
+        fillStyle: 'solid',
+        roughness: 1.2,
+      }),
+    )
+
+    context.save()
+    context.fillStyle = AXIS
+    context.font = "18px 'Short Stack', cursive"
+    context.fillText('unlocked graph strip', this.layout.progression.x + 18, this.layout.progression.y + 20)
+
+    visibleSections.forEach((section, index) => {
+      const rect = this.progressionCardRect(index, visibleSections.length)
+      const active = section.id === this.activeSectionId
+      const solved = this.completedSections.has(section.id)
+      const runtime = this.sectionRuntimes.get(section.id)
+
+      this.roughCanvas.rectangle(
+        rect.x,
+        rect.y,
+        rect.width,
+        rect.height,
+        seeded(`progression:${section.id}`, {
+          stroke: active ? SLOT_GLOW : INK,
+          strokeWidth: active ? 3 : 1.8,
+          fill: solved ? '#e3f2d3' : '#fffaf0',
+          fillStyle: 'solid',
+          roughness: 1.4,
+        }),
+      )
+
+      context.fillStyle = active ? '#22655d' : INK
+      context.font = "17px 'Short Stack', cursive"
+      context.fillText(section.title, rect.x + 14, rect.y + 24)
+      context.font = "16px 'Patrick Hand', cursive"
+      context.fillStyle = AXIS
+      context.fillText(`reward ${section.rewardTileId ?? '-'}`, rect.x + 14, rect.y + 48)
+      context.fillText(
+        `${runtime?.solvedGoalIds.length ?? 0}/${section.goals.length} goals`,
+        rect.x + 14,
+        rect.y + rect.height - 18,
+      )
     })
-    this.roughCanvas.rectangle(width * 0.84, height * 0.72, 86, 62, {
-      stroke: 'rgba(120, 93, 58, 0.18)',
-      strokeWidth: 1.2,
-      roughness: 1.7,
-    })
+
+    context.restore()
   }
 
   private drawBoard(): void {
@@ -539,73 +884,78 @@ class GraphboundApp {
     fillRoundedRect(context, board, 24, PAPER)
     context.restore()
 
-    this.roughCanvas.rectangle(board.x, board.y, board.width, board.height, {
-      stroke: INK,
-      strokeWidth: 2.4,
-      fill: BOARD_FILL,
-      fillStyle: 'solid',
-      roughness: 1.4,
-      bowing: 1.1,
-    })
+    this.roughCanvas.rectangle(
+      board.x,
+      board.y,
+      board.width,
+      board.height,
+      seeded('detail-board', {
+        stroke: INK,
+        strokeWidth: 2.4,
+        fill: BOARD_FILL,
+        fillStyle: 'solid',
+        roughness: 1.4,
+        bowing: 1.1,
+      }),
+    )
   }
 
-  private drawTitle(): void {
+  private drawEquationBar(): void {
     const context = this.context
-    const centerX = this.layout.width / 2
+    const runtime = this.activeRuntime
 
-    context.save()
-    context.fillStyle = INK
-    context.font = "28px 'Short Stack', cursive"
-    context.textAlign = 'center'
-    context.fillText(GAME_TITLE, centerX, this.layout.titleY)
-    context.font = "18px 'Patrick Hand', cursive"
-    context.fillStyle = '#7b6246'
-    context.fillText('v0 - sketch one', centerX, this.layout.titleY + 24)
-    context.restore()
-  }
-
-  private drawEquationBar(slotActive: boolean): void {
-    const context = this.context
-    const { equationBar, slot } = this.layout
-
-    this.roughCanvas.rectangle(equationBar.x, equationBar.y, equationBar.width, equationBar.height, {
-      stroke: INK,
-      strokeWidth: 2,
-      fill: '#fff0c9',
-      fillStyle: 'solid',
-      roughness: 1.3,
-    })
+    this.roughCanvas.rectangle(
+      this.layout.equation.x,
+      this.layout.equation.y,
+      this.layout.equation.width,
+      this.layout.equation.height,
+      seeded(`equation-shell:${this.activeSectionId}`, {
+        stroke: INK,
+        strokeWidth: 2,
+        fill: '#fff0c9',
+        fillStyle: 'solid',
+        roughness: 1.3,
+      }),
+    )
 
     context.save()
     context.fillStyle = INK
     context.font = "30px 'Short Stack', cursive"
     context.textBaseline = 'middle'
-    context.fillText('y =', equationBar.x + 24, equationBar.y + equationBar.height / 2 + 1)
-    context.restore()
+    context.fillText('y =', this.layout.equation.x + 18, this.layout.equation.y + this.layout.equation.height / 2 + 1)
 
-    context.save()
-    roundRectPath(context, slot, 12)
-    context.lineWidth = slotActive ? 3 : 2
-    context.strokeStyle = slotActive ? SLOT_GLOW : AXIS
-    context.setLineDash([7, 7])
-    context.stroke()
-    context.setLineDash([])
+    for (const token of this.tokenLayouts()) {
+      if (token.part.type === 'fixed') {
+        context.fillText(
+          token.part.value,
+          token.rect.x + token.rect.width / 2 - 10,
+          token.rect.y + token.rect.height / 2 + 1,
+        )
+        continue
+      }
 
-    if (slotActive) {
-      context.strokeStyle = 'rgba(107, 185, 178, 0.28)'
-      context.lineWidth = 1
-      for (let index = 1; index < 4; index += 1) {
-        const guideX = slot.x + (slot.width / 4) * index
-        const guideY = slot.y + (slot.height / 4) * index
-        context.beginPath()
-        context.moveTo(guideX, slot.y + 7)
-        context.lineTo(guideX, slot.y + slot.height - 7)
-        context.stroke()
+      const tileId = runtime.placements[token.part.slotId]
+      const activeTileId = this.drag?.kind === 'tile' ? this.drag.tileId : this.selectedTileId
+      const compatible = activeTileId
+        ? this.compatibleSlots(activeTileId).includes(token.part.slotId)
+        : false
 
-        context.beginPath()
-        context.moveTo(slot.x + 7, guideY)
-        context.lineTo(slot.x + slot.width - 7, guideY)
-        context.stroke()
+      context.save()
+      roundRectPath(context, token.rect, 12)
+      context.lineWidth = compatible ? 3 : 2
+      context.strokeStyle = compatible ? SLOT_GLOW : AXIS
+      context.setLineDash([7, 7])
+      context.stroke()
+      context.setLineDash([])
+      context.restore()
+
+      if (tileId) {
+        this.drawTile(
+          this.slottedTileRect(token.part.slotId) ?? token.rect,
+          TILE_DEFINITIONS[tileId],
+          false,
+          `slot:${this.activeSectionId}:${token.part.slotId}`,
+        )
       }
     }
 
@@ -614,16 +964,23 @@ class GraphboundApp {
 
   private drawGraph(): void {
     const context = this.context
-    const { graph, goalGate } = this.layout
+    const runtime = this.activeRuntime
+    const graph = this.layout.graph
 
     fillRoundedRect(context, graph, 18, '#fffef8')
-    this.roughCanvas.rectangle(graph.x, graph.y, graph.width, graph.height, {
-      stroke: INK,
-      strokeWidth: 2,
-      fill: 'rgba(255, 255, 255, 0.2)',
-      fillStyle: 'solid',
-      roughness: 1.1,
-    })
+    this.roughCanvas.rectangle(
+      graph.x,
+      graph.y,
+      graph.width,
+      graph.height,
+      seeded(`graph-shell:${this.activeSectionId}`, {
+        stroke: INK,
+        strokeWidth: 2,
+        fill: 'rgba(255, 255, 255, 0.2)',
+        fillStyle: 'solid',
+        roughness: 1.1,
+      }),
+    )
 
     context.save()
     context.strokeStyle = GRID
@@ -632,12 +989,10 @@ class GraphboundApp {
     for (let index = 0; index <= AXIS_MAX; index += 1) {
       const x = graph.x + (graph.width / AXIS_MAX) * index
       const y = graph.y + (graph.height / AXIS_MAX) * index
-
       context.beginPath()
       context.moveTo(x, graph.y)
       context.lineTo(x, graph.y + graph.height)
       context.stroke()
-
       context.beginPath()
       context.moveTo(graph.x, y)
       context.lineTo(graph.x + graph.width, y)
@@ -657,7 +1012,6 @@ class GraphboundApp {
     context.font = "15px 'Patrick Hand', cursive"
     context.textAlign = 'center'
     context.textBaseline = 'top'
-
     for (let index = 0; index <= AXIS_MAX; index += 1) {
       const x = graph.x + (graph.width / AXIS_MAX) * index
       context.fillText(String(index), x, graph.y + graph.height + 8)
@@ -665,7 +1019,6 @@ class GraphboundApp {
 
     context.textAlign = 'right'
     context.textBaseline = 'middle'
-
     for (let index = 0; index <= AXIS_MAX; index += 1) {
       const y = graph.y + graph.height - (graph.height / AXIS_MAX) * index
       context.fillText(String(index), graph.x - 10, y)
@@ -674,208 +1027,253 @@ class GraphboundApp {
     context.textAlign = 'left'
     context.textBaseline = 'alphabetic'
     context.font = "18px 'Short Stack', cursive"
-    context.fillText('y', graph.x - 4, graph.y - 12)
-    context.fillText('x', graph.x + graph.width + 14, graph.y + graph.height + 22)
+    context.fillText('y', graph.x - 2, graph.y - 12)
+    context.fillText('x', graph.x + graph.width + 12, graph.y + graph.height + 22)
 
-    context.strokeStyle = GOAL
-    context.lineWidth = 6
-    context.lineCap = 'round'
-    context.beginPath()
-    context.moveTo(graph.x + graph.width * 0.8, graph.y)
-    context.lineTo(graph.x + graph.width, graph.y)
-    context.lineTo(graph.x + graph.width, graph.y + graph.height * 0.22)
-    context.stroke()
-
-    fillRoundedRect(context, goalGate, 12, this.state.goalReached ? '#d2f0bc' : '#ffe1d9')
-    this.roughCanvas.rectangle(goalGate.x, goalGate.y, goalGate.width, goalGate.height, {
-      stroke: this.state.goalReached ? SUCCESS : GOAL,
-      strokeWidth: 2.3,
-      fill: this.state.goalReached ? '#d2f0bc' : '#ffe9e1',
-      fillStyle: 'solid',
-      roughness: 1.5,
-    })
-
-    context.fillStyle = this.state.goalReached ? SUCCESS : GOAL
-    context.font = "16px 'Short Stack', cursive"
-    context.textAlign = 'center'
-    context.textBaseline = 'middle'
-    context.fillText(this.state.goalReached ? 'open' : 'lock', goalGate.x + goalGate.width / 2, goalGate.y + goalGate.height / 2)
-    context.restore()
-  }
-
-  private drawPlot(): void {
-    if (this.state.tilePlacement !== 'slot' || this.state.plotProgress <= 0) {
-      return
+    for (const goal of this.activeSection.goals) {
+      this.drawGoal(goal)
     }
 
-    const context = this.context
-    const endPoint = this.graphPointToScreen(this.state.plotProgress * AXIS_MAX, this.state.plotProgress * AXIS_MAX)
-    const startPoint = this.graphPointToScreen(0, 0)
+    if (runtime.plotResult && runtime.plotResult.points.length > 1) {
+      const visibleCount = Math.max(
+        2,
+        Math.round(runtime.plotResult.points.length * clamp(runtime.plotProgress, 0, 1)),
+      )
+      const visiblePoints = runtime.plotResult.points.slice(0, visibleCount).map((point) => this.graphPointToScreen(point))
 
-    context.save()
-    context.strokeStyle = 'rgba(23, 72, 69, 0.18)'
-    context.lineWidth = 8
-    context.lineCap = 'round'
-    context.beginPath()
-    context.moveTo(startPoint.x, startPoint.y)
-    context.lineTo(endPoint.x, endPoint.y)
-    context.stroke()
-
-    context.strokeStyle = PLOT
-    context.lineWidth = 5
-    context.beginPath()
-    context.moveTo(startPoint.x, startPoint.y)
-    context.lineTo(endPoint.x, endPoint.y)
-    context.stroke()
-
-    context.fillStyle = PLOT
-    context.beginPath()
-    context.arc(endPoint.x, endPoint.y, 6, 0, Math.PI * 2)
-    context.fill()
-
-    if (this.state.goalReached) {
-      context.strokeStyle = SUCCESS
-      context.lineWidth = 4
+      context.strokeStyle = 'rgba(23, 72, 69, 0.18)'
+      context.lineWidth = 8
+      context.lineCap = 'round'
       context.beginPath()
-      context.moveTo(endPoint.x, endPoint.y)
-      context.lineTo(this.layout.goalGate.x + this.layout.goalGate.width / 2, this.layout.goalGate.y + this.layout.goalGate.height)
+      visiblePoints.forEach((point, index) => {
+        if (index === 0) {
+          context.moveTo(point.x, point.y)
+        } else {
+          context.lineTo(point.x, point.y)
+        }
+      })
+      context.stroke()
+
+      context.strokeStyle = PLOT
+      context.lineWidth = 5
+      context.beginPath()
+      visiblePoints.forEach((point, index) => {
+        if (index === 0) {
+          context.moveTo(point.x, point.y)
+        } else {
+          context.lineTo(point.x, point.y)
+        }
+      })
       context.stroke()
     }
 
     context.restore()
   }
 
-  private drawTile(tileRect: Rect, active: boolean): void {
+  private drawGoal(goal: GoalDefinition): void {
     const context = this.context
-    const fill = active ? TILE_ACTIVE : TILE_FILL
+    const solved = this.completedGoals.has(`${this.activeSectionId}:${goal.id}`)
+    const graph = this.layout.graph
+
+    context.save()
+    context.strokeStyle = solved ? SUCCESS : GOAL
+    context.lineWidth = 6
+    context.lineCap = 'round'
+    context.beginPath()
+
+    if (goal.edge === 'top') {
+      const startX = graph.x + (goal.min / AXIS_MAX) * graph.width
+      const endX = graph.x + (goal.max / AXIS_MAX) * graph.width
+      context.moveTo(startX, graph.y)
+      context.lineTo(endX, graph.y)
+    }
+    if (goal.edge === 'right') {
+      const startY = graph.y + graph.height - (goal.min / AXIS_MAX) * graph.height
+      const endY = graph.y + graph.height - (goal.max / AXIS_MAX) * graph.height
+      context.moveTo(graph.x + graph.width, startY)
+      context.lineTo(graph.x + graph.width, endY)
+    }
+    if (goal.edge === 'left') {
+      const startY = graph.y + graph.height - (goal.min / AXIS_MAX) * graph.height
+      const endY = graph.y + graph.height - (goal.max / AXIS_MAX) * graph.height
+      context.moveTo(graph.x, startY)
+      context.lineTo(graph.x, endY)
+    }
+    if (goal.edge === 'bottom') {
+      const startX = graph.x + (goal.min / AXIS_MAX) * graph.width
+      const endX = graph.x + (goal.max / AXIS_MAX) * graph.width
+      context.moveTo(startX, graph.y + graph.height)
+      context.lineTo(endX, graph.y + graph.height)
+    }
+
+    context.stroke()
+    context.restore()
+  }
+
+  private drawTile(
+    rect: Rect,
+    tile: TileDefinition,
+    active: boolean,
+    seedKey: string,
+  ): void {
+    const context = this.context
 
     context.save()
     context.shadowColor = SHADOW
     context.shadowBlur = active ? 18 : 8
     context.shadowOffsetY = active ? 8 : 4
-    fillRoundedRect(context, tileRect, 14, fill)
+    fillRoundedRect(context, rect, 14, tile.fill)
     context.restore()
 
-    this.roughCanvas.rectangle(tileRect.x, tileRect.y, tileRect.width, tileRect.height, {
-      stroke: INK,
-      strokeWidth: 2.4,
-      fill,
-      fillStyle: 'solid',
-      roughness: 1.5,
-      bowing: 1.3,
-    })
+    this.roughCanvas.rectangle(
+      rect.x,
+      rect.y,
+      rect.width,
+      rect.height,
+      seeded(`tile:${seedKey}`, {
+        stroke: INK,
+        strokeWidth: 2.3,
+        fill: tile.fill,
+        fillStyle: 'solid',
+        roughness: 1.45,
+        bowing: 1.2,
+      }),
+    )
 
     context.save()
-    context.fillStyle = INK
-    context.font = "30px 'Short Stack', cursive"
+    context.fillStyle = tile.text
+    context.font = "28px 'Short Stack', cursive"
     context.textAlign = 'center'
     context.textBaseline = 'middle'
-    context.fillText(TILE_LABEL, tileRect.x + tileRect.width / 2, tileRect.y + tileRect.height / 2 + 2)
+    context.fillText(tile.label, rect.x + rect.width / 2, rect.y + rect.height / 2 + 2)
     context.restore()
   }
 
   private drawTray(): void {
     const context = this.context
-    const { tray } = this.layout
-    const dragging = Boolean(this.state.drag?.dragging)
-    const tileRect = this.getVisibleTileRect()
-    const tileIsSelected = this.state.selectedTile || dragging
 
-    this.roughCanvas.rectangle(tray.x, tray.y, tray.width, tray.height, {
-      stroke: INK,
-      strokeWidth: 2,
-      fill: '#f7e9bf',
-      fillStyle: 'solid',
-      roughness: 1.2,
-    })
+    this.roughCanvas.rectangle(
+      this.layout.tray.x,
+      this.layout.tray.y,
+      this.layout.tray.width,
+      this.layout.tray.height,
+      seeded(`tray:${this.activeSectionId}`, {
+        stroke: INK,
+        strokeWidth: 2,
+        fill: '#f7e9bf',
+        fillStyle: 'solid',
+        roughness: 1.2,
+      }),
+    )
 
     context.save()
     context.fillStyle = AXIS
     context.font = "19px 'Short Stack', cursive"
-    context.fillText('tile tray', tray.x + 18, tray.y + 24)
+    context.fillText('tile tray', this.layout.tray.x + 18, this.layout.tray.y + 24)
     context.font = "16px 'Patrick Hand', cursive"
-    context.fillText('Use each tile once.', tray.x + 18, tray.y + 46)
-
-    if (this.state.selectedTile && !dragging) {
-      context.fillStyle = SLOT_GLOW
-      context.font = "16px 'Patrick Hand', cursive"
-      context.fillText('Picked up', tray.x + 116, tray.y + 24)
-    }
-
+    context.fillText('Unlocked tiles stay reusable between graphs.', this.layout.tray.x + 18, this.layout.tray.y + 46)
     context.restore()
 
-    this.drawTile(tileRect, tileIsSelected)
+    for (const { tileId, rect } of this.trayTileRects()) {
+      this.drawTile(rect, TILE_DEFINITIONS[tileId], tileId === this.selectedTileId, `tray:${tileId}`)
+    }
+
+    if (this.drag?.kind === 'tile' && this.drag.dragging) {
+      const rect = {
+        x: this.drag.current.x - this.drag.offset.x,
+        y: this.drag.current.y - this.drag.offset.y,
+        width: clamp(this.layout.tray.height * 0.54, 54, 68),
+        height: clamp(this.layout.tray.height * 0.54, 54, 68),
+      }
+      this.drawTile(rect, TILE_DEFINITIONS[this.drag.tileId], true, `drag:${this.drag.tileId}`)
+    }
   }
 
   private drawNote(): void {
     const context = this.context
-    const { note } = this.layout
-    const compact = note.height < 100
+    const section = this.activeSection
+    const runtime = this.activeRuntime
 
-    this.roughCanvas.rectangle(note.x, note.y, note.width, note.height, {
-      stroke: INK,
-      strokeWidth: 2,
-      fill: NOTE,
-      fillStyle: 'solid',
-      roughness: 1.6,
-    })
+    this.roughCanvas.rectangle(
+      this.layout.note.x,
+      this.layout.note.y,
+      this.layout.note.width,
+      this.layout.note.height,
+      seeded(`note:${section.id}`, {
+        stroke: INK,
+        strokeWidth: 2,
+        fill: NOTE,
+        fillStyle: 'solid',
+        roughness: 1.6,
+      }),
+    )
 
     context.save()
     context.fillStyle = INK
-    context.font = compact ? "18px 'Short Stack', cursive" : "20px 'Short Stack', cursive"
-    context.fillText('goal', note.x + 18, note.y + 28)
-    context.font = compact ? "16px 'Patrick Hand', cursive" : "18px 'Patrick Hand', cursive"
-    context.fillText('Make the line touch', note.x + 18, note.y + (compact ? 48 : 54))
-    context.fillText('the glowing gate.', note.x + 18, note.y + (compact ? 68 : 78))
-    context.fillText('Drag or tap the tile.', note.x + 18, note.y + (compact ? 88 : 104))
+    context.font = "20px 'Short Stack', cursive"
+    context.fillText(section.title, this.layout.note.x + 18, this.layout.note.y + 28)
+    context.font = "17px 'Patrick Hand', cursive"
+    context.fillText(section.blurb, this.layout.note.x + 18, this.layout.note.y + 56, this.layout.note.width - 32)
+    context.fillText(`Current: ${this.placementExpression(section.id)}`, this.layout.note.x + 18, this.layout.note.y + 92, this.layout.note.width - 32)
+    context.fillText(
+      `Goals hit: ${runtime.solvedGoalIds.length}/${section.goals.length}`,
+      this.layout.note.x + 18,
+      this.layout.note.y + 118,
+    )
+    if (section.rewardTileId) {
+      context.fillText(
+        `Reward tile: ${TILE_DEFINITIONS[section.rewardTileId].label}`,
+        this.layout.note.x + 18,
+        this.layout.note.y + 142,
+      )
+    }
     context.restore()
   }
 
   private drawFooter(): void {
     const context = this.context
-    const messageY = this.layout.board.y + this.layout.board.height - 18
 
     context.save()
-    context.fillStyle = this.state.goalReached ? SUCCESS : AXIS
+    context.fillStyle = this.completedSections.has(this.activeSectionId) ? SUCCESS : AXIS
     context.font = "20px 'Patrick Hand', cursive"
     context.textAlign = 'center'
-    context.fillText(this.state.statusMessage, this.layout.width / 2, messageY)
+    context.fillText(this.statusMessage, this.layout.width / 2, this.layout.footerY)
     context.restore()
   }
 
   private render(): void {
     this.drawBackground()
-    this.drawBoard()
     this.drawTitle()
-
-    const slotActive = this.state.selectedTile || Boolean(this.state.drag)
-
-    this.drawEquationBar(slotActive)
+    this.drawProgression()
+    this.drawBoard()
+    this.drawEquationBar()
     this.drawGraph()
-    this.drawPlot()
     this.drawTray()
     this.drawNote()
     this.drawFooter()
   }
 
   private renderGameToText(): string {
+    const activeSection = this.activeSection
+    const runtime = this.activeRuntime
+
     return JSON.stringify({
-      mode: this.state.goalReached ? 'solved' : this.state.tilePlacement === 'slot' ? 'plotting' : 'puzzle',
-      controls: 'drag the tile or tap the tile then tap the blank slot',
-      coordinateSystem: 'graph origin bottom-left, x grows right from 0 to 10, y grows up from 0 to 10',
-      equation: this.state.tilePlacement === 'slot' ? 'y = x' : 'y = _',
-      tile: {
-        label: TILE_LABEL,
-        placement: this.state.tilePlacement,
-        selected: this.state.selectedTile,
-        dragging: Boolean(this.state.drag?.dragging),
-      },
+      mode: runtime.animating ? 'plotting' : 'progression',
+      controls:
+        'drag a tile, or tap a tray tile then tap a matching slot; click an unlocked section card to switch boards',
+      coordinateSystem:
+        'graph origin bottom-left, x grows right from 0 to 10, y grows up from 0 to 10',
+      activeSection: activeSection.id,
+      unlockedSections: [...this.unlockedSections],
+      unlockedTiles: [...this.unlockedTiles],
+      equation: this.placementExpression(this.activeSectionId),
+      goalsSolved: runtime.solvedGoalIds,
       plot: {
-        progress: Number(this.state.plotProgress.toFixed(2)),
-        goalReached: this.state.goalReached,
-        goal: 'top-right border gate',
+        expression: runtime.plotResult?.screenLabel ?? null,
+        progress: Number(runtime.plotProgress.toFixed(2)),
+        pendingGoals: runtime.pendingGoalIds,
       },
-      statusMessage: this.state.statusMessage,
+      statusMessage: this.statusMessage,
     })
   }
 }
