@@ -10,6 +10,12 @@ Planned play URL: [https://noahsug.github.io/graphbound/](https://noahsug.github
 - `v1`: chained graph unlocks and new tile rewards
 - `full game`: open-world traversal, revisiting zones, multi-goal graphs, and advanced math mechanics
 
+## Controls
+
+- Drag the `x` tile into the blank slot to complete `y = x`
+- Mouse and touch both support a tap-to-place fallback: tap the tile, then tap the blank slot
+- Press `f` to toggle fullscreen
+
 ## Local Development
 
 ```bash

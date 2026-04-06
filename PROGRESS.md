@@ -6,4 +6,13 @@ Original prompt: Create a GitHub repo for this web game project, write a detaile
 - Chose a custom canvas renderer with `roughjs` instead of a sprite engine because the gameplay is graph-first and geometry-heavy.
 - Added `README.md`, `PLAN.md`, `PROGRESS.md`, and GitHub Pages deployment scaffolding.
 - Confirmed GitHub CLI auth and Node/npm availability before repo creation.
-- Pending next: install dependencies, create the remote GitHub repo, push the planning checkpoint, then implement and test v0.
+- Installed baseline dependencies and verified the scaffold builds successfully.
+- Created and pushed the public repo: `https://github.com/noahsug/graphbound`.
+- Installed `roughjs` and `playwright` for the first playable slice and browser verification.
+- Replaced the starter Vite page with a canvas-based v0 prototype: one graph board, one `x` tile, one equation slot, one plotted line, one goal gate, and success feedback.
+- Added both direct drag interaction and a tap-to-place fallback for mouse/touch ergonomics and automation coverage.
+- Added `window.render_game_to_text` and `window.advanceTime(ms)` hooks expected by the game-development workflow.
+- Verified the v0 solve flow in a browser using the skill Playwright client. Latest artifacts: `output/web-game/v0-smoke/shot-0.png` and `output/web-game/v0-smoke/state-0.json`.
+- Browser smoke test result: solved state reached, no console error artifact emitted, and the screenshot visually matched the intended single-board puzzle.
+- Environment gotcha for this Codex session: the skill client required `/Users/noahsug/.codex/node_modules` to resolve `playwright`, so a symlink to the project `node_modules` was created locally outside the repo.
+- Pending next: push the v0 implementation, confirm GitHub Pages is enabled, and start on multi-graph progression in the next phase.

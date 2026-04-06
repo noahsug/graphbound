@@ -107,7 +107,7 @@ Build a responsive web game where players solve graph-based equation puzzles to 
 
 ### Phase 0: Project Bootstrap
 
-Status: `in progress`
+Status: `completed`
 
 - Create repo, README, deployment workflow, plan, and progress tracking
 - Set up TypeScript + Vite build pipeline
@@ -115,7 +115,7 @@ Status: `in progress`
 
 ### Phase 1: v0 Single-Board Prototype
 
-Status: `in progress`
+Status: `completed`
 
 Goal: prove the central interaction loop on one board.
 
@@ -138,6 +138,14 @@ Acceptance criteria:
 - The line appears immediately and is legible on the graph
 - The board visibly indicates success when the line reaches the goal line
 - The interaction works with mouse and touch
+
+Implemented in this pass:
+
+- Single-canvas puzzle board with a hand-drawn paper-and-ink visual direction
+- One draggable `x` tile in a tray and one equation slot that assembles `y = x`
+- Tap-to-place fallback for reliable touch play and browser automation
+- Animated line draw into a top-right goal gate with success feedback
+- Deterministic debug hooks for browser testing
 
 ### Phase 2: v1 Linear Unlock Flow
 
@@ -247,3 +255,5 @@ Status: `pending`
 
 - Initial assumption: repo name will be `graphbound`, which sets the GitHub Pages base path to `/graphbound/`
 - Initial assumption: the attached sketch and inspiration images are not present in the workspace, so the first visual pass will follow the written design brief
+- Repository created and initial planning checkpoint pushed to `https://github.com/noahsug/graphbound`
+- v0 implementation shipped with a touch-friendly tap fallback in addition to direct dragging so automated browser tests can exercise the puzzle reliably
