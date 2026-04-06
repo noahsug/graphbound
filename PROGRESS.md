@@ -15,4 +15,6 @@ Original prompt: Create a GitHub repo for this web game project, write a detaile
 - Verified the v0 solve flow in a browser using the skill Playwright client. Latest artifacts: `output/web-game/v0-smoke/shot-0.png` and `output/web-game/v0-smoke/state-0.json`.
 - Browser smoke test result: solved state reached, no console error artifact emitted, and the screenshot visually matched the intended single-board puzzle.
 - Environment gotcha for this Codex session: the skill client required `/Users/noahsug/.codex/node_modules` to resolve `playwright`, so a symlink to the project `node_modules` was created locally outside the repo.
-- Pending next: push the v0 implementation, confirm GitHub Pages is enabled, and start on multi-graph progression in the next phase.
+- Enabled GitHub Pages with workflow deployment for `https://noahsug.github.io/graphbound/`.
+- First deploy attempt failed on Linux because Vite's transitive wasm runtime peers (`@emnapi/core` and `@emnapi/runtime`) were not explicit in the project. Added them as dev dependencies and confirmed both `npm run build` and `npm ci` now pass.
+- Pending next: confirm the repaired Pages deployment succeeds, then start on multi-graph progression and tile unlock rewards for v1.
