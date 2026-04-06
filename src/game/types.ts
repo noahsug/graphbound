@@ -45,6 +45,7 @@ export interface SectionDefinition {
   title: string
   blurb: string
   accent: string
+  world: Point
   rewardTileId?: TileId
   initialUnlocked?: boolean
   equation: EquationPart[]

@@ -170,7 +170,7 @@ Current limitation before the full-game pass:
 
 ### Phase 3: Open World
 
-Status: `in progress`
+Status: `completed`
 
 - Camera panning across a world map of graph sections
 - Sections appear or animate into existence when unlocked
@@ -178,6 +178,15 @@ Status: `in progress`
 - Locked and hidden content states
 - Click-to-center and drag-to-pan controls
 - Optional WASD and zoom support
+
+Implemented in this pass:
+
+- World-map layer above the active board, with floating graph islands positioned in a shared space
+- Drag-to-pan map interaction plus tap-to-focus nodes
+- Keyboard camera movement on `WASD` and the arrow keys
+- Orchard branch with two goals so the player revisits an older section after earning the `5` tile
+- Additional `Cove`, `Canopy`, and `Summit` sections to turn the prototype into a small open-world loop
+- Unlock pulses and map connectors to make progression readable
 
 ### Phase 4: Advanced Equation Systems
 
@@ -268,3 +277,5 @@ Status: `pending`
 - Initial assumption: the attached sketch and inspiration images are not present in the workspace, so the first visual pass will follow the written design brief
 - Repository created and initial planning checkpoint pushed to `https://github.com/noahsug/graphbound`
 - v0 implementation shipped with a touch-friendly tap fallback in addition to direct dragging so automated browser tests can exercise the puzzle reliably
+- v1 checkpoint committed as `feat: implement v1 progression and stable sketch rendering`
+- Full-game pass includes a small debug surface on `window.__graphbound_debug` used for deterministic browser verification of the branch progression

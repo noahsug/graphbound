@@ -14,6 +14,8 @@ Planned play URL: [https://noahsug.github.io/graphbound/](https://noahsug.github
 
 - Drag the `x` tile into the blank slot to complete `y = x`
 - Mouse and touch both support a tap-to-place fallback: tap the tile, then tap the blank slot
+- Drag the world map or tap a graph island to focus a different unlocked section
+- `WASD` or the arrow keys pan the world map
 - Press `f` to toggle fullscreen
 
 ## Local Development

@@ -1,6 +1,6 @@
 import rough from 'roughjs'
 
-import { AXIS_MAX, GAME_TITLE, PLOT_DURATION_MS, TILE_DEFINITIONS, V1_SECTIONS } from './content'
+import { AXIS_MAX, GAME_TITLE, PLOT_DURATION_MS, SECTIONS, TILE_DEFINITIONS } from './content'
 import { evaluateSectionPlot } from './math'
 import type {
   DragState,
@@ -98,34 +98,31 @@ function seeded(key: string, options: Record<string, unknown>): Record<string, u
 
 function createLayout(width: number, height: number): Layout {
   const inset = clamp(width * 0.03, 14, 26)
-  const progressionHeight = clamp(height * 0.12, 84, 108)
+  const progressionHeight = clamp(height * 0.22, 142, 188)
   const boardWidth = Math.min(width - inset * 2, 760)
-  const graphSize = Math.min(boardWidth * 0.58, height * 0.42, 410)
+  const graphSize = Math.min(boardWidth * 0.52, height * 0.28, 338)
   const equationHeight = clamp(graphSize * 0.18, 56, 72)
-  const trayHeight = clamp(graphSize * 0.26, 94, 122)
-  const boardHeight =
-    clamp(graphSize * 0.14, 44, 60) +
-    equationHeight +
-    clamp(graphSize * 0.1, 18, 28) +
-    graphSize +
-    clamp(graphSize * 0.1, 18, 28) +
-    trayHeight +
-    76
+  const trayHeight = clamp(graphSize * 0.24, 86, 108)
+  const noteHeight = clamp(graphSize * 0.42, 138, 154)
+  const boardTopGap = clamp(graphSize * 0.14, 40, 56)
+  const sectionGap = clamp(graphSize * 0.1, 16, 24)
+  const contentBandHeight = Math.max(graphSize, noteHeight + 6)
+  const boardHeight = boardTopGap + equationHeight + sectionGap + contentBandHeight + sectionGap + trayHeight + 70
   const board = {
     x: (width - boardWidth) / 2,
-    y: progressionHeight + 56,
+    y: progressionHeight + 48,
     width: boardWidth,
     height: Math.min(boardHeight, height - progressionHeight - 80),
   }
   const equation = {
     x: board.x + 24,
-    y: board.y + 40,
+    y: board.y + boardTopGap - 4,
     width: board.width - 48,
     height: equationHeight,
   }
   const graph = {
     x: board.x + 28,
-    y: equation.y + equation.height + 24,
+    y: equation.y + equation.height + sectionGap,
     width: graphSize,
     height: graphSize,
   }
@@ -133,11 +130,12 @@ function createLayout(width: number, height: number): Layout {
     x: graph.x + graph.width + 26,
     y: graph.y + 8,
     width: board.x + board.width - (graph.x + graph.width + 54),
-    height: Math.max(130, graph.height * 0.52),
+    height: noteHeight,
   }
+  const contentBottom = Math.max(graph.y + graph.height, note.y + note.height)
   const tray = {
     x: board.x + 24,
-    y: graph.y + graph.height + 24,
+    y: contentBottom + sectionGap,
     width: board.width - 48,
     height: trayHeight,
   }
@@ -166,18 +164,20 @@ class GraphboundApp {
   private readonly context: CanvasRenderingContext2D
   private readonly roughCanvas: RoughCanvas
   private readonly resizeObserver: ResizeObserver
-  private readonly sections = V1_SECTIONS
+  private readonly sections = SECTIONS
   private readonly sectionById = new Map(this.sections.map((section) => [section.id, section]))
   private readonly sectionRuntimes = new Map<string, SectionRuntime>()
   private readonly completedGoals = new Set<string>()
   private readonly completedSections = new Set<string>()
   private readonly unlockedSections = new Set<string>()
   private readonly unlockedTiles = new Set<TileId>(['x'])
+  private readonly unlockPulse = new Map<string, number>()
 
   private layout: Layout
   private drag: DragState | null = null
   private selectedTileId: TileId | null = null
   private activeSectionId = this.sections[0].id
+  private camera: Point = { ...this.sections[0].world }
   private statusMessage = 'Drag x into the slot to begin the chain.'
   private animationFrame: number | null = null
   private lastFrameTime: number | null = null
@@ -230,6 +230,11 @@ class GraphboundApp {
   private attachDebugHooks(): void {
     window.render_game_to_text = () => this.renderGameToText()
     window.advanceTime = (ms: number) => this.advanceTime(ms)
+    window.__graphbound_debug = {
+      focusSection: (sectionId: string) => this.focusSection(sectionId, true),
+      placeTile: (tileId: TileId, slotId: string) => this.debugPlaceTile(tileId, slotId),
+      getState: () => JSON.parse(this.renderGameToText()),
+    }
   }
 
   private resize(): void {
@@ -260,6 +265,33 @@ class GraphboundApp {
     return runtime
   }
 
+  private centerCameraOn(sectionId: string): void {
+    const section = this.sectionById.get(sectionId)
+    if (!section) {
+      return
+    }
+
+    this.camera = { ...section.world }
+  }
+
+  private focusSection(sectionId: string, centerCamera: boolean): void {
+    if (!this.unlockedSections.has(sectionId)) {
+      return
+    }
+
+    this.activeSectionId = sectionId
+    if (centerCamera) {
+      this.centerCameraOn(sectionId)
+    }
+    this.statusMessage = this.activeRuntime.statusMessage
+    this.render()
+  }
+
+  private debugPlaceTile(tileId: TileId, slotId: string): void {
+    this.placeTileInSlot(tileId, slotId, false)
+    this.render()
+  }
+
   private activeTileIds(): TileId[] {
     return [...this.unlockedTiles]
   }
@@ -273,14 +305,34 @@ class GraphboundApp {
     }
   }
 
-  private progressionCardRect(index: number, count: number): Rect {
-    const gap = 14
-    const width = Math.min(156, (this.layout.progression.width - gap * (count - 1)) / count)
+  private worldNodeRect(sectionId: string): Rect {
+    const section = this.sectionById.get(sectionId)
+
+    if (!section) {
+      return { x: 0, y: 0, width: 0, height: 0 }
+    }
+
+    const pulse = this.unlockPulse.get(sectionId) ?? 0
+    const width = 150 + pulse * 10
+    const height = 82 + pulse * 6
+    const center = {
+      x: this.layout.progression.x + this.layout.progression.width / 2 + (section.world.x - this.camera.x),
+      y: this.layout.progression.y + this.layout.progression.height / 2 + 12 + (section.world.y - this.camera.y),
+    }
+
     return {
-      x: this.layout.progression.x + index * (width + gap),
-      y: this.layout.progression.y + 28,
+      x: center.x - width / 2,
+      y: center.y - height / 2,
       width,
-      height: this.layout.progression.height - 36,
+      height,
+    }
+  }
+
+  private worldNodeCenter(sectionId: string): Point {
+    const rect = this.worldNodeRect(sectionId)
+    return {
+      x: rect.x + rect.width / 2,
+      y: rect.y + rect.height / 2,
     }
   }
 
@@ -440,11 +492,17 @@ class GraphboundApp {
       return
     }
 
+    const newlyUnlockedSections: string[] = []
+
     for (const goalId of newGoals) {
       this.completedGoals.add(`${sectionId}:${goalId}`)
       const goal = section.goals.find((candidate) => candidate.id === goalId)
       for (const unlockId of goal?.unlocks ?? []) {
-        this.unlockedSections.add(unlockId)
+        if (!this.unlockedSections.has(unlockId)) {
+          this.unlockedSections.add(unlockId)
+          newlyUnlockedSections.push(unlockId)
+          this.unlockPulse.set(unlockId, 1)
+        }
       }
     }
 
@@ -461,9 +519,17 @@ class GraphboundApp {
         } else {
           this.statusMessage = `${section.title} is fully solved.`
         }
+        runtime.statusMessage = this.statusMessage
       }
     } else {
       this.statusMessage = `New path unlocked from ${section.title}.`
+      runtime.statusMessage = this.statusMessage
+    }
+
+    if (newlyUnlockedSections.length > 0) {
+      const latest = newlyUnlockedSections[0]
+      this.statusMessage = `${this.statusMessage} ${this.sectionById.get(latest)?.title ?? latest} appeared on the map.`
+      runtime.statusMessage = this.statusMessage
     }
   }
 
@@ -560,6 +626,16 @@ class GraphboundApp {
       }
     }
 
+    for (const [sectionId, pulse] of this.unlockPulse.entries()) {
+      const next = Math.max(0, pulse - deltaMs / 700)
+      if (next === 0) {
+        this.unlockPulse.delete(sectionId)
+      } else {
+        this.unlockPulse.set(sectionId, next)
+        keepGoing = true
+      }
+    }
+
     return keepGoing
   }
 
@@ -576,19 +652,35 @@ class GraphboundApp {
 
   private handlePointerDown = (event: PointerEvent): void => {
     const point = this.getPointerPoint(event)
-    const activeCards = this.sections.filter((section) => this.unlockedSections.has(section.id))
+    if (pointInRect(point, this.layout.progression)) {
+      for (const section of this.sections) {
+        if (!this.unlockedSections.has(section.id)) {
+          continue
+        }
 
-    activeCards.forEach((section, index) => {
-      const rect = this.progressionCardRect(index, activeCards.length)
-      if (!pointInRect(point, rect)) {
+        const rect = this.worldNodeRect(section.id)
+        if (!pointInRect(point, rect)) {
+          continue
+        }
+
+        this.activeSectionId = section.id
+        this.centerCameraOn(section.id)
+        this.statusMessage = this.activeRuntime.statusMessage
+        this.render()
         return
       }
 
-      this.activeSectionId = section.id
-      this.statusMessage = this.activeRuntime.statusMessage
-      this.render()
-      this.drag = null
-    })
+      this.drag = {
+        kind: 'pan',
+        pointerId: event.pointerId,
+        current: point,
+        start: point,
+        cameraStart: { ...this.camera },
+        dragging: false,
+      }
+      this.canvas.setPointerCapture(event.pointerId)
+      return
+    }
 
     for (const { tileId, rect } of this.trayTileRects()) {
       if (!pointInRect(point, rect)) {
@@ -661,6 +753,22 @@ class GraphboundApp {
 
     this.drag.current = this.getPointerPoint(event)
 
+    if (this.drag.kind === 'pan') {
+      if (!this.drag.dragging && distance(this.drag.start, this.drag.current) > 6) {
+        this.drag.dragging = true
+      }
+
+      if (this.drag.dragging) {
+        this.camera = {
+          x: this.drag.cameraStart.x - (this.drag.current.x - this.drag.start.x),
+          y: this.drag.cameraStart.y - (this.drag.current.y - this.drag.start.y),
+        }
+      }
+
+      this.render()
+      return
+    }
+
     if (!this.drag.dragging && distance(this.drag.start, this.drag.current) > 10) {
       this.drag.dragging = true
 
@@ -684,6 +792,12 @@ class GraphboundApp {
       this.canvas.releasePointerCapture(event.pointerId)
     } catch {
       // No-op.
+    }
+
+    if (this.drag.kind === 'pan') {
+      this.drag = null
+      this.render()
+      return
     }
 
     if (this.drag.kind === 'tile') {
@@ -731,6 +845,28 @@ class GraphboundApp {
       } else {
         void this.canvas.requestFullscreen()
       }
+      return
+    }
+
+    const move = 72
+    if (event.key.toLowerCase() === 'a' || event.key === 'ArrowLeft') {
+      this.camera.x -= move
+      this.render()
+      return
+    }
+    if (event.key.toLowerCase() === 'd' || event.key === 'ArrowRight') {
+      this.camera.x += move
+      this.render()
+      return
+    }
+    if (event.key.toLowerCase() === 'w' || event.key === 'ArrowUp') {
+      this.camera.y -= move
+      this.render()
+      return
+    }
+    if (event.key.toLowerCase() === 's' || event.key === 'ArrowDown') {
+      this.camera.y += move
+      this.render()
       return
     }
 
@@ -810,11 +946,11 @@ class GraphboundApp {
     context.fillText(GAME_TITLE, centerX, this.layout.titleY)
     context.font = "18px 'Patrick Hand', cursive"
     context.fillStyle = '#7b6246'
-    context.fillText('v1 - linear chain', centerX, this.layout.titleY + 26)
+    context.fillText('full game - open world', centerX, this.layout.titleY + 26)
     context.restore()
   }
 
-  private drawProgression(): void {
+  private drawWorldMap(): void {
     const context = this.context
     const visibleSections = this.sections.filter((section) => this.unlockedSections.has(section.id))
 
@@ -835,10 +971,53 @@ class GraphboundApp {
     context.save()
     context.fillStyle = AXIS
     context.font = "18px 'Short Stack', cursive"
-    context.fillText('unlocked graph strip', this.layout.progression.x + 18, this.layout.progression.y + 20)
+    context.fillText('world map', this.layout.progression.x + 18, this.layout.progression.y + 20)
+    context.font = "16px 'Patrick Hand', cursive"
+    context.fillText(
+      'Drag this map to pan. Tap a graph island to center on it.',
+      this.layout.progression.x + 130,
+      this.layout.progression.y + 20,
+    )
 
-    visibleSections.forEach((section, index) => {
-      const rect = this.progressionCardRect(index, visibleSections.length)
+    context.strokeStyle = 'rgba(139, 115, 82, 0.2)'
+    context.lineWidth = 1
+    for (let x = this.layout.progression.x + 22; x < this.layout.progression.x + this.layout.progression.width; x += 56) {
+      context.beginPath()
+      context.moveTo(x, this.layout.progression.y + 28)
+      context.lineTo(x, this.layout.progression.y + this.layout.progression.height - 12)
+      context.stroke()
+    }
+    for (let y = this.layout.progression.y + 34; y < this.layout.progression.y + this.layout.progression.height; y += 40) {
+      context.beginPath()
+      context.moveTo(this.layout.progression.x + 16, y)
+      context.lineTo(this.layout.progression.x + this.layout.progression.width - 16, y)
+      context.stroke()
+    }
+
+    for (const section of visibleSections) {
+      const start = this.worldNodeCenter(section.id)
+      for (const goal of section.goals) {
+        for (const unlockId of goal.unlocks) {
+          if (!this.unlockedSections.has(unlockId)) {
+            continue
+          }
+          const end = this.worldNodeCenter(unlockId)
+          const solved = this.completedGoals.has(`${section.id}:${goal.id}`)
+          context.save()
+          context.strokeStyle = solved ? SUCCESS : 'rgba(143, 115, 82, 0.5)'
+          context.lineWidth = solved ? 3 : 2
+          context.setLineDash(solved ? [] : [7, 8])
+          context.beginPath()
+          context.moveTo(start.x, start.y)
+          context.lineTo(end.x, end.y)
+          context.stroke()
+          context.restore()
+        }
+      }
+    }
+
+    visibleSections.forEach((section) => {
+      const rect = this.worldNodeRect(section.id)
       const active = section.id === this.activeSectionId
       const solved = this.completedSections.has(section.id)
       const runtime = this.sectionRuntimes.get(section.id)
@@ -862,7 +1041,7 @@ class GraphboundApp {
       context.fillText(section.title, rect.x + 14, rect.y + 24)
       context.font = "16px 'Patrick Hand', cursive"
       context.fillStyle = AXIS
-      context.fillText(`reward ${section.rewardTileId ?? '-'}`, rect.x + 14, rect.y + 48)
+      context.fillText(`reward ${section.rewardTileId ?? '-'}`, rect.x + 14, rect.y + 46)
       context.fillText(
         `${runtime?.solvedGoalIds.length ?? 0}/${section.goals.length} goals`,
         rect.x + 14,
@@ -1171,7 +1350,11 @@ class GraphboundApp {
     context.font = "19px 'Short Stack', cursive"
     context.fillText('tile tray', this.layout.tray.x + 18, this.layout.tray.y + 24)
     context.font = "16px 'Patrick Hand', cursive"
-    context.fillText('Unlocked tiles stay reusable between graphs.', this.layout.tray.x + 18, this.layout.tray.y + 46)
+    context.fillText(
+      'Unlocked tiles stay reusable between graphs.',
+      this.layout.tray.x + 94,
+      this.layout.tray.y + 46,
+    )
     context.restore()
 
     for (const { tileId, rect } of this.trayTileRects()) {
@@ -1213,18 +1396,23 @@ class GraphboundApp {
     context.font = "20px 'Short Stack', cursive"
     context.fillText(section.title, this.layout.note.x + 18, this.layout.note.y + 28)
     context.font = "17px 'Patrick Hand', cursive"
-    context.fillText(section.blurb, this.layout.note.x + 18, this.layout.note.y + 56, this.layout.note.width - 32)
-    context.fillText(`Current: ${this.placementExpression(section.id)}`, this.layout.note.x + 18, this.layout.note.y + 92, this.layout.note.width - 32)
+    context.fillText(section.blurb, this.layout.note.x + 18, this.layout.note.y + 52, this.layout.note.width - 32)
+    context.fillText(
+      `Current: ${this.placementExpression(section.id)}`,
+      this.layout.note.x + 18,
+      this.layout.note.y + 82,
+      this.layout.note.width - 32,
+    )
     context.fillText(
       `Goals hit: ${runtime.solvedGoalIds.length}/${section.goals.length}`,
       this.layout.note.x + 18,
-      this.layout.note.y + 118,
+      this.layout.note.y + 108,
     )
     if (section.rewardTileId) {
       context.fillText(
         `Reward tile: ${TILE_DEFINITIONS[section.rewardTileId].label}`,
         this.layout.note.x + 18,
-        this.layout.note.y + 142,
+        this.layout.note.y + 130,
       )
     }
     context.restore()
@@ -1244,7 +1432,7 @@ class GraphboundApp {
   private render(): void {
     this.drawBackground()
     this.drawTitle()
-    this.drawProgression()
+    this.drawWorldMap()
     this.drawBoard()
     this.drawEquationBar()
     this.drawGraph()
@@ -1258,14 +1446,22 @@ class GraphboundApp {
     const runtime = this.activeRuntime
 
     return JSON.stringify({
-      mode: runtime.animating ? 'plotting' : 'progression',
+      mode: runtime.animating
+        ? 'plotting'
+        : this.completedSections.has(this.activeSectionId)
+          ? 'solved'
+          : 'progression',
       controls:
-        'drag a tile, or tap a tray tile then tap a matching slot; click an unlocked section card to switch boards',
+        'drag a tile, or tap a tray tile then tap a matching slot; drag the world map or tap an unlocked graph island to focus it',
       coordinateSystem:
         'graph origin bottom-left, x grows right from 0 to 10, y grows up from 0 to 10',
       activeSection: activeSection.id,
       unlockedSections: [...this.unlockedSections],
       unlockedTiles: [...this.unlockedTiles],
+      camera: {
+        x: Number(this.camera.x.toFixed(1)),
+        y: Number(this.camera.y.toFixed(1)),
+      },
       equation: this.placementExpression(this.activeSectionId),
       goalsSolved: runtime.solvedGoalIds,
       plot: {
@@ -1286,5 +1482,10 @@ declare global {
   interface Window {
     advanceTime: (ms: number) => void
     render_game_to_text: () => string
+    __graphbound_debug: {
+      focusSection: (sectionId: string) => void
+      placeTile: (tileId: TileId, slotId: string) => void
+      getState: () => unknown
+    }
   }
 }

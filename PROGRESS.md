@@ -22,4 +22,9 @@ Original prompt: Create a GitHub repo for this web game project, write a detaile
 - Implemented the v1 linear progression chain: `Sprout -> Ridge -> Cove`, with unlockable tiles `2`, `+`, and `5`.
 - Added multi-slot equations, section-specific rewards, and persistent unlocked-section state.
 - Browser-verified the full v1 chain with the Playwright game client. Latest artifacts: `output/web-game/v1-flow/shot-0.png` and `output/web-game/v1-flow/state-0.json`.
-- Pending next: checkpoint the v1 work in git, then build the open-world map, revisitable branches, and multi-goal graphs for the full-game pass.
+- Committed the v1 checkpoint as `feat: implement v1 progression and stable sketch rendering`.
+- Extended the game into the first full open-world slice: map camera, floating graph islands, Orchard's two-goal revisit branch, and the `Sprout -> Ridge -> Orchard -> Cove -> Orchard -> Canopy -> Summit` progression.
+- Added arrow-key map panning and a small `window.__graphbound_debug` helper so browser automation can focus sections and place tiles deterministically.
+- Browser-verified the full branch path with a direct Playwright script. Latest artifacts: `output/web-game/full-debug/shot-0.png` and `output/web-game/full-debug/state-0.json`.
+- Re-ran the standard game skill client after the final code changes to keep the required screenshot/state loop in place. Latest baseline artifact: `output/web-game/final-client/shot-0.png`.
+- Pending next: push the final full-game pass, and if we continue later, start on obstacles, richer equation grammars, and the level-editor data workflow.
