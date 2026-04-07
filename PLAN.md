@@ -12,6 +12,29 @@ Build a responsive web game where players solve graph-based equation puzzles to 
 4. Delightful presentation: the game should feel sketchbook-like, warm, and inviting without sacrificing clarity.
 5. Expandable authoring: level data and future editor tooling should make it easy to add new graph puzzles.
 
+## Current UX Direction
+
+- Full-screen world with no persistent text HUD
+- Entire world should look hand-drawn, with no real-image assets or pixel-art textures
+- The base material is a chalkboard world, with puzzle paper and chalk-like land drawn on top of it
+- Puzzle spaces should grow into one connected landmass rather than separate floating islands
+- Directly connected sections should dock edge-to-edge so the unlocked world reads as one seamless land shape, not stacked cards with visible seams
+- Only persistent UI is the bottom tile row
+- Land parcels can have different footprints, letting the world widen, branch, and stack in a way that still reads as one cohesive place when fully unlocked
+- Each graph can define its own axis ranges and frame proportions, including negative ranges, centered axes, and tall boards
+- Open equation slots accept any unlocked tile; adjacency rules resolve into concatenation, implicit multiplication, and trimmed edge `+` tokens
+- Even though edge `+` placements stay mechanically valid, authored puzzle solutions should use `+` in the middle to clearly mean “add these two things”
+- Goal exits behave like fuse lines that travel outward to unlock the next board
+- Unlock icons should sit inside the current land parcel on the edge that connects to the next area, and the fuse should terminate at that icon before the new land begins falling in
+- Newly unlocked terrain should feel physical: the land extends, new sections arrive with motion, and the camera pulls toward the new puzzle
+- The world should accumulate playful hand-drawn doodles and scenery such as trees, rivers, bridges, dogs, flowers, hearts, and stars as it expands
+- Land and tiles should favor rough.js hatch / stroke fills over flat solid fills, so the world feels chalked and sketched rather than digitally painted
+- Graph grids and frames should also read as hand-drawn, while the equation row stays clearly readable on a bright paper surface below the graph
+- Active graph boards should be generously sized on screen, with clearly legible tick labels and axis numbers instead of tiny marks
+- Randomized drawing textures must stay deterministic so panning or camera moves never cause the world to flicker or re-randomize
+- Desktop navigation should feel map-like: two-finger trackpad scrolling pans the world directly, and held `WASD` / arrow-key movement glides smoothly instead of stepping in chunky jumps
+- Direct `?level=N` URLs should seed prior progression instantly and teleport the camera to that level for focused playtesting
+
 ## Shipping Targets
 
 ### Platform
@@ -86,8 +109,10 @@ Build a responsive web game where players solve graph-based equation puzzles to 
 
 - `id`
 - `worldPosition`
-- `bounds`
-- `viewport`
+- `terrainSize`
+- `boardLayout`
+- `graphAxes`
+- `graphFrame`
 - `equationTemplate`
 - `goalLines`
 - `obstacles`
@@ -184,9 +209,27 @@ Implemented in this pass:
 - World-map layer above the active board, with floating graph islands positioned in a shared space
 - Drag-to-pan map interaction plus tap-to-focus nodes
 - Keyboard camera movement on `WASD` and the arrow keys
+- Desktop two-finger trackpad / wheel panning that follows the same camera model as drag panning
 - Orchard branch with two goals so the player revisits an older section after earning the `5` tile
 - Additional `Cove`, `Canopy`, and `Summit` sections to turn the prototype into a small open-world loop
 - Unlock pulses and map connectors to make progression readable
+
+Current presentation pass:
+
+- Removed the old map-band plus detail-board split in favor of a single full-screen sky world
+- Simplified each puzzle down to a floating paper board with the graph and a minimal `y =` row
+- Reduced persistent UI to floating tile chips at the bottom of the screen
+- Reworked goal exits into actual connector lines with a fuse-style solve animation to a lock icon
+- Added board drop-in reveals and automatic camera pans toward newly unlocked areas
+
+Connected-world pass:
+
+- Replaced isolated floating puzzle islands with grassy terrain parcels that visually fuse into one larger landmass as sections unlock
+- Added terrain growth between adjacent sections so early progression reads like one expanding world instead of disconnected cards
+- Began layering world flavor into the terrain with trees, water, bridges, and a pettable dog interaction
+- Added per-section land sizing so each unlocked parcel can contribute a different silhouette to the final world shape
+- Added per-section graph axis and frame sizing so later puzzles can use negative values, centered axes, or tall/narrow layouts without special-case renderer logic
+- Simplified the background back to a clean gradient sky so the growing landmass and graph boards carry the whole composition
 
 ### Phase 4: Advanced Equation Systems
 
@@ -218,13 +261,20 @@ Status: `pending`
 - Sound effects and music
 - Ambient world interactions
 
+Partially implemented already:
+
+- Animated line drawing on the graph
+- Fuse travel from solved goal lines toward lock icons
+- Drop-in board reveals with camera follow
+
 ## Visual Direction
 
-- Paper-toned background with strong board contrast
+- Simple sky gradient background with no extra backdrop motifs
 - Handwritten-style display font
-- Light graph grid with numbered axes from `0` to `10`
+- Light graph grid with numbered axes driven by each section's configured range
 - Intentional use of color to distinguish graph, goals, valid drop targets, and success feedback
 - Rough edges and slightly imperfect lines without sacrificing hit-testing precision
+- Terrain parcels can vary in width, height, and graph framing while still fitting together as one authored world map
 
 ## Input Plan
 

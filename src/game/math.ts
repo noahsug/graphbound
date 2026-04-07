@@ -1,9 +1,11 @@
-import { AXIS_MAX, TILE_DEFINITIONS } from './content'
+import { DEFAULT_AXES, TILE_DEFINITIONS } from './content'
 import type {
+  AxisDefinition,
   BoundaryHit,
   EquationPart,
   GoalDefinition,
   GoalEdge,
+  GraphAxes,
   PlotPoint,
   PlotResult,
   SectionDefinition,
@@ -21,19 +23,34 @@ function uniqueEdges(edges: GoalEdge[]): GoalEdge[] {
   return [...new Set(edges)]
 }
 
-function pointEdges(point: PlotPoint): GoalEdge[] {
+function resolveAxis(axis: AxisDefinition | undefined, fallback: AxisDefinition): AxisDefinition {
+  return {
+    min: axis?.min ?? fallback.min,
+    max: axis?.max ?? fallback.max,
+    tickStep: axis?.tickStep ?? fallback.tickStep,
+  }
+}
+
+function resolveAxes(section: SectionDefinition): GraphAxes {
+  return {
+    x: resolveAxis(section.axes?.x, DEFAULT_AXES.x),
+    y: resolveAxis(section.axes?.y, DEFAULT_AXES.y),
+  }
+}
+
+function pointEdges(point: PlotPoint, axes: GraphAxes): GoalEdge[] {
   const edges: GoalEdge[] = []
 
-  if (Math.abs(point.y - AXIS_MAX) <= EDGE_EPSILON) {
+  if (Math.abs(point.y - axes.y.max) <= EDGE_EPSILON) {
     edges.push('top')
   }
-  if (Math.abs(point.x - AXIS_MAX) <= EDGE_EPSILON) {
+  if (Math.abs(point.x - axes.x.max) <= EDGE_EPSILON) {
     edges.push('right')
   }
-  if (Math.abs(point.y) <= EDGE_EPSILON) {
+  if (Math.abs(point.y - axes.y.min) <= EDGE_EPSILON) {
     edges.push('bottom')
   }
-  if (Math.abs(point.x) <= EDGE_EPSILON) {
+  if (Math.abs(point.x - axes.x.min) <= EDGE_EPSILON) {
     edges.push('left')
   }
 
@@ -61,15 +78,40 @@ function safeExpression(expression: string): string {
   return expression
 }
 
+function classifyToken(token: string): 'number' | 'variable' | 'operator' | 'unknown' {
+  if (/^[0-9]+$/.test(token)) {
+    return 'number'
+  }
+
+  if (token === '+') {
+    return 'operator'
+  }
+
+  if (token === 'x') {
+    return 'variable'
+  }
+
+  return 'unknown'
+}
+
+function flushFactors(factors: string[], terms: string[]): void {
+  if (factors.length === 0) {
+    return
+  }
+
+  terms.push(factors.join(' * '))
+  factors.length = 0
+}
+
 function buildExpressionString(
   parts: EquationPart[],
   placements: Record<string, TileId | null>,
 ): string | null {
-  const tokens: string[] = []
+  const rawTokens: string[] = []
 
   for (const part of parts) {
     if (part.type === 'fixed') {
-      tokens.push(part.value)
+      rawTokens.push(part.value)
       continue
     }
 
@@ -78,17 +120,61 @@ function buildExpressionString(
       return null
     }
 
-    tokens.push(TILE_DEFINITIONS[tileId].label)
+    rawTokens.push(TILE_DEFINITIONS[tileId].label)
   }
 
-  return tokens.join(' ')
+  while (rawTokens[0] === '+') {
+    rawTokens.shift()
+  }
+
+  while (rawTokens[rawTokens.length - 1] === '+') {
+    rawTokens.pop()
+  }
+
+  if (rawTokens.length === 0) {
+    return null
+  }
+
+  const terms: string[] = []
+  const factors: string[] = []
+
+  for (const token of rawTokens) {
+    const kind = classifyToken(token)
+
+    if (kind === 'operator') {
+      flushFactors(factors, terms)
+      continue
+    }
+
+    if (kind === 'number') {
+      const lastFactor = factors[factors.length - 1]
+
+      if (lastFactor && /^[0-9]+$/.test(lastFactor)) {
+        factors[factors.length - 1] = `${lastFactor}${token}`
+      } else {
+        factors.push(token)
+      }
+      continue
+    }
+
+    if (kind === 'variable') {
+      factors.push(token)
+      continue
+    }
+
+    throw new Error(`Unsupported token: ${token}`)
+  }
+
+  flushFactors(factors, terms)
+
+  return terms.length > 0 ? terms.join(' + ') : null
 }
 
-function visiblePoints(expression: string): PlotPoint[] {
+function visiblePoints(expression: string, axes: GraphAxes): PlotPoint[] {
   const evaluator = new Function('x', `return ${safeExpression(expression)}`) as (x: number) => number
   const points: PlotPoint[] = []
 
-  for (let x = 0; x <= AXIS_MAX + 0.001; x += SAMPLE_STEP) {
+  for (let x = axes.x.min; x <= axes.x.max + 0.001; x += SAMPLE_STEP) {
     const roundedX = Number(x.toFixed(3))
     const y = evaluator(roundedX)
 
@@ -96,13 +182,13 @@ function visiblePoints(expression: string): PlotPoint[] {
       continue
     }
 
-    if (y < -EDGE_EPSILON || y > AXIS_MAX + EDGE_EPSILON) {
+    if (y < axes.y.min - EDGE_EPSILON || y > axes.y.max + EDGE_EPSILON) {
       continue
     }
 
     points.push({
       x: roundedX,
-      y: clamp(y, 0, AXIS_MAX),
+      y: clamp(y, axes.y.min, axes.y.max),
     })
   }
 
@@ -114,12 +200,12 @@ function visiblePoints(expression: string): PlotPoint[] {
   const last = points[points.length - 1]
 
   points[0] = {
-    x: clamp(first.x, 0, AXIS_MAX),
-    y: clamp(first.y, 0, AXIS_MAX),
+    x: clamp(first.x, axes.x.min, axes.x.max),
+    y: clamp(first.y, axes.y.min, axes.y.max),
   }
   points[points.length - 1] = {
-    x: clamp(last.x, 0, AXIS_MAX),
-    y: clamp(last.y, 0, AXIS_MAX),
+    x: clamp(last.x, axes.x.min, axes.x.max),
+    y: clamp(last.y, axes.y.min, axes.y.max),
   }
 
   return points
@@ -135,14 +221,15 @@ export function evaluateSectionPlot(
     return null
   }
 
-  const points = visiblePoints(expression)
+  const axes = resolveAxes(section)
+  const points = visiblePoints(expression, axes)
   const hits: BoundaryHit[] = []
 
   if (points.length > 0) {
     const start = points[0]
     const end = points[points.length - 1]
-    const startEdges = pointEdges(start)
-    const endEdges = pointEdges(end)
+    const startEdges = pointEdges(start, axes)
+    const endEdges = pointEdges(end, axes)
 
     if (startEdges.length > 0) {
       hits.push({ point: start, edges: startEdges })

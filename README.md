@@ -1,6 +1,6 @@
 # Graphbound
 
-Graphbound is a hand-drawn-feeling web puzzle game about solving equations to grow an explorable world.
+Graphbound is a hand-drawn-feeling web puzzle game about solving equations to grow an explorable connected world.
 
 Planned play URL: [https://noahsug.github.io/graphbound/](https://noahsug.github.io/graphbound/)
 
@@ -8,14 +8,16 @@ Planned play URL: [https://noahsug.github.io/graphbound/](https://noahsug.github
 
 - `v0`: one graph, one draggable tile, one equation slot, one drawn line, one win condition
 - `v1`: chained graph unlocks and new tile rewards
-- `full game`: open-world traversal, revisiting zones, multi-goal graphs, and advanced math mechanics
+- `full game`: a growing connected landmass in a pannable sky world, revisiting zones, multi-goal graphs, and advanced math mechanics
+
+The current world supports section-specific land sizes and graph axes, so later puzzles can be tall, wide, centered around zero, or extend into negative values while still fitting into one cohesive unlocked map.
 
 ## Controls
 
-- Drag the `x` tile into the blank slot to complete `y = x`
-- Mouse and touch both support a tap-to-place fallback: tap the tile, then tap the blank slot
-- Drag the world map or tap a graph island to focus a different unlocked section
-- `WASD` or the arrow keys pan the world map
+- Drag a tile into a dashed slot, or tap a tile and then tap a matching slot
+- Drag empty sky to pan the world
+- Tap a graph board to center the camera on it
+- `WASD` or the arrow keys also pan the world
 - Press `f` to toggle fullscreen
 
 ## Local Development
@@ -24,6 +26,8 @@ Planned play URL: [https://noahsug.github.io/graphbound/](https://noahsug.github
 npm install
 npm run dev
 ```
+
+Deep-link QA is supported with `?level=N`, for example `http://localhost:5173/?level=4`. That boot mode marks earlier levels as solved, unlocks their rewards, and starts the camera on the requested board.
 
 ## Build
 

@@ -13,6 +13,33 @@ export interface Rect {
 export type TileId = 'x' | '2' | '5' | '+'
 export type GoalEdge = 'top' | 'right' | 'bottom' | 'left'
 
+export interface AxisDefinition {
+  min: number
+  max: number
+  tickStep?: number
+}
+
+export interface GraphAxes {
+  x: AxisDefinition
+  y: AxisDefinition
+}
+
+export interface SectionVisualDefinition {
+  terrainWidth?: number
+  terrainHeight?: number
+  boardX?: number
+  boardY?: number
+  boardWidth?: number
+  boardHeight?: number
+  graphX?: number
+  graphY?: number
+  graphWidth?: number
+  graphHeight?: number
+  equationY?: number
+  slotSize?: number
+  tokenGap?: number
+}
+
 export interface TileDefinition {
   id: TileId
   label: string
@@ -38,6 +65,7 @@ export interface GoalDefinition {
   min: number
   max: number
   unlocks: string[]
+  route?: Point[]
 }
 
 export interface SectionDefinition {
@@ -46,11 +74,14 @@ export interface SectionDefinition {
   blurb: string
   accent: string
   world: Point
+  axes?: GraphAxes
+  visual?: SectionVisualDefinition
   rewardTileId?: TileId
   initialUnlocked?: boolean
   equation: EquationPart[]
   slots: SlotDefinition[]
   goals: GoalDefinition[]
+  entryPath?: Point[]
 }
 
 export interface PlotPoint {
@@ -76,7 +107,9 @@ export interface SectionRuntime {
   placements: Record<string, TileId | null>
   plotResult: PlotResult | null
   plotProgress: number
+  fuseProgress: number
   animating: boolean
+  animatingGoalId: string | null
   statusMessage: string
   pendingGoalIds: string[]
   solvedGoalIds: string[]
@@ -100,19 +133,17 @@ export type DragState =
       start: Point
       cameraStart: Point
       dragging: boolean
+      startedSectionId: string | null
     }
 
 export interface Layout {
   width: number
   height: number
-  titleY: number
-  progression: Rect
-  board: Rect
-  equation: Rect
-  graph: Rect
-  note: Rect
-  tray: Rect
-  footerY: number
+  worldCenter: Point
+  worldScale: number
+  tileSize: number
+  trayY: number
+  trayGap: number
 }
 
 export interface TokenLayout {

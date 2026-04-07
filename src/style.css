@@ -1,11 +1,9 @@
-@import url('https://fonts.googleapis.com/css2?family=Patrick+Hand&family=Short+Stack&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Schoolbell&family=Short+Stack&display=swap');
 
 :root {
-  color: #3b3128;
-  background:
-    radial-gradient(circle at top, rgba(255, 251, 242, 0.94), rgba(244, 232, 205, 0.98)),
-    linear-gradient(180deg, #f9efdc, #e7d3aa);
-  font-family: 'Patrick Hand', cursive;
+  color: #eaf5ef;
+  background: #0d2e29;
+  font-family: 'Schoolbell', cursive;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -25,49 +23,27 @@ body,
 body {
   margin: 0;
   min-height: 100svh;
-  background:
-    radial-gradient(circle at 50% -10%, rgba(255, 255, 255, 0.78), transparent 42%),
-    linear-gradient(180deg, #f5eddc 0%, #e6cf9a 100%);
+  background: #0d2e29;
   overflow: hidden;
-}
-
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  background-image:
-    linear-gradient(rgba(109, 86, 56, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(109, 86, 56, 0.03) 1px, transparent 1px);
-  background-size: 26px 26px;
-  opacity: 0.35;
 }
 
 .app-shell {
   min-height: 100svh;
-  padding: 12px;
-  display: grid;
-  place-items: center;
+  width: 100vw;
+  display: block;
 }
 
 #game-canvas {
-  width: min(1100px, calc(100vw - 24px));
-  height: min(820px, calc(100svh - 24px));
+  width: 100vw;
+  height: 100svh;
   display: block;
-  border-radius: 24px;
   touch-action: none;
   cursor: default;
-  filter: drop-shadow(0 22px 32px rgba(76, 54, 23, 0.18));
 }
 
 @media (max-width: 720px) {
-  .app-shell {
-    padding: 8px;
-  }
-
   #game-canvas {
-    width: calc(100vw - 16px);
-    height: calc(100svh - 16px);
-    border-radius: 18px;
+    width: 100vw;
+    height: 100svh;
   }
 }
