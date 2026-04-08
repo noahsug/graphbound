@@ -10,12 +10,13 @@ Planned play URL: [https://noahsug.github.io/graphbound/](https://noahsug.github
 - `v1`: chained graph unlocks and new tile rewards
 - `full game`: a growing connected landmass in a pannable sky world, revisiting zones, multi-goal graphs, and advanced math mechanics
 
-The current world supports section-specific land sizes and graph axes, so later puzzles can be tall, wide, centered around zero, or extend into negative values while still fitting into one cohesive unlocked map.
+The current presentation is a minimal paper-and-pencil pass: floating graphs on a tiled off-white paper texture, sparse colored connector routes, equations written directly above or below each graph, and light-yellow cutout tiles for the equation pieces.
 
 ## Controls
 
 - Drag a tile into a dashed slot, or tap a tile and then tap a matching slot
 - Drag empty sky to pan the world
+- The graph closest to screen center is the selected graph; its remaining tiles appear in the tray and its open slots stay highlighted
 - Tap a graph board to center the camera on it
 - `WASD` or the arrow keys also pan the world
 - Press `f` to toggle fullscreen

@@ -98,6 +98,7 @@ export const SECTIONS: SectionDefinition[] = [
         min: 9.5,
         max: 10,
         unlocks: ['ridge'],
+        color: '#ef9551',
         route: [
           { x: 294, y: 20 },
           { x: 392, y: 20 },
@@ -150,6 +151,7 @@ export const SECTIONS: SectionDefinition[] = [
         min: 7.6,
         max: 8.4,
         unlocks: ['orchard'],
+        color: '#eb7eb5',
         route: [
           { x: 232, y: 18 },
           { x: 354, y: 18 },
@@ -216,6 +218,7 @@ export const SECTIONS: SectionDefinition[] = [
         min: 9.6,
         max: 10,
         unlocks: ['cove'],
+        color: '#3f72f0',
         route: [
           { x: 232, y: 18 },
           { x: 312, y: 18 },
@@ -229,6 +232,7 @@ export const SECTIONS: SectionDefinition[] = [
         min: 6.6,
         max: 7.4,
         unlocks: ['canopy'],
+        color: '#a764f4',
         route: [
           { x: 162, y: 20 },
           { x: 226, y: -18 },
@@ -282,6 +286,7 @@ export const SECTIONS: SectionDefinition[] = [
         min: 1.6,
         max: 2.4,
         unlocks: [],
+        color: '#3f72f0',
       },
     ],
     entryPath: [
@@ -330,6 +335,7 @@ export const SECTIONS: SectionDefinition[] = [
         min: 4.6,
         max: 5.4,
         unlocks: ['summit'],
+        color: '#5bc8ff',
         route: [
           { x: 344, y: 152 },
           { x: 410, y: 152 },
@@ -396,6 +402,7 @@ export const SECTIONS: SectionDefinition[] = [
         min: 6.6,
         max: 7.4,
         unlocks: [],
+        color: '#5bc8ff',
       },
     ],
     entryPath: [

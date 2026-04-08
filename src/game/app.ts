@@ -26,37 +26,21 @@ import type {
   TokenLayout,
 } from './types'
 
-const INK = '#11211d'
-const PAPER = '#fff9ef'
-const PAPER_ALT = '#f2ecde'
-const GRAPH_FILL = '#fffdf7'
-const GRID = 'rgba(63, 86, 82, 0.3)'
-const AXIS = '#274841'
-const SLOT = 'rgba(31, 53, 49, 0.5)'
-const SLOT_GLOW = '#c3ffe3'
-const PLOT = '#8ce8db'
-const PLOT_GLOW = 'rgba(140, 232, 219, 0.24)'
-const GOAL = '#ffba7b'
-const FUSE = '#ffe37b'
-const SUCCESS = '#abefaa'
-const LOCKED = '#efe4cf'
+const INK = '#2d2620'
+const AXIS = '#27211c'
+const SLOT = 'rgba(45, 38, 32, 0.4)'
+const SLOT_GLOW = 'rgba(202, 162, 93, 0.55)'
+const PLOT = 'rgba(64, 57, 49, 0.9)'
+const PLOT_GLOW = 'rgba(45, 38, 32, 0.08)'
+const GOAL = '#c79d45'
 const GRASS_TOP = '#97e4a6'
-const GRASS_MID = '#73d3bf'
-const GRASS_DARK = '#4fa58a'
-const DIRT = '#efc99d'
-const DIRT_DARK = '#c99a63'
-const RIVER = '#8fdcff'
-const RIVER_DARK = '#5db7e3'
-const CHALKBOARD_DARK = '#071a18'
-const CHALKBOARD_MID = '#0d2e29'
-const CHALKBOARD_LIGHT = '#164740'
-const CHALK_DUST = 'rgba(228, 245, 236, 0.08)'
-const SHADOW = 'rgba(0, 0, 0, 0.2)'
+const CHALKBOARD_MID = '#f6eddf'
+const CHALK_DUST = 'rgba(120, 101, 79, 0.055)'
+const SHADOW = 'rgba(75, 60, 44, 0.12)'
 const CAMERA_DURATION_MS = 880
 const CAMERA_DELAY_MS = 180
 const FUSE_DURATION_MS = 560
-const SECTION_DROP_DURATION_MS = 1160
-const DROP_HEIGHT_WORLD = 320
+const SECTION_REVEAL_DURATION_MS = 1160
 const DOG_PET_MS = 1200
 const PAN_DRAG_THRESHOLD = 7
 const TILE_DRAG_THRESHOLD = 10
@@ -166,12 +150,10 @@ function axisTicks(axis: AxisDefinition): number[] {
   return ticks
 }
 
-function formatAxisValue(value: number): string {
-  if (Math.abs(value - Math.round(value)) <= 0.001) {
-    return String(Math.round(value))
-  }
-
-  return value.toFixed(1).replace(/\.0$/, '')
+function isMajorTick(value: number, axis: AxisDefinition): boolean {
+  const step = Math.max(0.1, axis.tickStep ?? 1)
+  const everyFive = value / (step * 5)
+  return Math.abs(everyFive - Math.round(everyFive)) <= 0.001
 }
 
 function hashSeed(key: string): number {
@@ -293,20 +275,180 @@ function partialPolyline(points: Point[], progress: number): Point[] {
   return partial
 }
 
-function tracePolyline(context: CanvasRenderingContext2D, points: Point[]): void {
-  points.forEach((point, index) => {
-    if (index === 0) {
-      context.moveTo(point.x, point.y)
-    } else {
-      context.lineTo(point.x, point.y)
+function traceSmoothPath(context: CanvasRenderingContext2D, points: Point[]): void {
+  if (points.length === 0) {
+    return
+  }
+
+  context.moveTo(points[0].x, points[0].y)
+
+  if (points.length === 2) {
+    context.lineTo(points[1].x, points[1].y)
+    return
+  }
+
+  for (let index = 1; index < points.length - 1; index += 1) {
+    const point = points[index]
+    const next = points[index + 1]
+    const mid = {
+      x: (point.x + next.x) / 2,
+      y: (point.y + next.y) / 2,
     }
-  })
+    context.quadraticCurveTo(point.x, point.y, mid.x, mid.y)
+  }
+
+  const penultimate = points[points.length - 2]
+  const last = points[points.length - 1]
+  context.quadraticCurveTo(penultimate.x, penultimate.y, last.x, last.y)
+}
+
+function pointInExpandedRect(point: Point, rect: Rect, inset = 0): boolean {
+  return (
+    point.x >= rect.x - inset &&
+    point.x <= rect.x + rect.width + inset &&
+    point.y >= rect.y - inset &&
+    point.y <= rect.y + rect.height + inset
+  )
+}
+
+function ccw(a: Point, b: Point, c: Point): number {
+  return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+}
+
+function segmentsIntersect(a: Point, b: Point, c: Point, d: Point): boolean {
+  const abC = ccw(a, b, c)
+  const abD = ccw(a, b, d)
+  const cdA = ccw(c, d, a)
+  const cdB = ccw(c, d, b)
+
+  if (abC === 0 && abD === 0 && cdA === 0 && cdB === 0) {
+    const overlapX =
+      Math.max(Math.min(a.x, b.x), Math.min(c.x, d.x)) <=
+      Math.min(Math.max(a.x, b.x), Math.max(c.x, d.x))
+    const overlapY =
+      Math.max(Math.min(a.y, b.y), Math.min(c.y, d.y)) <=
+      Math.min(Math.max(a.y, b.y), Math.max(c.y, d.y))
+    return overlapX && overlapY
+  }
+
+  return (abC === 0 || abD === 0 || Math.sign(abC) !== Math.sign(abD)) &&
+    (cdA === 0 || cdB === 0 || Math.sign(cdA) !== Math.sign(cdB))
+}
+
+function segmentIntersectsRect(start: Point, end: Point, rect: Rect, inset = 0): boolean {
+  const expanded = {
+    x: rect.x - inset,
+    y: rect.y - inset,
+    width: rect.width + inset * 2,
+    height: rect.height + inset * 2,
+  }
+
+  if (pointInExpandedRect(start, rect, inset) || pointInExpandedRect(end, rect, inset)) {
+    return true
+  }
+
+  const corners = [
+    { x: expanded.x, y: expanded.y },
+    { x: expanded.x + expanded.width, y: expanded.y },
+    { x: expanded.x + expanded.width, y: expanded.y + expanded.height },
+    { x: expanded.x, y: expanded.y + expanded.height },
+  ]
+
+  for (let index = 0; index < corners.length; index += 1) {
+    const edgeStart = corners[index]
+    const edgeEnd = corners[(index + 1) % corners.length]
+    if (segmentsIntersect(start, end, edgeStart, edgeEnd)) {
+      return true
+    }
+  }
+
+  return false
+}
+
+function dedupePoints(points: Point[], epsilon = 0.5): Point[] {
+  const deduped: Point[] = []
+
+  for (const point of points) {
+    const last = deduped[deduped.length - 1]
+    if (!last || distanceBetween(last, point) > epsilon) {
+      deduped.push(point)
+    }
+  }
+
+  return deduped
+}
+
+function simplifyConnectorPoints(points: Point[]): Point[] {
+  const deduped = dedupePoints(points)
+
+  if (deduped.length <= 2) {
+    return deduped
+  }
+
+  const simplified: Point[] = [deduped[0]]
+
+  for (let index = 1; index < deduped.length - 1; index += 1) {
+    const previous = simplified[simplified.length - 1]
+    const current = deduped[index]
+    const next = deduped[index + 1]
+    const triangleArea = Math.abs(ccw(previous, current, next))
+    const directDistance = distanceBetween(previous, next)
+    const detourDistance =
+      distanceBetween(previous, current) + distanceBetween(current, next)
+
+    if (triangleArea < 12 && detourDistance - directDistance < 10) {
+      continue
+    }
+
+    simplified.push(current)
+  }
+
+  simplified.push(deduped[deduped.length - 1])
+  return simplified
+}
+
+function colorChannels(color: string): [number, number, number] | null {
+  const normalized = color.trim()
+
+  if (/^#[0-9a-f]{6}$/i.test(normalized)) {
+    return [
+      Number.parseInt(normalized.slice(1, 3), 16),
+      Number.parseInt(normalized.slice(3, 5), 16),
+      Number.parseInt(normalized.slice(5, 7), 16),
+    ]
+  }
+
+  if (/^#[0-9a-f]{3}$/i.test(normalized)) {
+    return [
+      Number.parseInt(`${normalized[1]}${normalized[1]}`, 16),
+      Number.parseInt(`${normalized[2]}${normalized[2]}`, 16),
+      Number.parseInt(`${normalized[3]}${normalized[3]}`, 16),
+    ]
+  }
+
+  return null
+}
+
+function mixColors(start: string, end: string, progress: number, alpha = 1): string {
+  const from = colorChannels(start)
+  const to = colorChannels(end)
+
+  if (!from || !to) {
+    return start
+  }
+
+  const t = clamp(progress, 0, 1)
+  const r = Math.round(lerp(from[0], to[0], t))
+  const g = Math.round(lerp(from[1], to[1], t))
+  const b = Math.round(lerp(from[2], to[2], t))
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }
 
 function createLayout(width: number, height: number): Layout {
   const tileSize = clamp(Math.min(width, height) * 0.11, 58, 84)
   const trayY = height - tileSize - clamp(height * 0.04, 18, 30)
-  const worldScale = clamp(Math.min(width / 1420, height / 920) * 1.62, 0.5, 1.82)
+  const minimumScale = width < 720 ? 1.04 : 0.9
+  const worldScale = clamp(Math.min(width / 1280, height / 900) * 1.55, minimumScale, 1.82)
   const worldCenterY = Math.min(height * 0.42, trayY - 180)
 
   return {
@@ -337,6 +479,7 @@ class GraphboundApp {
   private readonly unlockedSections = new Set<string>()
   private readonly unlockedTiles = new Set<TileId>(['x'])
   private readonly sectionRevealProgress = new Map<string, number>()
+  private paperPattern: CanvasPattern | null = null
 
   private layout: Layout
   private drag: DragState | null = null
@@ -346,7 +489,6 @@ class GraphboundApp {
   private statusMessage = 'world-ready'
   private startLevelOverride: number | null = null
   private petDogTimer = 0
-  private petDogSectionId: string | null = null
   private animationFrame: number | null = null
   private lastFrameTime: number | null = null
   private readonly movementKeys = new Set<string>()
@@ -421,6 +563,7 @@ class GraphboundApp {
     window.__graphbound_debug = {
       focusSection: (sectionId: string) => this.focusSection(sectionId, true, false),
       placeTile: (tileId: TileId, slotId: string) => this.debugPlaceTile(tileId, slotId),
+      animatePlaceTile: (tileId: TileId, slotId: string) => this.debugAnimatePlaceTile(tileId, slotId),
       startAtLevel: (levelNumber: number) => this.debugStartAtLevel(levelNumber),
       getState: () => JSON.parse(this.renderGameToText()),
     }
@@ -468,7 +611,6 @@ class GraphboundApp {
     this.keyboardVelocity = { x: 0, y: 0 }
     this.movementKeys.clear()
     this.petDogTimer = 0
-    this.petDogSectionId = null
     this.startLevelOverride = null
 
     for (const section of this.sections) {
@@ -628,7 +770,7 @@ class GraphboundApp {
 
     this.unlockedSections.add(targetSection.id)
     this.sectionRevealProgress.set(targetSection.id, 1)
-    this.activeSectionId = targetSection.id
+    this.setActiveSection(targetSection.id)
     this.camera = { ...targetSection.world }
     this.statusMessage = `level-${targetIndex + 1}-ready`
   }
@@ -717,16 +859,21 @@ class GraphboundApp {
       return
     }
 
-    this.activeSectionId = sectionId
     if (centerCamera) {
       this.centerCameraOn(sectionId, animated, animated ? 0 : 0)
     } else {
+      this.setActiveSection(sectionId)
       this.render()
     }
   }
 
   private debugPlaceTile(tileId: TileId, slotId: string): void {
     this.placeTileInSlot(tileId, slotId, false)
+    this.render()
+  }
+
+  private debugAnimatePlaceTile(tileId: TileId, slotId: string): void {
+    this.placeTileInSlot(tileId, slotId, true)
     this.render()
   }
 
@@ -741,6 +888,61 @@ class GraphboundApp {
 
   private activeTileIds(): TileId[] {
     return [...this.unlockedTiles]
+  }
+
+  private remainingTileIdsForSection(sectionId: string): TileId[] {
+    const runtime = this.sectionRuntimes.get(sectionId)
+
+    if (!runtime) {
+      return this.activeTileIds()
+    }
+
+    const used = new Set(Object.values(runtime.placements).filter(Boolean) as TileId[])
+    return this.activeTileIds().filter((tileId) => !used.has(tileId))
+  }
+
+  private setActiveSection(sectionId: string): void {
+    if (this.activeSectionId === sectionId) {
+      return
+    }
+
+    this.activeSectionId = sectionId
+
+    if (this.selectedTileId && !this.remainingTileIdsForSection(sectionId).includes(this.selectedTileId)) {
+      this.selectedTileId = null
+    }
+  }
+
+  private nearestSectionToCenter(): string | null {
+    let nearestId: string | null = null
+    let bestDistance = Number.POSITIVE_INFINITY
+
+    for (const sectionId of this.unlockedSections) {
+      const rect = this.boardRect(sectionId)
+      const center = {
+        x: rect.x + rect.width / 2,
+        y: rect.y + rect.height / 2,
+      }
+      const distanceToCenter = distanceBetween(center, this.layout.worldCenter)
+
+      if (distanceToCenter < bestDistance) {
+        bestDistance = distanceToCenter
+        nearestId = sectionId
+      }
+    }
+
+    return nearestId
+  }
+
+  private syncSelectedSectionToCenter(): void {
+    if (this.drag?.kind === 'tile') {
+      return
+    }
+
+    const nearestId = this.nearestSectionToCenter()
+    if (nearestId) {
+      this.setActiveSection(nearestId)
+    }
   }
 
   private getPointerPoint(event: PointerEvent): Point {
@@ -827,28 +1029,6 @@ class GraphboundApp {
     }
   }
 
-  private drawPaperCard(rect: Rect, radius: number, seedKey: string, fillStyle = PAPER): void {
-    const scale = Math.min(rect.width, rect.height) / 220
-
-    this.context.save()
-    this.context.shadowColor = SHADOW
-    this.context.shadowBlur = 18 * scale
-    this.context.shadowOffsetY = 10 * scale
-    fillRoundedRect(this.context, rect, radius, fillStyle)
-    this.context.restore()
-
-    this.drawRoughRoundedRect(rect, radius, `${seedKey}:paper`, {
-      stroke: INK,
-      strokeWidth: Math.max(1.8, 2.2 * scale),
-      fill: 'rgba(126, 111, 88, 0.14)',
-      fillStyle: 'cross-hatch',
-      hachureGap: Math.max(8, 9 * scale),
-      fillWeight: Math.max(0.9, 1.05 * scale),
-      roughness: 1.2,
-      bowing: 1.1,
-    })
-  }
-
   private sectionReveal(sectionId: string): number {
     if (!this.unlockedSections.has(sectionId)) {
       return 0
@@ -863,12 +1043,18 @@ class GraphboundApp {
   }
 
   private boardDropOffset(sectionId: string): number {
-    const reveal = this.sectionReveal(sectionId)
-    if (reveal >= 1) {
-      return 0
+    void sectionId
+    return 0
+  }
+
+  private sectionRevealPhase(sectionId: string, start: number, end: number): number {
+    const reveal = easeOutCubic(this.sectionReveal(sectionId))
+
+    if (end <= start) {
+      return reveal >= end ? 1 : 0
     }
 
-    return -DROP_HEIGHT_WORLD * (1 - easeOutCubic(reveal))
+    return clamp((reveal - start) / (end - start), 0, 1)
   }
 
   private terrainRect(sectionId: string): Rect {
@@ -922,7 +1108,7 @@ class GraphboundApp {
 
     for (let index = ordered.length - 1; index >= 0; index -= 1) {
       const sectionId = ordered[index]
-      if (pointInRect(point, this.terrainRect(sectionId))) {
+      if (pointInRect(point, this.boardRect(sectionId))) {
         return sectionId
       }
     }
@@ -980,9 +1166,28 @@ class GraphboundApp {
     return graph.y + graph.height - ((value - axes.y.min) / axisRange(axes.y)) * graph.height
   }
 
+  private equationCenterY(sectionId: string): number {
+    const board = this.boardRect(sectionId)
+    const graph = this.graphRect(sectionId)
+    const visual = this.sectionVisual(sectionId)
+    const scaleX = board.width / visual.boardWidth
+    const scaleY = board.height / visual.boardHeight
+    const scale = Math.min(scaleX, scaleY)
+    const tokenSize = visual.slotSize * scale
+    const desiredBelow = board.y + visual.equationY * scaleY + 1
+    const minimumBelow = graph.y + graph.height + tokenSize * 0.82
+    const belowY = Math.max(desiredBelow, minimumBelow)
+    const belowLimit = this.layout.trayY - tokenSize * 1.1
+
+    if (belowY <= belowLimit) {
+      return belowY
+    }
+
+    return Math.max(board.y + tokenSize * 0.72, graph.y - tokenSize * 0.88)
+  }
+
   private trayTileRects(): Array<{ tileId: TileId; rect: Rect }> {
-    const used = new Set(Object.values(this.activeRuntime.placements).filter(Boolean) as TileId[])
-    const available = this.activeTileIds().filter((tileId) => !used.has(tileId))
+    const available = this.remainingTileIdsForSection(this.activeSectionId)
     const size = this.layout.tileSize
     const gap = this.layout.trayGap
     const totalWidth = available.length * size + Math.max(0, available.length - 1) * gap
@@ -1021,7 +1226,7 @@ class GraphboundApp {
     return section.equation.map((part) => {
       const rectForToken = {
         x: cursor,
-        y: rect.y + visual.equationY * scaleY - tokenSize / 2,
+        y: this.equationCenterY(sectionId) - tokenSize / 2,
         width: tokenSize,
         height: tokenSize,
       }
@@ -1056,6 +1261,15 @@ class GraphboundApp {
     void tileId
 
     return this.activeSection.slots.map((slot) => slot.id)
+  }
+
+  private goalColor(sectionId: string, goal: GoalDefinition | string | null): string {
+    const resolvedGoal =
+      typeof goal === 'string'
+        ? this.sectionById.get(sectionId)?.goals.find((candidate) => candidate.id === goal) ?? null
+        : goal
+
+    return resolvedGoal?.color ?? this.sectionById.get(sectionId)?.accent ?? GOAL
   }
 
   private placementExpression(sectionId: string): string {
@@ -1137,120 +1351,268 @@ class GraphboundApp {
   }
 
   private goalRouteWaypoints(sectionId: string, goal: GoalDefinition): Point[] {
-    return goal.route?.map((point) => this.terrainLocalToScreen(sectionId, point)) ?? []
+    const mapped = goal.route?.map((point) => this.terrainLocalToScreen(sectionId, point)) ?? []
+
+    if (mapped.length > 0) {
+      return mapped
+    }
+
+    const anchor = this.defaultGoalAnchor(sectionId, goal)
+    const extension = 44 * this.layout.worldScale
+
+    if (goal.edge === 'top') {
+      return [{ x: anchor.x, y: anchor.y - extension }]
+    }
+    if (goal.edge === 'right') {
+      return [{ x: anchor.x + extension, y: anchor.y }]
+    }
+    if (goal.edge === 'left') {
+      return [{ x: anchor.x - extension, y: anchor.y }]
+    }
+
+    return [{ x: anchor.x, y: anchor.y + extension }]
   }
 
   private goalLockPoint(sectionId: string, goal: GoalDefinition): Point | null {
-    const targetId = goal.unlocks[0]
-    const waypoints = this.goalRouteWaypoints(sectionId, goal)
-
-    if (!targetId) {
-      return waypoints[waypoints.length - 1] ?? null
-    }
-
-    const source = this.terrainRect(sectionId)
-    const target = this.terrainRect(targetId)
-    const sourceCenter = {
-      x: source.x + source.width / 2,
-      y: source.y + source.height / 2,
-    }
-    const targetCenter = {
-      x: target.x + target.width / 2,
-      y: target.y + target.height / 2,
-    }
-    const dx = targetCenter.x - sourceCenter.x
-    const dy = targetCenter.y - sourceCenter.y
-    const inset = 18 * this.layout.worldScale
-    const preferred = waypoints[waypoints.length - 1] ?? this.goalAnchor(sectionId, goal)
-
-    if (Math.abs(dx) >= Math.abs(dy)) {
-      return {
-        x: dx >= 0 ? source.x + source.width - inset : source.x + inset,
-        y: clamp(preferred.y, source.y + inset * 1.4, source.y + source.height - inset * 1.4),
-      }
-    }
-
-    return {
-      x: clamp(preferred.x, source.x + inset * 1.4, source.x + source.width - inset * 1.4),
-      y: dy >= 0 ? source.y + source.height - inset : source.y + inset,
-    }
+    const route = this.goalRoutePoints(sectionId, goal)
+    return route[route.length - 1] ?? null
   }
 
   private goalRoutePoints(sectionId: string, goal: GoalDefinition): Point[] {
     const anchor = this.goalAnchor(sectionId, goal)
     const route = this.goalRouteWaypoints(sectionId, goal)
-    const lockPoint = this.goalLockPoint(sectionId, goal)
 
-    if (!lockPoint) {
+    if (route.length === 0) {
       return [anchor, ...route]
     }
 
-    if (route.length > 0 && distanceBetween(route[route.length - 1], lockPoint) <= 0.5) {
-      return [anchor, ...route]
+    if (distanceBetween(anchor, route[0]) <= 0.5) {
+      return route
     }
 
-    return [anchor, ...route, lockPoint]
+    return [anchor, ...route]
   }
 
-  private terrainConnectorPoints(sectionId: string, targetId: string): Point[] {
-    const source = this.terrainRect(sectionId)
-    const target = this.terrainRect(targetId)
-    const sourceCenter = {
-      x: source.x + source.width / 2,
-      y: source.y + source.height / 2,
-    }
-    const targetCenter = {
-      x: target.x + target.width / 2,
-      y: target.y + target.height / 2,
-    }
-    const dx = targetCenter.x - sourceCenter.x
-    const dy = targetCenter.y - sourceCenter.y
-
-    if (Math.abs(dx) >= Math.abs(dy)) {
-      const sourceY = clamp(targetCenter.y, source.y + source.height * 0.32, source.y + source.height * 0.68)
-      const targetY = clamp(sourceCenter.y, target.y + target.height * 0.32, target.y + target.height * 0.68)
-      const sourceX = dx >= 0 ? source.x + source.width : source.x
-      const targetX = dx >= 0 ? target.x : target.x + target.width
-      const midX = (sourceX + targetX) / 2
-
-      return [
-        { x: sourceX, y: sourceY },
-        { x: midX, y: sourceY },
-        { x: midX, y: targetY },
-        { x: targetX, y: targetY },
-      ]
-    }
-
-    const sourceX = clamp(targetCenter.x, source.x + source.width * 0.28, source.x + source.width * 0.72)
-    const targetX = clamp(sourceCenter.x, target.x + target.width * 0.28, target.x + target.width * 0.72)
-    const sourceY = dy >= 0 ? source.y + source.height : source.y
-    const targetY = dy >= 0 ? target.y : target.y + target.height
-    const midY = (sourceY + targetY) / 2
+  private axisConnectorCandidates(sectionId: string): Array<{ anchor: Point; approach: Point }> {
+    const graph = this.graphRect(sectionId)
+    const axes = this.sectionAxes(sectionId)
+    const offset = 42 * this.layout.worldScale
+    const yAxisX =
+      axes.x.min <= 0 && axes.x.max >= 0 ? this.graphValueToScreenX(sectionId, 0) : graph.x
+    const xAxisY =
+      axes.y.min <= 0 && axes.y.max >= 0
+        ? this.graphValueToScreenY(sectionId, 0)
+        : graph.y + graph.height
 
     return [
-      { x: sourceX, y: sourceY },
-      { x: sourceX, y: midY },
-      { x: targetX, y: midY },
-      { x: targetX, y: targetY },
+      {
+        anchor: { x: yAxisX, y: graph.y },
+        approach: { x: yAxisX, y: graph.y - offset },
+      },
+      {
+        anchor: { x: yAxisX, y: graph.y + graph.height },
+        approach: { x: yAxisX, y: graph.y + graph.height + offset },
+      },
+      {
+        anchor: { x: graph.x, y: xAxisY },
+        approach: { x: graph.x - offset, y: xAxisY },
+      },
+      {
+        anchor: { x: graph.x + graph.width, y: xAxisY },
+        approach: { x: graph.x + graph.width + offset, y: xAxisY },
+      },
     ]
   }
 
+  private connectorObstacles(ignoredIds: Set<string>): Array<{ id: string; rect: Rect }> {
+    return this.sections
+      .filter((section) => this.unlockedSections.has(section.id) && !ignoredIds.has(section.id))
+      .map((section) => ({ id: section.id, rect: this.boardRect(section.id) }))
+  }
+
+  private segmentObstacleCount(
+    start: Point,
+    end: Point,
+    obstacles: Array<{ id: string; rect: Rect }>,
+    inset = 20 * this.layout.worldScale,
+  ): number {
+    return obstacles.filter(({ rect }) => segmentIntersectsRect(start, end, rect, inset)).length
+  }
+
+  private closestBlockingObstacle(
+    start: Point,
+    end: Point,
+    obstacles: Array<{ id: string; rect: Rect }>,
+    inset = 20 * this.layout.worldScale,
+  ): { id: string; rect: Rect } | null {
+    let closest: { id: string; rect: Rect } | null = null
+    let bestDistance = Number.POSITIVE_INFINITY
+
+    for (const obstacle of obstacles) {
+      if (!segmentIntersectsRect(start, end, obstacle.rect, inset)) {
+        continue
+      }
+
+      const center = {
+        x: obstacle.rect.x + obstacle.rect.width / 2,
+        y: obstacle.rect.y + obstacle.rect.height / 2,
+      }
+      const score = distanceBetween(start, center)
+
+      if (score < bestDistance) {
+        bestDistance = score
+        closest = obstacle
+      }
+    }
+
+    return closest
+  }
+
+  private detourWaypoints(
+    start: Point,
+    end: Point,
+    rect: Rect,
+    obstacles: Array<{ id: string; rect: Rect }>,
+  ): Point[] | null {
+    const margin = 30 * this.layout.worldScale
+    const candidates: Point[][] = [
+      [
+        { x: start.x, y: rect.y - margin },
+        { x: end.x, y: rect.y - margin },
+      ],
+      [
+        { x: start.x, y: rect.y + rect.height + margin },
+        { x: end.x, y: rect.y + rect.height + margin },
+      ],
+      [
+        { x: rect.x - margin, y: start.y },
+        { x: rect.x - margin, y: end.y },
+      ],
+      [
+        { x: rect.x + rect.width + margin, y: start.y },
+        { x: rect.x + rect.width + margin, y: end.y },
+      ],
+    ]
+
+    let best: Point[] | null = null
+    let bestScore = Number.POSITIVE_INFINITY
+
+    for (const candidate of candidates) {
+      const path = [start, ...candidate, end]
+      let hits = 0
+      for (let index = 1; index < path.length; index += 1) {
+        hits += this.segmentObstacleCount(path[index - 1], path[index], obstacles, 16 * this.layout.worldScale)
+      }
+      const score = hits * 100000 + polylineLength(path)
+
+      if (score < bestScore) {
+        bestScore = score
+        best = candidate
+      }
+    }
+
+    return best
+  }
+
+  private appendAvoidedSegment(
+    path: Point[],
+    target: Point,
+    obstacles: Array<{ id: string; rect: Rect }>,
+    depth = 0,
+  ): void {
+    const start = path[path.length - 1]
+
+    if (distanceBetween(start, target) <= 0.5) {
+      return
+    }
+
+    if (depth >= 6) {
+      path.push(target)
+      return
+    }
+
+    const blocker = this.closestBlockingObstacle(start, target, obstacles)
+
+    if (!blocker) {
+      path.push(target)
+      return
+    }
+
+    const detour = this.detourWaypoints(start, target, blocker.rect, obstacles)
+
+    if (!detour) {
+      path.push(target)
+      return
+    }
+
+    for (const waypoint of detour) {
+      this.appendAvoidedSegment(path, waypoint, obstacles, depth + 1)
+    }
+
+    this.appendAvoidedSegment(path, target, obstacles, depth + 1)
+  }
+
+  private routedConnectorPoints(points: Point[], ignoredIds: Set<string>): Point[] {
+    if (points.length <= 1) {
+      return points
+    }
+
+    const obstacles = this.connectorObstacles(ignoredIds)
+    const routed: Point[] = [points[0]]
+
+    for (let index = 1; index < points.length; index += 1) {
+      this.appendAvoidedSegment(routed, points[index], obstacles)
+    }
+
+    return simplifyConnectorPoints(routed)
+  }
+
+  private targetConnectionPoints(sourcePoint: Point, targetId: string): Point[] {
+    const ignored = new Set<string>([targetId])
+    const candidates = this.axisConnectorCandidates(targetId)
+    let best = candidates[0]
+    let bestScore = Number.POSITIVE_INFINITY
+    const obstacles = this.connectorObstacles(ignored)
+
+    for (const candidate of candidates) {
+      const blockerCount = this.segmentObstacleCount(sourcePoint, candidate.approach, obstacles)
+      const score =
+        blockerCount * 100000 + distanceBetween(sourcePoint, candidate.approach)
+
+      if (score < bestScore) {
+        bestScore = score
+        best = candidate
+      }
+    }
+
+    return [best.approach, best.anchor]
+  }
+
+  private terrainConnectorPoints(sectionId: string, targetId: string): Point[] {
+    void sectionId
+    void targetId
+    return []
+  }
+
+  private goalConnectionPoints(sectionId: string, goal: GoalDefinition): Point[] {
+    const route = this.goalRoutePoints(sectionId, goal)
+    const targetId = goal.unlocks[0]
+
+    if (!targetId || !this.unlockedSections.has(targetId)) {
+      return route
+    }
+
+    if (route.length === 0) {
+      return route
+    }
+
+    const bridge = this.targetConnectionPoints(route[route.length - 1], targetId)
+    return this.routedConnectorPoints([...route, ...bridge], new Set([sectionId, targetId]))
+  }
+
   private dogRect(sectionId: string): Rect | null {
-    if (sectionId !== 'orchard') {
-      return null
-    }
-
-    const terrain = this.terrainRect(sectionId)
-    const visual = this.sectionVisual(sectionId)
-    const scaleX = terrain.width / visual.terrainWidth
-    const scaleY = terrain.height / visual.terrainHeight
-
-    return {
-      x: terrain.x + 454 * scaleX,
-      y: terrain.y + 228 * scaleY,
-      width: 46 * scaleX,
-      height: 34 * scaleY,
-    }
+    void sectionId
+    return null
   }
 
   private updateSectionPlot(sectionId: string, animated: boolean): void {
@@ -1349,7 +1711,6 @@ class GraphboundApp {
 
     if (newlyUnlockedSections.length > 0) {
       const nextSectionId = newlyUnlockedSections[0]
-      this.activeSectionId = nextSectionId
       this.centerCameraOn(nextSectionId, true, CAMERA_DELAY_MS)
       runtime.statusMessage = `unlock-${nextSectionId}`
       this.statusMessage = runtime.statusMessage
@@ -1510,7 +1871,7 @@ class GraphboundApp {
 
       this.sectionRevealProgress.set(
         sectionId,
-        clamp(reveal + deltaMs / SECTION_DROP_DURATION_MS, 0, 1),
+        clamp(reveal + deltaMs / SECTION_REVEAL_DURATION_MS, 0, 1),
       )
       keepGoing = true
     }
@@ -1546,9 +1907,7 @@ class GraphboundApp {
 
     if (this.petDogTimer > 0) {
       this.petDogTimer = Math.max(0, this.petDogTimer - deltaMs)
-      if (this.petDogTimer === 0) {
-        this.petDogSectionId = null
-      } else {
+      if (this.petDogTimer > 0) {
         keepGoing = true
       }
     }
@@ -1636,7 +1995,6 @@ class GraphboundApp {
         continue
       }
 
-      this.petDogSectionId = section
       this.petDogTimer = DOG_PET_MS
       this.statusMessage = `pet-${section}`
       this.ensureAnimation()
@@ -1832,123 +2190,171 @@ class GraphboundApp {
 
     context.clearRect(0, 0, width, height)
 
-    const board = context.createLinearGradient(0, 0, width, height)
-    board.addColorStop(0, CHALKBOARD_LIGHT)
-    board.addColorStop(0.42, CHALKBOARD_MID)
-    board.addColorStop(1, CHALKBOARD_DARK)
-    context.fillStyle = board
+    const paper = context.createLinearGradient(0, 0, width, height)
+    paper.addColorStop(0, '#fffdf7')
+    paper.addColorStop(0.52, CHALKBOARD_MID)
+    paper.addColorStop(1, '#efe4d2')
+    context.fillStyle = paper
     context.fillRect(0, 0, width, height)
 
-    for (let index = 0; index < 16; index += 1) {
-      const centerX = ((hashSeed(`chalk-smudge-x:${index}`) % 1000) / 1000) * width
-      const centerY = ((hashSeed(`chalk-smudge-y:${index}`) % 1000) / 1000) * height
-      const radius = Math.max(width, height) * (0.12 + (hashSeed(`chalk-smudge-r:${index}`) % 11) / 90)
-      const chalkGlow = context.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius)
-      chalkGlow.addColorStop(0, CHALK_DUST)
-      chalkGlow.addColorStop(1, 'rgba(228, 245, 236, 0)')
-      context.fillStyle = chalkGlow
+    if (!this.paperPattern) {
+      const tile = document.createElement('canvas')
+      tile.width = 280
+      tile.height = 280
+      const tileContext = tile.getContext('2d')
+
+      if (tileContext) {
+        tileContext.fillStyle = '#f6efe3'
+        tileContext.fillRect(0, 0, tile.width, tile.height)
+
+        for (let index = 0; index < 46; index += 1) {
+          const startX = ((hashSeed(`paper-tile-fiber-x:${index}`) % 1000) / 1000) * tile.width
+          const startY = ((hashSeed(`paper-tile-fiber-y:${index}`) % 1000) / 1000) * tile.height
+          const endX =
+            startX +
+            (((hashSeed(`paper-tile-fiber-dx:${index}`) % 1000) / 1000) - 0.5) * 68
+          const endY =
+            startY +
+            (((hashSeed(`paper-tile-fiber-dy:${index}`) % 1000) / 1000) - 0.5) * 16
+          tileContext.strokeStyle =
+            index % 3 === 0 ? 'rgba(112, 95, 72, 0.065)' : 'rgba(255, 255, 255, 0.22)'
+          tileContext.lineWidth = 0.8 + ((hashSeed(`paper-tile-fiber-w:${index}`) % 1000) / 1000) * 0.8
+          tileContext.lineCap = 'round'
+          tileContext.beginPath()
+          tileContext.moveTo(startX, startY)
+          tileContext.lineTo(endX, endY)
+          tileContext.stroke()
+        }
+
+        for (let index = 0; index < 260; index += 1) {
+          const x = ((hashSeed(`paper-tile-speck-x:${index}`) % 1000) / 1000) * tile.width
+          const y = ((hashSeed(`paper-tile-speck-y:${index}`) % 1000) / 1000) * tile.height
+          const radius = 0.35 + ((hashSeed(`paper-tile-speck-r:${index}`) % 1000) / 1000) * 1.1
+          tileContext.fillStyle =
+            index % 4 === 0 ? 'rgba(116, 98, 76, 0.09)' : 'rgba(255, 255, 255, 0.2)'
+          tileContext.beginPath()
+          tileContext.arc(x, y, radius, 0, Math.PI * 2)
+          tileContext.fill()
+        }
+
+        this.paperPattern = context.createPattern(tile, 'repeat')
+      }
+    }
+
+    if (this.paperPattern) {
+      context.save()
+      context.globalAlpha = 0.72
+      context.fillStyle = this.paperPattern
+      context.fillRect(0, 0, width, height)
+      context.restore()
+    }
+
+    for (let index = 0; index < 12; index += 1) {
+      const centerX = ((hashSeed(`paper-smudge-x:${index}`) % 1000) / 1000) * width
+      const centerY = ((hashSeed(`paper-smudge-y:${index}`) % 1000) / 1000) * height
+      const radius =
+        Math.max(width, height) * (0.08 + (hashSeed(`paper-smudge-r:${index}`) % 8) / 100)
+      const paperGlow = context.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius)
+      paperGlow.addColorStop(0, CHALK_DUST)
+      paperGlow.addColorStop(1, 'rgba(120, 101, 79, 0)')
+      context.fillStyle = paperGlow
       context.beginPath()
       context.arc(centerX, centerY, radius, 0, Math.PI * 2)
       context.fill()
     }
-
-    for (let index = 0; index < 6; index += 1) {
-      const startX = ((hashSeed(`chalk-line-x1:${index}`) % 1000) / 1000) * width
-      const startY = ((hashSeed(`chalk-line-y1:${index}`) % 1000) / 1000) * height
-      const endX = ((hashSeed(`chalk-line-x2:${index}`) % 1000) / 1000) * width
-      const endY = ((hashSeed(`chalk-line-y2:${index}`) % 1000) / 1000) * height
-      this.roughCanvas.line(
-        startX,
-        startY,
-        endX,
-        endY,
-        seeded(`chalk-line:${index}`, {
-          stroke: 'rgba(236, 248, 241, 0.025)',
-          strokeWidth: Math.max(0.9, width / 1400),
-          roughness: 1.8,
-          bowing: 2,
-        }),
-      )
-    }
   }
 
   private drawTerrainTexture(rect: Rect, seedKey: string): void {
-    const scale = Math.min(
-      rect.width / DEFAULT_SECTION_VISUAL.terrainWidth,
-      rect.height / DEFAULT_SECTION_VISUAL.terrainHeight,
-    )
-    const radius = Math.max(6, 10 * scale)
-
-    this.drawRoughRoundedRect(rect, radius, `${seedKey}:land-under`, {
-      stroke: 'rgba(0,0,0,0)',
-      fill: GRASS_TOP,
-      fillStyle: 'cross-hatch',
-      hachureGap: Math.max(11, 12 * scale),
-      fillWeight: Math.max(0.9, 1.05 * scale),
-      roughness: 1.85,
-      bowing: 1.5,
-    })
-
-    this.drawRoughRoundedRect(rect, radius, `${seedKey}:land-over`, {
-      stroke: 'rgba(0,0,0,0)',
-      fill: GRASS_MID,
-      fillStyle: 'hachure',
-      hachureGap: Math.max(17, 18 * scale),
-      hachureAngle: 22,
-      fillWeight: Math.max(0.7, 0.85 * scale),
-      roughness: 1.7,
-      bowing: 1.35,
-    })
+    void rect
+    void seedKey
   }
 
   private drawTerrainBridge(points: Point[], progress: number): void {
-    const visible = partialPolyline(points, progress)
-    if (visible.length < 2) {
-      return
-    }
-
-    const width = 178 * this.layout.worldScale
-
-    this.drawRoughPolyline(visible, 'terrain-bridge:shadow', {
-      stroke: GRASS_DARK,
-      strokeWidth: width,
-      roughness: 2,
-      bowing: 1.9,
-    })
-    this.drawRoughPolyline(visible, 'terrain-bridge:mid', {
-      stroke: GRASS_MID,
-      strokeWidth: width - 16 * this.layout.worldScale,
-      roughness: 1.9,
-      bowing: 1.7,
-    })
-    this.drawRoughPolyline(visible, 'terrain-bridge:top', {
-      stroke: GRASS_TOP,
-      strokeWidth: width - 44 * this.layout.worldScale,
-      roughness: 1.7,
-      bowing: 1.5,
-    })
+    void points
+    void progress
   }
 
-  private drawDirtRoad(points: Point[], widthScale = 1, solved = false, progress = 1): void {
+  private drawSketchProgressLine(
+    points: Point[],
+    progress: number,
+    seedKey: string,
+    options: Record<string, unknown>,
+  ): void {
     const visible = progress >= 1 ? points : partialPolyline(points, progress)
     if (visible.length < 2) {
       return
     }
 
-    const width = 28 * this.layout.worldScale * widthScale
+    this.drawRoughPolyline(visible, seedKey, options)
+  }
 
-    this.drawRoughPolyline(visible, 'road:shadow', {
-      stroke: solved ? '#efd8b6' : DIRT_DARK,
-      strokeWidth: width + 5 * this.layout.worldScale,
-      roughness: 1.85,
-      bowing: 1.6,
-    })
-    this.drawRoughPolyline(visible, 'road:surface', {
-      stroke: solved ? '#fff1cf' : DIRT,
-      strokeWidth: width,
-      roughness: 1.65,
-      bowing: 1.35,
-    })
+  private connectorStrokeGradient(points: Point[], color: string): CanvasGradient | string {
+    const start = points[0]
+    const end = points[points.length - 1]
+
+    if (!start || !end || distanceBetween(start, end) <= 0.5) {
+      return color
+    }
+
+    const gradient = this.context.createLinearGradient(start.x, start.y, end.x, end.y)
+    gradient.addColorStop(0, color)
+    gradient.addColorStop(0.68, color)
+    gradient.addColorStop(1, mixColors(color, INK, 1))
+    return gradient
+  }
+
+  private connectorSegmentColor(color: string, progress: number, alpha = 1): string {
+    const fade = clamp((progress - 0.68) / 0.32, 0, 1)
+    return mixColors(color, INK, fade, alpha)
+  }
+
+  private drawDirtRoad(
+    points: Point[],
+    widthScale = 1,
+    solved = false,
+    progress = 1,
+    color = GOAL,
+  ): void {
+    const visible = progress >= 1 ? points : partialPolyline(points, progress)
+    if (visible.length < 2) {
+      return
+    }
+
+    const width = 4 * this.layout.worldScale * widthScale
+
+    this.context.save()
+    this.context.strokeStyle = this.connectorStrokeGradient(visible, color)
+    this.context.globalAlpha = solved ? 1 : 0.88
+    this.context.lineWidth = width + 1.2 * this.layout.worldScale
+    this.context.lineCap = 'round'
+    this.context.lineJoin = 'round'
+    this.context.beginPath()
+    traceSmoothPath(this.context, visible)
+    this.context.stroke()
+
+    const total = Math.max(polylineLength(visible), 0.001)
+    let covered = 0
+
+    for (let index = 1; index < visible.length; index += 1) {
+      const start = visible[index - 1]
+      const end = visible[index]
+      const segmentLength = distanceBetween(start, end)
+      const midpoint = (covered + segmentLength * 0.5) / total
+      this.roughCanvas.line(
+        start.x,
+        start.y,
+        end.x,
+        end.y,
+        seeded(`connector:${color}:${solved ? 'solved' : 'stub'}:${widthScale}:${index}`, {
+          stroke: this.connectorSegmentColor(color, midpoint, solved ? 1 : 0.9),
+          strokeWidth: Math.max(1.6, width),
+          roughness: 0.95,
+          bowing: 0.7,
+        }),
+      )
+      covered += segmentLength
+    }
+    this.context.restore()
   }
 
   private drawTree(center: Point, size: number, seedKey: string): void {
@@ -2018,146 +2424,11 @@ class GraphboundApp {
   }
 
   private drawRiver(sectionId: string): void {
-    if (sectionId !== 'cove') {
-      return
-    }
-
-    const points = [
-      this.terrainLocalToScreen(sectionId, { x: 392, y: 8 }),
-      this.terrainLocalToScreen(sectionId, { x: 420, y: 96 }),
-      this.terrainLocalToScreen(sectionId, { x: 398, y: 186 }),
-      this.terrainLocalToScreen(sectionId, { x: 440, y: 310 }),
-    ]
-    const width = 48 * this.layout.worldScale
-
-    this.drawRoughPolyline(points, `${sectionId}:river:shadow`, {
-      stroke: RIVER_DARK,
-      strokeWidth: width + 8 * this.layout.worldScale,
-      roughness: 1.85,
-      bowing: 1.55,
-    })
-    this.drawRoughPolyline(points, `${sectionId}:river:surface`, {
-      stroke: RIVER,
-      strokeWidth: width,
-      roughness: 1.75,
-      bowing: 1.4,
-    })
-
-    const bridgeCenter = this.terrainLocalToScreen(sectionId, { x: 406, y: 160 })
-    const plankWidth = 32 * this.layout.worldScale
-    const plankHeight = 6 * this.layout.worldScale
-    const angle = -0.24
-    for (let index = -2; index <= 2; index += 1) {
-      const offset = index * plankHeight * 1.2
-      const cos = Math.cos(angle)
-      const sin = Math.sin(angle)
-      const left = {
-        x: bridgeCenter.x - (plankWidth / 2) * cos - offset * sin,
-        y: bridgeCenter.y - (plankWidth / 2) * sin + offset * cos,
-      }
-      const right = {
-        x: bridgeCenter.x + (plankWidth / 2) * cos - offset * sin,
-        y: bridgeCenter.y + (plankWidth / 2) * sin + offset * cos,
-      }
-      this.drawRoughPolyline([left, right], `${sectionId}:bridge:${index}`, {
-        stroke: '#f0d8b5',
-        strokeWidth: Math.max(2.5, plankHeight),
-        roughness: 1.4,
-        bowing: 1.2,
-      })
-    }
+    void sectionId
   }
 
   private drawDog(sectionId: string): void {
-    const rect = this.dogRect(sectionId)
-    if (!rect) {
-      return
-    }
-
-    const context = this.context
-    const petting = this.petDogSectionId === sectionId && this.petDogTimer > 0
-    const waggle = petting ? Math.sin((this.petDogTimer / DOG_PET_MS) * Math.PI * 6) * 0.16 : 0
-
-    this.roughCanvas.ellipse(
-      rect.x + rect.width * 0.56,
-      rect.y + rect.height * 0.58,
-      rect.width * 0.62,
-      rect.height * 0.42,
-      seeded(`${sectionId}:dog:body`, {
-        stroke: INK,
-        strokeWidth: Math.max(1.6, this.layout.worldScale * 1.8),
-        fill: '#ffd3a0',
-        fillStyle: 'cross-hatch',
-        hachureGap: Math.max(4, this.layout.worldScale * 5),
-        fillWeight: Math.max(0.8, this.layout.worldScale),
-        roughness: 1.45,
-      }),
-    )
-    this.roughCanvas.circle(
-      rect.x + rect.width * 0.28,
-      rect.y + rect.height * 0.48,
-      rect.height * 0.42,
-      seeded(`${sectionId}:dog:head`, {
-        stroke: INK,
-        strokeWidth: Math.max(1.6, this.layout.worldScale * 1.8),
-        fill: '#f5c08a',
-        fillStyle: 'cross-hatch',
-        hachureGap: Math.max(4, this.layout.worldScale * 5),
-        fillWeight: Math.max(0.8, this.layout.worldScale),
-        roughness: 1.45,
-      }),
-    )
-    this.drawRoughPolyline(
-      [
-        { x: rect.x + rect.width * 0.72, y: rect.y + rect.height * 0.48 },
-        { x: rect.x + rect.width * 0.96, y: rect.y + rect.height * (0.28 + waggle) },
-      ],
-      `${sectionId}:dog:tail`,
-      {
-        stroke: '#ffd3a0',
-        strokeWidth: Math.max(2.2, this.layout.worldScale * 3.4),
-        roughness: 1.7,
-        bowing: 1.6,
-      },
-    )
-    ;[
-      [0.18, 0.74],
-      [0.4, 0.78],
-      [0.62, 0.78],
-      [0.8, 0.74],
-    ].forEach(([xProgress, yProgress], index) => {
-      this.drawRoughPolyline(
-        [
-          { x: rect.x + rect.width * xProgress, y: rect.y + rect.height * yProgress },
-          { x: rect.x + rect.width * xProgress, y: rect.y + rect.height },
-        ],
-        `${sectionId}:dog:leg:${index}`,
-        {
-          stroke: INK,
-          strokeWidth: Math.max(1.2, this.layout.worldScale * 1.7),
-          roughness: 1.35,
-          bowing: 1.15,
-        },
-      )
-    })
-
-    context.save()
-    context.fillStyle = INK
-    context.beginPath()
-    context.arc(rect.x + rect.width * 0.22, rect.y + rect.height * 0.46, rect.height * 0.025, 0, Math.PI * 2)
-    context.arc(rect.x + rect.width * 0.31, rect.y + rect.height * 0.46, rect.height * 0.025, 0, Math.PI * 2)
-    context.fill()
-    context.beginPath()
-    context.arc(rect.x + rect.width * 0.27, rect.y + rect.height * 0.54, rect.height * 0.024, 0, Math.PI * 2)
-    context.fill()
-
-    if (petting) {
-      context.fillStyle = '#ff91ad'
-      context.font = `${Math.round(rect.height * 0.72)}px 'Short Stack', cursive`
-      context.fillText('❤', rect.x + rect.width * 0.8, rect.y - rect.height * 0.18)
-    }
-
-    context.restore()
+    void this.dogRect(sectionId)
   }
 
   private drawFlowerDoodle(center: Point, size: number, seedKey: string): void {
@@ -2356,23 +2627,7 @@ class GraphboundApp {
   }
 
   private drawSectionDecorations(sectionId: string): void {
-    const treeSets: Record<string, Array<{ x: number; y: number; size: number }>> = {
-      ridge: [
-        { x: 462, y: 76, size: 62 },
-      ],
-      orchard: [
-        { x: 454, y: 68, size: 70 },
-        { x: 510, y: 150, size: 74 },
-        { x: 486, y: 248, size: 72 },
-      ],
-      canopy: [
-        { x: 462, y: 76, size: 68 },
-        { x: 506, y: 214, size: 66 },
-      ],
-      summit: [
-        { x: 484, y: 92, size: 54 },
-      ],
-    }
+    const treeSets: Record<string, Array<{ x: number; y: number; size: number }>> = {}
 
     for (const tree of treeSets[sectionId] ?? []) {
       this.drawTree(
@@ -2385,32 +2640,7 @@ class GraphboundApp {
     const doodleSets: Record<
       string,
       Array<{ x: number; y: number; size: number; kind: 'flower' | 'star' | 'heart' | 'smiley' | 'worm' | 'sun' }>
-    > = {
-      sprout: [
-        { x: 92, y: 78, size: 42, kind: 'sun' },
-        { x: 452, y: 244, size: 34, kind: 'flower' },
-      ],
-      ridge: [
-        { x: 84, y: 230, size: 36, kind: 'star' },
-        { x: 516, y: 244, size: 32, kind: 'heart' },
-      ],
-      orchard: [
-        { x: 86, y: 92, size: 34, kind: 'flower' },
-        { x: 560, y: 256, size: 34, kind: 'smiley' },
-      ],
-      cove: [
-        { x: 96, y: 90, size: 36, kind: 'star' },
-        { x: 84, y: 276, size: 34, kind: 'worm' },
-      ],
-      canopy: [
-        { x: 100, y: 70, size: 32, kind: 'sun' },
-        { x: 564, y: 264, size: 30, kind: 'heart' },
-      ],
-      summit: [
-        { x: 92, y: 92, size: 34, kind: 'star' },
-        { x: 548, y: 248, size: 34, kind: 'flower' },
-      ],
-    }
+    > = {}
 
     for (const doodle of doodleSets[sectionId] ?? []) {
       const center = this.terrainLocalToScreen(sectionId, { x: doodle.x, y: doodle.y })
@@ -2442,87 +2672,17 @@ class GraphboundApp {
       return
     }
 
-    const context = this.context
-
-    context.save()
-    context.strokeStyle = PLOT_GLOW
-    context.lineWidth = 10 * this.layout.worldScale
-    context.lineCap = 'round'
-    context.lineJoin = 'round'
-    context.beginPath()
-    tracePolyline(context, partial)
-    context.stroke()
-
-    context.strokeStyle = color
-    context.lineWidth = 4.2 * this.layout.worldScale
-    context.beginPath()
-    tracePolyline(context, partial)
-    context.stroke()
-    context.restore()
+    this.drawDirtRoad(partial, 1, true, 1, color)
   }
 
   private drawSpark(points: Point[], progress: number): void {
-    const partial = partialPolyline(points, progress)
-    const spark = partial[partial.length - 1]
-
-    if (!spark) {
-      return
-    }
-
-    const context = this.context
-    const radius = 6.4 * this.layout.worldScale
-
-    context.save()
-    context.fillStyle = 'rgba(255, 211, 111, 0.28)'
-    context.beginPath()
-    context.arc(spark.x, spark.y, radius * 1.9, 0, Math.PI * 2)
-    context.fill()
-    context.fillStyle = FUSE
-    context.beginPath()
-    context.arc(spark.x, spark.y, radius, 0, Math.PI * 2)
-    context.fill()
-    context.restore()
+    void points
+    void progress
   }
 
   private drawLockIcon(center: Point, solved: boolean): void {
-    const size = 14 * this.layout.worldScale
-    const shackleColor = solved ? SUCCESS : LOCKED
-
-    this.roughCanvas.arc(
-      center.x,
-      center.y - size * 0.12,
-      size * 1.2,
-      size * 1.05,
-      Math.PI,
-      Math.PI * 2,
-      false,
-      seeded(`lock:${center.x}:${center.y}:shackle`, {
-        stroke: shackleColor,
-        strokeWidth: Math.max(1.4, this.layout.worldScale * 2),
-        roughness: 1.2,
-        bowing: 1,
-      }),
-    )
-    this.drawRoughRoundedRect(
-      {
-        x: center.x - size * 0.76,
-        y: center.y,
-        width: size * 1.52,
-        height: size * 1.18,
-      },
-      size * 0.22,
-      `lock:${center.x}:${center.y}:body`,
-      {
-        stroke: shackleColor,
-        strokeWidth: Math.max(1.4, this.layout.worldScale * 2),
-        fill: solved ? SUCCESS : LOCKED,
-        fillStyle: 'cross-hatch',
-        hachureGap: Math.max(4, this.layout.worldScale * 5),
-        fillWeight: Math.max(0.8, this.layout.worldScale),
-        roughness: 1.3,
-        bowing: 1.1,
-      },
-    )
+    void center
+    void solved
   }
 
   private drawWorldLinksBase(): void {
@@ -2531,27 +2691,36 @@ class GraphboundApp {
         continue
       }
 
+      const routeReveal = this.sectionRevealPhase(section.id, 0.48, 0.86)
+
       for (const goal of section.goals) {
         const route = this.goalRoutePoints(section.id, goal)
-        this.drawDirtRoad(route, 1, this.completedGoals.has(`${section.id}:${goal.id}`))
-
-        for (const unlockId of goal.unlocks) {
-          if (!this.unlockedSections.has(unlockId)) {
-            continue
-          }
-
-          const terrainBridge = this.terrainConnectorPoints(section.id, unlockId)
-          const reveal = this.sectionReveal(unlockId)
-          this.drawTerrainBridge(terrainBridge, reveal)
-          this.drawDirtRoad(terrainBridge, 0.9, this.completedGoals.has(`${section.id}:${goal.id}`), reveal)
+        this.drawTerrainBridge(
+          this.terrainConnectorPoints(section.id, goal.unlocks[0] ?? section.id),
+          0,
+        )
+        if (routeReveal <= 0) {
+          continue
         }
+        this.drawDirtRoad(
+          route,
+          0.92,
+          this.completedGoals.has(`${section.id}:${goal.id}`),
+          routeReveal,
+          this.goalColor(section.id, goal),
+        )
       }
     }
   }
 
-  private drawGoalLine(sectionId: string, goal: GoalDefinition, solved: boolean): void {
+  private drawGoalLine(
+    sectionId: string,
+    goal: GoalDefinition,
+    solved: boolean,
+    progress = 1,
+  ): void {
     const graph = this.graphRect(sectionId)
-    const color = solved ? SUCCESS : GOAL
+    const color = this.goalColor(sectionId, goal)
     let start: Point
     let end: Point
 
@@ -2569,41 +2738,67 @@ class GraphboundApp {
       end = { x: this.graphValueToScreenX(sectionId, goal.max), y: graph.y + graph.height }
     }
 
-    this.roughCanvas.line(
-      start.x,
-      start.y,
-      end.x,
-      end.y,
-      seeded(`goal:${sectionId}:${goal.id}`, {
+    this.drawSketchProgressLine(
+      [start, end],
+      progress,
+      `goal:${sectionId}:${goal.id}`,
+      {
         stroke: color,
-        strokeWidth: 4 * this.layout.worldScale,
-        roughness: 1.2,
-        bowing: 0.8,
-      }),
+        strokeWidth: (solved ? 4.6 : 4.1) * this.layout.worldScale,
+        roughness: 0.95,
+        bowing: 0.6,
+      },
     )
+  }
+
+  private drawEquationSlotPlaceholder(
+    rect: Rect,
+    active: boolean,
+    seedKey: string,
+  ): void {
+    const radius = rect.width * 0.22
+    const fill = active ? 'rgba(239, 224, 162, 0.58)' : 'rgba(239, 224, 162, 0.36)'
+
+    fillRoundedRect(this.context, rect, radius, fill)
+
+    this.context.save()
+    this.context.strokeStyle = active ? SLOT_GLOW : SLOT
+    this.context.lineWidth = Math.max(1.3, this.layout.worldScale * 1.5)
+    this.context.setLineDash([6 * this.layout.worldScale, 4 * this.layout.worldScale])
+    roundRectPath(this.context, rect, radius)
+    this.context.stroke()
+    this.context.restore()
+
+    if (active) {
+      this.drawRoughRoundedRect(rect, radius, `${seedKey}:focus`, {
+        stroke: SLOT_GLOW,
+        strokeWidth: Math.max(1.1, this.layout.worldScale * 1.35),
+        roughness: 0.85,
+        bowing: 0.65,
+      })
+    }
   }
 
   private drawTile(rect: Rect, tile: TileDefinition, active: boolean, seedKey: string): void {
     const context = this.context
     const radius = rect.width * 0.22
-    const pattern = tile.role === 'operator' ? 'zigzag-line' : 'cross-hatch'
 
     context.save()
     context.shadowColor = SHADOW
-    context.shadowBlur = active ? 18 : 10
-    context.shadowOffsetY = active ? 8 : 4
-    fillRoundedRect(context, rect, radius, 'rgba(255,255,255,0.05)')
+    context.shadowBlur = active ? 14 : 8
+    context.shadowOffsetY = active ? 6 : 3
+    fillRoundedRect(context, rect, radius, 'rgba(255,255,255,0.04)')
     context.restore()
 
     this.drawRoughRoundedRect(rect, radius, `tile:${seedKey}`, {
-      stroke: active ? GOAL : INK,
-      strokeWidth: 2.2,
-      fill: tile.fill,
-      fillStyle: pattern,
-      hachureGap: Math.max(5, rect.width * 0.12),
-      fillWeight: Math.max(0.8, rect.width * 0.025),
-      roughness: 1.4,
-      bowing: 1.15,
+      stroke: active ? GOAL : 'rgba(85, 72, 57, 0.55)',
+      strokeWidth: 1.6,
+      fill: '#efe1a5',
+      fillStyle: tile.id === '+' ? 'cross-hatch' : tile.role === 'operator' ? 'zigzag-line' : 'cross-hatch',
+      hachureGap: tile.id === '+' ? Math.max(2.4, rect.width * 0.055) : Math.max(4, rect.width * 0.11),
+      fillWeight: tile.id === '+' ? Math.max(1.2, rect.width * 0.035) : Math.max(0.75, rect.width * 0.02),
+      roughness: 1.05,
+      bowing: 0.8,
     })
 
     if (active) {
@@ -2617,17 +2812,17 @@ class GraphboundApp {
         radius,
         `tile:${seedKey}:highlight`,
         {
-          stroke: SLOT_GLOW,
-          strokeWidth: 1.8,
-          roughness: 1.25,
-          bowing: 1,
+          stroke: GOAL,
+          strokeWidth: 1.3,
+          roughness: 0.9,
+          bowing: 0.65,
         },
       )
     }
 
     context.save()
-    context.fillStyle = tile.text
-    context.font = `${Math.round(rect.height * 0.48)}px 'Short Stack', cursive`
+    context.fillStyle = INK
+    context.font = `${Math.round(rect.height * 0.46)}px 'Short Stack', cursive`
     context.textAlign = 'center'
     context.textBaseline = 'middle'
     context.fillText(tile.label, rect.x + rect.width / 2, rect.y + rect.height / 2 + 1)
@@ -2651,95 +2846,24 @@ class GraphboundApp {
     const scaleY = board.height / visual.boardHeight
     const scale = Math.min(scaleX, scaleY)
     const active = sectionId === this.activeSectionId
-    const solvedSection = this.completedSections.has(sectionId)
     const tokenLayouts = this.tokenLayouts(sectionId)
     const prefixX =
       tokenLayouts.length > 0 ? tokenLayouts[0].rect.x - 52 * scale : board.x + board.width * 0.22
-    const equationY = board.y + visual.equationY * scaleY + 1
-    const equationLeft =
-      tokenLayouts.length > 0
-        ? Math.min(prefixX - 10 * scale, tokenLayouts[0].rect.x - 20 * scale)
-        : board.x + 22 * scale
-    const equationRight =
-      tokenLayouts.length > 0
-        ? tokenLayouts[tokenLayouts.length - 1].rect.x +
-          tokenLayouts[tokenLayouts.length - 1].rect.width +
-          20 * scale
-        : board.x + board.width - 22 * scale
-    const equationRect = {
-      x: equationLeft - 8 * scale,
-      y: equationY - 28 * scale,
-      width: Math.max(160 * scale, equationRight - equationLeft + 16 * scale),
-      height: 56 * scale,
+    const equationY = this.equationCenterY(sectionId)
+    const reveal = easeOutCubic(this.sectionReveal(sectionId))
+    const yAxisReveal = this.sectionRevealPhase(sectionId, 0.02, 0.34)
+    const xAxisReveal = this.sectionRevealPhase(sectionId, 0.12, 0.46)
+    const tickReveal = this.sectionRevealPhase(sectionId, 0.28, 0.72)
+    const goalReveal = this.sectionRevealPhase(sectionId, 0.44, 0.82)
+    const equationReveal = this.sectionRevealPhase(sectionId, 0.56, 0.9)
+
+    if (reveal <= 0.001) {
+      return
     }
 
+    void terrain
     this.drawTerrainTexture(terrain, `terrain:${sectionId}`)
     this.drawSectionDecorations(sectionId)
-    this.drawPaperCard(board, 18 * scale, `board:${sectionId}`, PAPER_ALT)
-    this.drawPaperCard(graph, 16 * scale, `graph:${sectionId}`, GRAPH_FILL)
-    this.drawPaperCard(equationRect, 14 * scale, `equation:${sectionId}`, PAPER)
-
-    this.drawRoughRoundedRect(graph, 16 * scale, `graph-outline:${sectionId}`, {
-      stroke: INK,
-      strokeWidth: 2,
-      fill: 'rgba(110, 96, 74, 0.08)',
-      fillStyle: 'cross-hatch',
-      hachureGap: Math.max(7, 7 * scale),
-      fillWeight: Math.max(0.7, 0.9 * scale),
-      roughness: 1.1,
-      bowing: 0.95,
-    })
-
-    if (active) {
-      this.drawRoughRoundedRect(
-        {
-          x: graph.x - 5 * scale,
-          y: graph.y - 5 * scale,
-          width: graph.width + 10 * scale,
-          height: graph.height + 10 * scale,
-        },
-        18 * scale,
-        `graph-focus:${sectionId}`,
-        {
-          stroke: GOAL,
-          strokeWidth: 2.4 * scale,
-          roughness: 1.3,
-          bowing: 1,
-        },
-      )
-    }
-
-    for (const tick of axisTicks(axes.x)) {
-      const x = this.graphValueToScreenX(sectionId, tick)
-      this.roughCanvas.line(
-        x,
-        graph.y,
-        x,
-        graph.y + graph.height,
-        seeded(`grid:${sectionId}:x:${tick}`, {
-          stroke: GRID,
-          strokeWidth: Math.max(0.9, 0.95 * scale),
-          roughness: 1.15,
-          bowing: 1.2,
-        }),
-      )
-    }
-
-    for (const tick of axisTicks(axes.y)) {
-      const y = this.graphValueToScreenY(sectionId, tick)
-      this.roughCanvas.line(
-        graph.x,
-        y,
-        graph.x + graph.width,
-        y,
-        seeded(`grid:${sectionId}:y:${tick}`, {
-          stroke: GRID,
-          strokeWidth: Math.max(0.9, 0.95 * scale),
-          roughness: 1.15,
-          bowing: 1.2,
-        }),
-      )
-    }
 
     const yAxisX =
       axes.x.min <= 0 && axes.x.max >= 0 ? this.graphValueToScreenX(sectionId, 0) : graph.x
@@ -2748,77 +2872,115 @@ class GraphboundApp {
         ? this.graphValueToScreenY(sectionId, 0)
         : graph.y + graph.height
 
-    this.roughCanvas.line(
-      graph.x,
-      xAxisY,
-      graph.x + graph.width,
-      xAxisY,
-      seeded(`axis:${sectionId}:x`, {
+    this.drawSketchProgressLine(
+      [
+        { x: graph.x, y: xAxisY },
+        { x: graph.x + graph.width, y: xAxisY },
+      ],
+      xAxisReveal,
+      `axis:${sectionId}:x`,
+      {
         stroke: AXIS,
-        strokeWidth: 2.1 * scale,
-        roughness: 1.05,
-        bowing: 0.7,
-      }),
+        strokeWidth: 2.3 * scale,
+        roughness: 0.8,
+        bowing: 0.45,
+      },
     )
-    this.roughCanvas.line(
-      yAxisX,
-      graph.y + graph.height,
-      yAxisX,
-      graph.y,
-      seeded(`axis:${sectionId}:y`, {
+    this.drawSketchProgressLine(
+      [
+        { x: yAxisX, y: graph.y + graph.height },
+        { x: yAxisX, y: graph.y },
+      ],
+      yAxisReveal,
+      `axis:${sectionId}:y`,
+      {
         stroke: AXIS,
-        strokeWidth: 2.1 * scale,
-        roughness: 1.05,
-        bowing: 0.7,
-      }),
+        strokeWidth: 2.3 * scale,
+        roughness: 0.8,
+        bowing: 0.45,
+      },
     )
 
-    this.context.fillStyle = INK
-    this.context.font = `${Math.round(16 * scale)}px 'Schoolbell', cursive`
-    this.context.textAlign = 'center'
-    this.context.textBaseline = 'top'
-    for (const tick of axisTicks(axes.x)) {
+    const xTicks = axisTicks(axes.x)
+    for (const [index, tick] of xTicks.entries()) {
+      if (tickReveal <= index / Math.max(1, xTicks.length)) {
+        continue
+      }
       const x = this.graphValueToScreenX(sectionId, tick)
-      this.context.fillText(formatAxisValue(tick), x, graph.y + graph.height + 8 * scale)
+      const tickSize = isMajorTick(tick, axes.x) ? 12 * scale : 6 * scale
+      this.roughCanvas.line(
+        x,
+        xAxisY - tickSize / 2,
+        x,
+        xAxisY + tickSize / 2,
+        seeded(`tick:${sectionId}:x:${tick}`, {
+          stroke: AXIS,
+          strokeWidth: Math.max(1.2, 1.55 * scale),
+          roughness: 0.7,
+          bowing: 0.4,
+        }),
+      )
     }
 
-    this.context.textAlign = 'right'
-    this.context.textBaseline = 'middle'
-    for (const tick of axisTicks(axes.y)) {
+    const yTicks = axisTicks(axes.y)
+    for (const [index, tick] of yTicks.entries()) {
+      if (tickReveal <= index / Math.max(1, yTicks.length)) {
+        continue
+      }
       const y = this.graphValueToScreenY(sectionId, tick)
-      this.context.fillText(formatAxisValue(tick), graph.x - 9 * scale, y)
+      const tickSize = isMajorTick(tick, axes.y) ? 12 * scale : 6 * scale
+      this.roughCanvas.line(
+        yAxisX - tickSize / 2,
+        y,
+        yAxisX + tickSize / 2,
+        y,
+        seeded(`tick:${sectionId}:y:${tick}`, {
+          stroke: AXIS,
+          strokeWidth: Math.max(1.2, 1.55 * scale),
+          roughness: 0.7,
+          bowing: 0.4,
+        }),
+      )
     }
-
-    this.context.textAlign = 'left'
-    this.context.textBaseline = 'alphabetic'
-    this.context.font = `${Math.round(22 * scale)}px 'Short Stack', cursive`
-    this.context.fillText('y', yAxisX - 2 * scale, graph.y - 9 * scale)
-    this.context.fillText('x', graph.x + graph.width + 10 * scale, xAxisY + 19 * scale)
-    this.context.restore()
 
     for (const goal of section.goals) {
-      this.drawGoalLine(sectionId, goal, this.completedGoals.has(`${sectionId}:${goal.id}`))
+      if (goalReveal <= 0) {
+        continue
+      }
+      this.drawGoalLine(
+        sectionId,
+        goal,
+        this.completedGoals.has(`${sectionId}:${goal.id}`),
+        goalReveal,
+      )
     }
 
     if (runtime.plotResult && runtime.plotResult.points.length > 1) {
       const progress = runtime.animating ? runtime.plotProgress : 1
       const plotPoints = runtime.plotResult.points.map((point) => this.graphPointToScreen(sectionId, point))
       const visiblePoints = partialPolyline(plotPoints, progress)
+      const plotGoalId =
+        runtime.animatingGoalId ??
+        runtime.plotResult.achievedGoalIds[0] ??
+        runtime.solvedGoalIds[0] ??
+        null
+      const plotColor = plotGoalId ? this.goalColor(sectionId, plotGoalId) : PLOT
 
       if (visiblePoints.length > 1) {
         this.context.save()
         this.context.strokeStyle = PLOT_GLOW
-        this.context.lineWidth = 8 * scale
+        this.context.lineWidth = 5.4 * scale
         this.context.lineCap = 'round'
         this.context.lineJoin = 'round'
         this.context.beginPath()
-        tracePolyline(this.context, visiblePoints)
+        traceSmoothPath(this.context, visiblePoints)
         this.context.stroke()
 
-        this.context.strokeStyle = solvedSection ? SUCCESS : PLOT
-        this.context.lineWidth = 4.2 * scale
+        this.context.strokeStyle = plotColor
+        this.context.globalAlpha = plotGoalId ? 1 : 0.88
+        this.context.lineWidth = 3.6 * scale
         this.context.beginPath()
-        tracePolyline(this.context, visiblePoints)
+        traceSmoothPath(this.context, visiblePoints)
         this.context.stroke()
         this.context.restore()
       }
@@ -2827,8 +2989,9 @@ class GraphboundApp {
     const activeTileId = this.drag?.kind === 'tile' ? this.drag.tileId : this.selectedTileId
 
     this.context.save()
+    this.context.globalAlpha = equationReveal
     this.context.fillStyle = INK
-    this.context.font = `${Math.round(20 * scale)}px 'Short Stack', cursive`
+    this.context.font = `${Math.round(19 * scale)}px 'Short Stack', cursive`
     this.context.textBaseline = 'middle'
     this.context.fillText('y =', prefixX, equationY)
 
@@ -2845,32 +3008,29 @@ class GraphboundApp {
       const placedTileId = runtime.placements[token.part.slotId]
       const compatible =
         active &&
-        Boolean(activeTileId) &&
-        this.compatibleSlots(activeTileId as TileId).includes(token.part.slotId)
-
-      if (compatible) {
-        fillRoundedRect(this.context, token.rect, 12 * scale, 'rgba(195, 255, 227, 0.14)')
-      }
-      this.drawRoughRoundedRect(token.rect, 12 * scale, `slot:${sectionId}:${token.part.slotId}`, {
-        stroke: compatible ? SLOT_GLOW : SLOT,
-        strokeWidth: compatible ? 2.6 * scale : 1.7 * scale,
-        roughness: 1.15,
-        bowing: 1,
-      })
+        !placedTileId &&
+        (!activeTileId || this.compatibleSlots(activeTileId as TileId).includes(token.part.slotId))
 
       if (placedTileId) {
         this.drawTile(
           {
-            x: token.rect.x + 2,
+            x: token.rect.x + 1,
             y: token.rect.y + 2,
-            width: token.rect.width - 4,
+            width: token.rect.width - 2,
             height: token.rect.height - 4,
           },
           TILE_DEFINITIONS[placedTileId],
           false,
           `slot:${sectionId}:${token.part.slotId}`,
         )
+        continue
       }
+
+      this.drawEquationSlotPlaceholder(
+        token.rect,
+        compatible,
+        `slot:${sectionId}:${token.part.slotId}`,
+      )
     }
     this.context.restore()
   }
@@ -2888,12 +3048,12 @@ class GraphboundApp {
 
       for (const goal of section.goals) {
         const solved = this.completedGoals.has(`${section.id}:${goal.id}`)
-        const route = this.goalRoutePoints(section.id, goal)
+        const route = this.goalConnectionPoints(section.id, goal)
         const isAnimatingGoal = runtime.animatingGoalId === goal.id
         const fuseProgress = solved ? 1 : isAnimatingGoal ? runtime.fuseProgress : 0
 
         if (route.length > 1 && fuseProgress > 0) {
-          this.drawLitPath(route, fuseProgress, solved ? SUCCESS : FUSE)
+          this.drawLitPath(route, fuseProgress, this.goalColor(section.id, goal))
           if (!solved && runtime.animating) {
             this.drawSpark(route, fuseProgress)
           }
@@ -2941,6 +3101,7 @@ class GraphboundApp {
   }
 
   private render(): void {
+    this.syncSelectedSectionToCenter()
     this.drawBackground()
     this.drawWorldLinksBase()
 
@@ -2962,6 +3123,7 @@ class GraphboundApp {
   }
 
   private renderGameToText(): string {
+    this.syncSelectedSectionToCenter()
     const activeLevel = (this.sectionIndexById.get(this.activeSectionId) ?? 0) + 1
     const sections = this.sections
       .filter((section) => this.unlockedSections.has(section.id))
@@ -3035,6 +3197,7 @@ declare global {
     __graphbound_debug: {
       focusSection: (sectionId: string) => void
       placeTile: (tileId: TileId, slotId: string) => void
+      animatePlaceTile: (tileId: TileId, slotId: string) => void
       startAtLevel: (levelNumber: number) => void
       getState: () => unknown
     }

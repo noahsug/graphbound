@@ -19,19 +19,25 @@ Build a responsive web game where players solve graph-based equation puzzles to 
 - The base material is a chalkboard world, with puzzle paper and chalk-like land drawn on top of it
 - Puzzle spaces should grow into one connected landmass rather than separate floating islands
 - Directly connected sections should dock edge-to-edge so the unlocked world reads as one seamless land shape, not stacked cards with visible seams
+- Latest visual direction simplifies that further into a paper sheet world with no land at all: only floating graph axes, sparse equations that sit above or below each graph, and colored route fragments between puzzles
 - Only persistent UI is the bottom tile row
 - Land parcels can have different footprints, letting the world widen, branch, and stack in a way that still reads as one cohesive place when fully unlocked
 - Each graph can define its own axis ranges and frame proportions, including negative ranges, centered axes, and tall boards
 - Open equation slots accept any unlocked tile; adjacency rules resolve into concatenation, implicit multiplication, and trimmed edge `+` tokens
 - Even though edge `+` placements stay mechanically valid, authored puzzle solutions should use `+` in the middle to clearly mean “add these two things”
 - Goal exits behave like fuse lines that travel outward to unlock the next board
-- Unlock icons should sit inside the current land parcel on the edge that connects to the next area, and the fuse should terminate at that icon before the new land begins falling in
+- In the current paper pass there is no separate unlock icon; the colored goal route simply continues into the next graph’s axis once the solve animation completes
 - Newly unlocked terrain should feel physical: the land extends, new sections arrive with motion, and the camera pulls toward the new puzzle
 - The world should accumulate playful hand-drawn doodles and scenery such as trees, rivers, bridges, dogs, flowers, hearts, and stars as it expands
 - Land and tiles should favor rough.js hatch / stroke fills over flat solid fills, so the world feels chalked and sketched rather than digitally painted
-- Graph grids and frames should also read as hand-drawn, while the equation row stays clearly readable on a bright paper surface below the graph
-- Active graph boards should be generously sized on screen, with clearly legible tick labels and axis numbers instead of tiny marks
-- Randomized drawing textures must stay deterministic so panning or camera moves never cause the world to flicker or re-randomize
+- The equation row should stay clearly readable directly on the paper background, never overlapping the graph itself, with light-yellow dashed slot placeholders
+- The current graph treatment is even more minimal than that: no graph border and no grid, only pencil axes plus unnumbered unit ticks with larger marks every five units
+- Active graph boards should be generously sized on screen, with tick marks large enough to read quickly even though the minimalist pass no longer uses numeric labels
+- Colored goal routes should visibly leave each graph before it is solved, then complete their connection into the next graph’s axis once the matching equation is drawn, fading toward dark graphite as they approach that unlocked graph
+- Newly unlocked graphs should sketch themselves into existence in place rather than falling in from off-screen
+- The graph closest to the center of the screen should be treated as selected, so camera movement alone can change which puzzle is active
+- The bottom tray should always show the remaining unused tiles for the selected graph, and the selected graph’s open slots should stay visibly highlighted
+- Randomized drawing textures must stay deterministic so panning or camera moves never cause the world to flicker or re-randomize, including any tiled paper background treatment
 - Desktop navigation should feel map-like: two-finger trackpad scrolling pans the world directly, and held `WASD` / arrow-key movement glides smoothly instead of stepping in chunky jumps
 - Direct `?level=N` URLs should seed prior progression instantly and teleport the camera to that level for focused playtesting
 

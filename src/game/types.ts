@@ -65,6 +65,7 @@ export interface GoalDefinition {
   min: number
   max: number
   unlocks: string[]
+  color?: string
   route?: Point[]
 }
 
