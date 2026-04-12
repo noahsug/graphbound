@@ -817,14 +817,14 @@ class GraphboundApp {
 
     const slotIds = section.slots.map((slot) => slot.id)
     const availableTiles = [...this.unlockedTiles]
-    if (availableTiles.length < slotIds.length) {
+    if (availableTiles.length === 0) {
       return null
     }
 
     let bestPlacements: Record<string, TileId | null> | null = null
     let bestScore = -1
 
-    const search = (slotIndex: number, remainingTiles: TileId[], placements: Record<string, TileId | null>) => {
+    const search = (slotIndex: number, placements: Record<string, TileId | null>) => {
       if (slotIndex >= slotIds.length) {
         const result = evaluateSectionPlot(section, placements)
         if (!result || !result.hasVisiblePath) {
@@ -845,16 +845,14 @@ class GraphboundApp {
 
       const slotId = slotIds[slotIndex]
 
-      for (let index = 0; index < remainingTiles.length; index += 1) {
-        const tileId = remainingTiles[index]
+      for (const tileId of availableTiles) {
         placements[slotId] = tileId
-        const nextTiles = remainingTiles.filter((_, tileIndex) => tileIndex !== index)
-        search(slotIndex + 1, nextTiles, placements)
+        search(slotIndex + 1, placements)
         placements[slotId] = null
       }
     }
 
-    search(0, availableTiles, this.createEmptyPlacements(section))
+    search(0, this.createEmptyPlacements(section))
     return bestPlacements
   }
 

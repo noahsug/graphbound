@@ -292,11 +292,13 @@ Partially implemented already:
 
 ## Math and Puzzle Rules
 
-- Each tile can be used only once
+- Tiles are infinitely reusable
 - Valid drop targets appear when dragging begins
 - Fixed equation fragments constrain the player to intended puzzle space
 - A plotted line can complete goals, stop at obstacles, or fail when it leaves allowed bounds
 - Puzzle authoring should support both immediately solvable and later-return graphs
+- Reward tiles unlock only after every target shape on that graph has been solved
+- Ship a 20-graph authored world with non-linear branches, revisits, and a central four-target crossroads graph
 
 ## Testing Plan
 
@@ -335,3 +337,4 @@ Partially implemented already:
 - v0 implementation shipped with a touch-friendly tap fallback in addition to direct dragging so automated browser tests can exercise the puzzle reliably
 - v1 checkpoint committed as `feat: implement v1 progression and stable sketch rendering`
 - Full-game pass includes a small debug surface on `window.__graphbound_debug` used for deterministic browser verification of the branch progression
+- Current content pass expands the world to 20 authored graphs, keeps the first three puzzles intact, and moves new difficulty into later branches with `5`, `-`, `1`, and `0` unlocks

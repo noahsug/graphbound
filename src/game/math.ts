@@ -83,7 +83,7 @@ function classifyToken(token: string): 'number' | 'variable' | 'operator' | 'unk
     return 'number'
   }
 
-  if (token === '+') {
+  if (token === '+' || token === '-') {
     return 'operator'
   }
 
@@ -92,15 +92,6 @@ function classifyToken(token: string): 'number' | 'variable' | 'operator' | 'unk
   }
 
   return 'unknown'
-}
-
-function flushFactors(factors: string[], terms: string[]): void {
-  if (factors.length === 0) {
-    return
-  }
-
-  terms.push(factors.join(' * '))
-  factors.length = 0
 }
 
 function buildExpressionString(
@@ -123,11 +114,11 @@ function buildExpressionString(
     rawTokens.push(TILE_DEFINITIONS[tileId].label)
   }
 
-  while (rawTokens[0] === '+') {
+  while (rawTokens[0] === '+' || rawTokens[0] === '-') {
     rawTokens.shift()
   }
 
-  while (rawTokens[rawTokens.length - 1] === '+') {
+  while (rawTokens[rawTokens.length - 1] === '+' || rawTokens[rawTokens.length - 1] === '-') {
     rawTokens.pop()
   }
 
@@ -137,12 +128,24 @@ function buildExpressionString(
 
   const terms: string[] = []
   const factors: string[] = []
+  let nextTermSign: '+' | '-' = '+'
+
+  const flushTerm = (): void => {
+    if (factors.length === 0) {
+      return
+    }
+
+    const joined = factors.join(' * ')
+    terms.push(nextTermSign === '-' ? `- ${joined}` : joined)
+    factors.length = 0
+  }
 
   for (const token of rawTokens) {
     const kind = classifyToken(token)
 
     if (kind === 'operator') {
-      flushFactors(factors, terms)
+      flushTerm()
+      nextTermSign = token as '+' | '-'
       continue
     }
 
@@ -165,9 +168,21 @@ function buildExpressionString(
     throw new Error(`Unsupported token: ${token}`)
   }
 
-  flushFactors(factors, terms)
+  flushTerm()
 
-  return terms.length > 0 ? terms.join(' + ') : null
+  if (terms.length === 0) {
+    return null
+  }
+
+  return terms
+    .map((term, index) => {
+      if (index === 0) {
+        return term
+      }
+
+      return term.startsWith('- ') ? `- ${term.slice(2)}` : `+ ${term}`
+    })
+    .join(' ')
 }
 
 function visiblePoints(expression: string, axes: GraphAxes): PlotPoint[] {

@@ -10,7 +10,7 @@ export interface Rect {
   height: number
 }
 
-export type TileId = 'x' | '2' | '5' | '+'
+export type TileId = 'x' | '2' | '5' | '+' | '-' | '1' | '0'
 export type GoalEdge = 'top' | 'right' | 'bottom' | 'left'
 export type GoalShapeKind = 'heart' | 'circle' | 'x' | 'star'
 
