@@ -28,11 +28,9 @@ import type {
 
 const INK = '#2d2620'
 const AXIS = '#27211c'
-const SLOT = 'rgba(45, 38, 32, 0.4)'
-const SLOT_GLOW = 'rgba(202, 162, 93, 0.55)'
-const PLOT = 'rgba(64, 57, 49, 0.9)'
 const PLOT_GLOW = 'rgba(45, 38, 32, 0.08)'
 const GOAL = '#c79d45'
+const LOCKED_GOAL = 'rgba(45, 38, 32, 0.62)'
 const GRASS_TOP = '#97e4a6'
 const CHALKBOARD_MID = '#f6eddf'
 const CHALK_DUST = 'rgba(120, 101, 79, 0.055)'
@@ -40,6 +38,7 @@ const SHADOW = 'rgba(75, 60, 44, 0.12)'
 const CAMERA_DURATION_MS = 880
 const CAMERA_DELAY_MS = 180
 const FUSE_DURATION_MS = 560
+const TARGET_FILL_DURATION_MS = 220
 const SECTION_REVEAL_DURATION_MS = 1160
 const DOG_PET_MS = 1200
 const PAN_DRAG_THRESHOLD = 7
@@ -51,6 +50,12 @@ const KEYBOARD_PAN_TURN_DAMPING = 24
 const KEYBOARD_PAN_DAMPING = 28
 const MIN_CAMERA_VELOCITY = 4
 const WHEEL_LINE_PX = 16
+const MIN_ZOOM_LEVEL = 0.72
+const START_ZOOM_LEVEL = 1
+const MAX_ZOOM_LEVEL = START_ZOOM_LEVEL
+const KEY_ZOOM_FACTOR = 1.14
+const WHEEL_ZOOM_SENSITIVITY = 0.0014
+const MIN_PINCH_DISTANCE = 12
 
 type RoughCanvas = ReturnType<typeof rough.canvas>
 
@@ -302,12 +307,139 @@ function traceSmoothPath(context: CanvasRenderingContext2D, points: Point[]): vo
   context.quadraticCurveTo(penultimate.x, penultimate.y, last.x, last.y)
 }
 
+function tracePolylinePath(context: CanvasRenderingContext2D, points: Point[]): void {
+  if (points.length === 0) {
+    return
+  }
+
+  context.moveTo(points[0].x, points[0].y)
+
+  for (let index = 1; index < points.length; index += 1) {
+    context.lineTo(points[index].x, points[index].y)
+  }
+}
+
+function quadraticPoint(start: Point, control: Point, end: Point, t: number): Point {
+  const inverse = 1 - t
+  return {
+    x: inverse * inverse * start.x + 2 * inverse * t * control.x + t * t * end.x,
+    y: inverse * inverse * start.y + 2 * inverse * t * control.y + t * t * end.y,
+  }
+}
+
+function sampleSmoothPath(points: Point[], segmentsPerCurve = 14): Point[] {
+  if (points.length <= 2) {
+    return [...points]
+  }
+
+  const sampled: Point[] = [{ ...points[0] }]
+  let currentStart = points[0]
+
+  for (let index = 1; index < points.length - 1; index += 1) {
+    const control = points[index]
+    const next = points[index + 1]
+    const currentEnd =
+      index === points.length - 2
+        ? next
+        : {
+            x: (control.x + next.x) / 2,
+            y: (control.y + next.y) / 2,
+          }
+
+    for (let segment = 1; segment <= segmentsPerCurve; segment += 1) {
+      sampled.push(quadraticPoint(currentStart, control, currentEnd, segment / segmentsPerCurve))
+    }
+
+    currentStart = currentEnd
+  }
+
+  return sampled
+}
+
+function dashedPolylineSegments(
+  points: Point[],
+  dashLength: number,
+  gapLength: number,
+): Point[][] {
+  if (points.length < 2 || dashLength <= 0) {
+    return []
+  }
+
+  const segments: Point[][] = []
+  let drawing = true
+  let remaining = dashLength
+  let current: Point[] = [{ ...points[0] }]
+
+  for (let index = 1; index < points.length; index += 1) {
+    let start = points[index - 1]
+    const end = points[index]
+    let segmentLength = distanceBetween(start, end)
+
+    if (segmentLength <= 0.001) {
+      continue
+    }
+
+    while (segmentLength > 0.001) {
+      if (segmentLength <= remaining + 0.001) {
+        if (drawing) {
+          current.push(end)
+        }
+        remaining -= segmentLength
+
+        if (remaining <= 0.001) {
+          if (drawing && current.length > 1) {
+            segments.push(current)
+          }
+          drawing = !drawing
+          remaining = drawing ? dashLength : gapLength
+          current = drawing ? [{ ...end }] : []
+        }
+        break
+      }
+
+      const t = remaining / segmentLength
+      const split = {
+        x: lerp(start.x, end.x, t),
+        y: lerp(start.y, end.y, t),
+      }
+
+      if (drawing) {
+        current.push(split)
+        if (current.length > 1) {
+          segments.push(current)
+        }
+      }
+
+      drawing = !drawing
+      remaining = drawing ? dashLength : gapLength
+      current = drawing ? [{ ...split }] : []
+      start = split
+      segmentLength = distanceBetween(start, end)
+    }
+  }
+
+  if (drawing && current.length > 1) {
+    segments.push(current)
+  }
+
+  return segments
+}
+
 function pointInExpandedRect(point: Point, rect: Rect, inset = 0): boolean {
   return (
     point.x >= rect.x - inset &&
     point.x <= rect.x + rect.width + inset &&
     point.y >= rect.y - inset &&
     point.y <= rect.y + rect.height + inset
+  )
+}
+
+function rectsIntersect(a: Rect, b: Rect, inset = 0): boolean {
+  return !(
+    a.x + a.width < b.x - inset ||
+    b.x + b.width < a.x - inset ||
+    a.y + a.height < b.y - inset ||
+    b.y + b.height < a.y - inset
   )
 }
 
@@ -444,11 +576,12 @@ function mixColors(start: string, end: string, progress: number, alpha = 1): str
   return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }
 
-function createLayout(width: number, height: number): Layout {
+function createLayout(width: number, height: number, zoomLevel = 1): Layout {
   const tileSize = clamp(Math.min(width, height) * 0.11, 58, 84)
   const trayY = height - tileSize - clamp(height * 0.04, 18, 30)
   const minimumScale = width < 720 ? 1.04 : 0.9
-  const worldScale = clamp(Math.min(width / 1280, height / 900) * 1.55, minimumScale, 1.82)
+  const baseWorldScale = clamp(Math.min(width / 1280, height / 900) * 1.55, minimumScale, 1.82)
+  const worldScale = baseWorldScale * clamp(zoomLevel, MIN_ZOOM_LEVEL, MAX_ZOOM_LEVEL)
   const worldCenterY = Math.min(height * 0.42, trayY - 180)
 
   return {
@@ -458,6 +591,7 @@ function createLayout(width: number, height: number): Layout {
       x: width / 2,
       y: worldCenterY,
     },
+    baseWorldScale,
     worldScale,
     tileSize,
     trayY,
@@ -479,13 +613,23 @@ class GraphboundApp {
   private readonly unlockedSections = new Set<string>()
   private readonly unlockedTiles = new Set<TileId>(['x'])
   private readonly sectionRevealProgress = new Map<string, number>()
+  private readonly activeTouchPoints = new Map<number, Point>()
   private paperPattern: CanvasPattern | null = null
 
   private layout: Layout
   private drag: DragState | null = null
+  private pinchState:
+    | {
+        pointerIds: [number, number]
+        startDistance: number
+        startScale: number
+        anchorWorld: Point
+      }
+    | null = null
   private selectedTileId: TileId | null = null
   private activeSectionId = this.sections[0].id
   private camera: Point = { ...this.sections[0].world }
+  private zoomLevel = START_ZOOM_LEVEL
   private statusMessage = 'world-ready'
   private startLevelOverride: number | null = null
   private petDogTimer = 0
@@ -513,7 +657,7 @@ class GraphboundApp {
 
     this.context = context
     this.roughCanvas = rough.canvas(canvas)
-    this.layout = createLayout(960, 720)
+    this.layout = createLayout(960, 720, this.zoomLevel)
 
     for (const section of this.sections) {
       const placements: Record<string, TileId | null> = {}
@@ -525,7 +669,9 @@ class GraphboundApp {
         placements,
         plotResult: null,
         plotProgress: 0,
+        targetFillProgress: 0,
         fuseProgress: 0,
+        fuseCameraAnchorScreen: null,
         animating: false,
         animatingGoalId: null,
         statusMessage: section.blurb,
@@ -543,6 +689,7 @@ class GraphboundApp {
     this.resizeObserver.observe(this.canvas)
 
     this.applyLevelOverrideFromUrl()
+    this.camera = this.constrainedCamera(this.sectionFocusPoint(this.activeSectionId))
 
     this.canvas.addEventListener('pointerdown', this.handlePointerDown)
     this.canvas.addEventListener('pointermove', this.handlePointerMove)
@@ -590,7 +737,9 @@ class GraphboundApp {
     runtime.placements = this.createEmptyPlacements(section)
     runtime.plotResult = null
     runtime.plotProgress = 0
+    runtime.targetFillProgress = 0
     runtime.fuseProgress = 0
+    runtime.fuseCameraAnchorScreen = null
     runtime.animating = false
     runtime.animatingGoalId = null
     runtime.statusMessage = section.blurb
@@ -623,7 +772,7 @@ class GraphboundApp {
     }
 
     this.activeSectionId = this.sections[0].id
-    this.camera = { ...this.sections[0].world }
+    this.camera = this.sectionFocusPoint(this.sections[0].id)
     this.statusMessage = 'world-ready'
   }
 
@@ -734,6 +883,7 @@ class GraphboundApp {
     runtime.placements = showcase ?? this.createEmptyPlacements(section)
     runtime.plotResult = showcase ? evaluateSectionPlot(section, runtime.placements) : null
     runtime.plotProgress = runtime.plotResult?.hasVisiblePath ? 1 : 0
+    runtime.targetFillProgress = runtime.plotResult?.achievedGoalIds.length ? 1 : 0
     runtime.fuseProgress = runtime.plotResult?.achievedGoalIds.length ? 1 : 0
     runtime.animating = false
     runtime.animatingGoalId = null
@@ -771,7 +921,7 @@ class GraphboundApp {
     this.unlockedSections.add(targetSection.id)
     this.sectionRevealProgress.set(targetSection.id, 1)
     this.setActiveSection(targetSection.id)
-    this.camera = { ...targetSection.world }
+    this.camera = this.constrainedCamera(this.sectionFocusPoint(targetSection.id))
     this.statusMessage = `level-${targetIndex + 1}-ready`
   }
 
@@ -794,7 +944,8 @@ class GraphboundApp {
       this.canvas.height = height
     }
 
-    this.layout = createLayout(width, height)
+    this.layout = createLayout(width, height, this.zoomLevel)
+    this.camera = this.constrainedCamera(this.camera)
     this.render()
   }
 
@@ -827,9 +978,217 @@ class GraphboundApp {
     }
   }
 
+  private screenToWorld(point: Point): Point {
+    return {
+      x: this.camera.x + (point.x - this.layout.worldCenter.x) / this.layout.worldScale,
+      y: this.camera.y + (point.y - this.layout.worldCenter.y) / this.layout.worldScale,
+    }
+  }
+
+  private sectionFocusPoint(sectionId: string): Point {
+    const graph = this.graphWorldRect(sectionId)
+    return {
+      x: graph.x + graph.width / 2,
+      y: graph.y + graph.height / 2,
+    }
+  }
+
+  private boardWorldRect(sectionId: string): Rect {
+    const section = this.sectionById.get(sectionId)
+
+    if (!section) {
+      return { x: 0, y: 0, width: 0, height: 0 }
+    }
+
+    const visual = this.sectionVisual(sectionId)
+    const terrain = {
+      x: section.world.x - visual.terrainWidth / 2,
+      y: section.world.y - visual.terrainHeight / 2,
+      width: visual.terrainWidth,
+      height: visual.terrainHeight,
+    }
+
+    return {
+      x: terrain.x + visual.boardX,
+      y: terrain.y + visual.boardY,
+      width: visual.boardWidth,
+      height: visual.boardHeight,
+    }
+  }
+
+  private graphWorldRect(sectionId: string): Rect {
+    const board = this.boardWorldRect(sectionId)
+
+    if (board.width <= 0 || board.height <= 0) {
+      return { x: 0, y: 0, width: 0, height: 0 }
+    }
+
+    const visual = this.sectionVisual(sectionId)
+
+    return {
+      x: board.x + visual.graphX,
+      y: board.y + visual.graphY,
+      width: visual.graphWidth,
+      height: visual.graphHeight,
+    }
+  }
+
+  private visibleWorldRect(): Rect {
+    const topLeft = this.screenToWorld({ x: 0, y: 0 })
+    const bottomRight = this.screenToWorld({ x: this.layout.width, y: this.layout.height })
+
+    return {
+      x: Math.min(topLeft.x, bottomRight.x),
+      y: Math.min(topLeft.y, bottomRight.y),
+      width: Math.abs(bottomRight.x - topLeft.x),
+      height: Math.abs(bottomRight.y - topLeft.y),
+    }
+  }
+
+  private boundsFromPoints(points: Point[], padding = 0): Rect {
+    if (points.length === 0) {
+      return { x: 0, y: 0, width: 0, height: 0 }
+    }
+
+    let minX = points[0].x
+    let maxX = points[0].x
+    let minY = points[0].y
+    let maxY = points[0].y
+
+    for (let index = 1; index < points.length; index += 1) {
+      const point = points[index]
+      minX = Math.min(minX, point.x)
+      maxX = Math.max(maxX, point.x)
+      minY = Math.min(minY, point.y)
+      maxY = Math.max(maxY, point.y)
+    }
+
+    return {
+      x: minX - padding,
+      y: minY - padding,
+      width: maxX - minX + padding * 2,
+      height: maxY - minY + padding * 2,
+    }
+  }
+
+  private connectorWorldRects(): Rect[] {
+    const padding = 12 / this.layout.worldScale
+    const rects: Rect[] = []
+
+    for (const section of this.sections) {
+      if (!this.unlockedSections.has(section.id)) {
+        continue
+      }
+
+      const runtime = this.sectionRuntimes.get(section.id)
+      if (!runtime) {
+        continue
+      }
+
+      for (const goal of section.goals) {
+        const solved = this.completedGoals.has(`${section.id}:${goal.id}`)
+        const isAnimatingGoal = runtime.animatingGoalId === goal.id
+        const fuseProgress = solved ? 1 : isAnimatingGoal ? runtime.fuseProgress : 0
+
+        if (fuseProgress <= 0) {
+          continue
+        }
+
+        const route = this.goalConnectionPoints(section.id, goal)
+        if (route.length < 2) {
+          continue
+        }
+
+        const worldRoute = route.map((point) => this.screenToWorld(point))
+        rects.push(this.boundsFromPoints(worldRoute, padding))
+      }
+    }
+
+    return rects
+  }
+
+  private backgroundObstacleRects(): Rect[] {
+    const sectionRects = this.sections.map((section) => this.boardWorldRect(section.id))
+    const goalRects = this.sections.flatMap((section) =>
+      section.goals.map((goal) => {
+        const rect = this.goalShapeRect(section.id, goal)
+        const topLeft = this.screenToWorld({ x: rect.x, y: rect.y })
+        const bottomRight = this.screenToWorld({
+          x: rect.x + rect.width,
+          y: rect.y + rect.height,
+        })
+
+        return {
+          x: topLeft.x,
+          y: topLeft.y,
+          width: bottomRight.x - topLeft.x,
+          height: bottomRight.y - topLeft.y,
+        }
+      }),
+    )
+    return [...sectionRects, ...goalRects, ...this.connectorWorldRects()]
+  }
+
+  private cameraVisibilityRectForContent(rect: Rect): Rect {
+    const scale = this.layout.worldScale
+    const leftSpace = this.layout.worldCenter.x / scale
+    const rightSpace = (this.layout.width - this.layout.worldCenter.x) / scale
+    const topSpace = this.layout.worldCenter.y / scale
+    const bottomSpace = (this.layout.height - this.layout.worldCenter.y) / scale
+
+    return {
+      x: rect.x - rightSpace,
+      y: rect.y - bottomSpace,
+      width: rect.width + leftSpace + rightSpace,
+      height: rect.height + topSpace + bottomSpace,
+    }
+  }
+
+  private clampPointToRect(point: Point, rect: Rect): Point {
+    return {
+      x: clamp(point.x, rect.x, rect.x + rect.width),
+      y: clamp(point.y, rect.y, rect.y + rect.height),
+    }
+  }
+
+  private constrainedCamera(point: Point): Point {
+    const contentRects = [
+      ...[...this.unlockedSections].map((sectionId) => this.graphWorldRect(sectionId)),
+      ...this.connectorWorldRects(),
+    ]
+    const visibleRects = contentRects.map((rect) => this.cameraVisibilityRectForContent(rect))
+
+    if (visibleRects.length === 0) {
+      return point
+    }
+
+    for (const rect of visibleRects) {
+      if (pointInRect(point, rect)) {
+        return point
+      }
+    }
+
+    let bestPoint = this.clampPointToRect(point, visibleRects[0])
+    let bestDistance = distanceBetween(point, bestPoint)
+
+    for (let index = 1; index < visibleRects.length; index += 1) {
+      const candidate = this.clampPointToRect(point, visibleRects[index])
+      const candidateDistance = distanceBetween(point, candidate)
+
+      if (candidateDistance < bestDistance) {
+        bestPoint = candidate
+        bestDistance = candidateDistance
+      }
+    }
+
+    return bestPoint
+  }
+
   private moveCameraTo(point: Point, animated: boolean, delayMs = 0): void {
+    const constrained = this.constrainedCamera(point)
+
     if (!animated) {
-      this.camera = { ...point }
+      this.camera = constrained
       this.cameraTween = null
       this.render()
       return
@@ -837,12 +1196,19 @@ class GraphboundApp {
 
     this.cameraTween = {
       from: { ...this.camera },
-      to: { ...point },
+      to: constrained,
       progress: 0,
       durationMs: CAMERA_DURATION_MS,
       delayMs,
     }
     this.ensureAnimation()
+  }
+
+  private cameraForWorldPointAtScreen(worldPoint: Point, screenPoint: Point): Point {
+    return this.constrainedCamera({
+      x: worldPoint.x - (screenPoint.x - this.layout.worldCenter.x) / this.layout.worldScale,
+      y: worldPoint.y - (screenPoint.y - this.layout.worldCenter.y) / this.layout.worldScale,
+    })
   }
 
   private centerCameraOn(sectionId: string, animated: boolean, delayMs = 0): void {
@@ -851,7 +1217,7 @@ class GraphboundApp {
       return
     }
 
-    this.moveCameraTo(section.world, animated, delayMs)
+    this.moveCameraTo(this.sectionFocusPoint(sectionId), animated, delayMs)
   }
 
   private focusSection(sectionId: string, centerCamera: boolean, animated = true): void {
@@ -891,14 +1257,8 @@ class GraphboundApp {
   }
 
   private remainingTileIdsForSection(sectionId: string): TileId[] {
-    const runtime = this.sectionRuntimes.get(sectionId)
-
-    if (!runtime) {
-      return this.activeTileIds()
-    }
-
-    const used = new Set(Object.values(runtime.placements).filter(Boolean) as TileId[])
-    return this.activeTileIds().filter((tileId) => !used.has(tileId))
+    void sectionId
+    return this.activeTileIds()
   }
 
   private setActiveSection(sectionId: string): void {
@@ -946,11 +1306,15 @@ class GraphboundApp {
   }
 
   private getPointerPoint(event: PointerEvent): Point {
+    return this.clientPointToCanvasPoint(event.clientX, event.clientY)
+  }
+
+  private clientPointToCanvasPoint(clientX: number, clientY: number): Point {
     const bounds = this.canvas.getBoundingClientRect()
 
     return {
-      x: ((event.clientX - bounds.left) / bounds.width) * this.canvas.width,
-      y: ((event.clientY - bounds.top) / bounds.height) * this.canvas.height,
+      x: ((clientX - bounds.left) / bounds.width) * this.canvas.width,
+      y: ((clientY - bounds.top) / bounds.height) * this.canvas.height,
     }
   }
 
@@ -1040,6 +1404,116 @@ class GraphboundApp {
   private boardScale(sectionId: string): number {
     void sectionId
     return this.layout.worldScale
+  }
+
+  private clampWorldScale(scale: number): number {
+    return clamp(
+      scale,
+      this.layout.baseWorldScale * MIN_ZOOM_LEVEL,
+      this.layout.baseWorldScale * MAX_ZOOM_LEVEL,
+    )
+  }
+
+  private setWorldScale(scale: number, anchorScreen: Point): void {
+    const anchorWorld = this.screenToWorld(anchorScreen)
+    this.layout.worldScale = this.clampWorldScale(scale)
+    this.zoomLevel = this.layout.worldScale / this.layout.baseWorldScale
+    this.camera = this.cameraForWorldPointAtScreen(anchorWorld, anchorScreen)
+  }
+
+  private zoomBy(factor: number, anchorScreen = this.layout.worldCenter): void {
+    this.cameraTween = null
+    this.setWorldScale(this.layout.worldScale * factor, anchorScreen)
+    this.render()
+  }
+
+  private cancelDragForGesture(): void {
+    if (this.drag?.kind === 'tile' && this.drag.sourceSlotId) {
+      this.activeRuntime.placements[this.drag.sourceSlotId] = this.drag.tileId
+      this.updateSectionPlot(this.activeSectionId, false)
+    }
+
+    this.drag = null
+  }
+
+  private beginPinchGesture(): void {
+    const pointerIds = [...this.activeTouchPoints.keys()]
+    if (pointerIds.length < 2) {
+      return
+    }
+
+    const firstId = pointerIds[0]
+    const secondId = pointerIds[1]
+    const first = this.activeTouchPoints.get(firstId)
+    const second = this.activeTouchPoints.get(secondId)
+
+    if (!first || !second) {
+      return
+    }
+
+    const midpoint = {
+      x: (first.x + second.x) / 2,
+      y: (first.y + second.y) / 2,
+    }
+
+    this.cancelDragForGesture()
+    this.cameraTween = null
+    this.pinchState = {
+      pointerIds: [firstId, secondId],
+      startDistance: Math.max(distanceBetween(first, second), MIN_PINCH_DISTANCE),
+      startScale: this.layout.worldScale,
+      anchorWorld: this.screenToWorld(midpoint),
+    }
+  }
+
+  private updatePinchGesture(): void {
+    if (!this.pinchState) {
+      return
+    }
+
+    const [firstId, secondId] = this.pinchState.pointerIds
+    const first = this.activeTouchPoints.get(firstId)
+    const second = this.activeTouchPoints.get(secondId)
+
+    if (!first || !second) {
+      return
+    }
+
+    const midpoint = {
+      x: (first.x + second.x) / 2,
+      y: (first.y + second.y) / 2,
+    }
+    const distance = Math.max(distanceBetween(first, second), MIN_PINCH_DISTANCE)
+    this.layout.worldScale = this.clampWorldScale(
+      this.pinchState.startScale * (distance / this.pinchState.startDistance),
+    )
+    this.zoomLevel = this.layout.worldScale / this.layout.baseWorldScale
+    this.camera = this.cameraForWorldPointAtScreen(this.pinchState.anchorWorld, midpoint)
+  }
+
+  private endPinchGesture(): void {
+    if (!this.pinchState) {
+      return
+    }
+
+    const remaining = [...this.activeTouchPoints.entries()]
+    this.pinchState = null
+
+    if (remaining.length === 1) {
+      const [pointerId, point] = remaining[0]
+      this.drag = {
+        kind: 'pan',
+        pointerId,
+        current: point,
+        start: point,
+        cameraStart: { ...this.camera },
+        dragging: false,
+        startedSectionId: null,
+      }
+      return
+    }
+
+    this.drag = null
   }
 
   private boardDropOffset(sectionId: string): number {
@@ -1176,14 +1650,7 @@ class GraphboundApp {
     const tokenSize = visual.slotSize * scale
     const desiredBelow = board.y + visual.equationY * scaleY + 1
     const minimumBelow = graph.y + graph.height + tokenSize * 0.82
-    const belowY = Math.max(desiredBelow, minimumBelow)
-    const belowLimit = this.layout.trayY - tokenSize * 1.1
-
-    if (belowY <= belowLimit) {
-      return belowY
-    }
-
-    return Math.max(board.y + tokenSize * 0.72, graph.y - tokenSize * 0.88)
+    return Math.max(desiredBelow, minimumBelow)
   }
 
   private trayTileRects(): Array<{ tileId: TileId; rect: Rect }> {
@@ -1204,6 +1671,60 @@ class GraphboundApp {
     }))
   }
 
+  private equationPrefixWidth(scale: number): number {
+    return 34 * scale
+  }
+
+  private fixedEquationTokenWidth(value: string, scale: number, tokenSize: number): number {
+    if (value === '+') {
+      return Math.max(14 * scale, tokenSize * 0.26)
+    }
+
+    return Math.max(18 * scale, Math.min(tokenSize * 0.44, value.length * 18 * scale))
+  }
+
+  private equationConnectorCollision(sectionId: string, rect: Rect): boolean {
+    const section = this.sectionById.get(sectionId)
+    const runtime = this.sectionRuntimes.get(sectionId)
+
+    if (!section || !runtime) {
+      return false
+    }
+
+    const padding = 8 * this.layout.worldScale
+    const expanded = {
+      x: rect.x - padding,
+      y: rect.y - padding,
+      width: rect.width + padding * 2,
+      height: rect.height + padding * 2,
+    }
+
+    for (const goal of section.goals) {
+      const solved = this.completedGoals.has(`${section.id}:${goal.id}`)
+      const isAnimatingGoal = runtime.animatingGoalId === goal.id
+      const fuseProgress = solved ? 1 : isAnimatingGoal ? runtime.fuseProgress : 0
+
+      if (fuseProgress <= 0) {
+        continue
+      }
+
+      const route = this.goalConnectionPoints(section.id, goal)
+      if (route.length < 2) {
+        continue
+      }
+
+      const visible = fuseProgress >= 1 ? route : partialPolyline(route, fuseProgress)
+
+      for (let index = 1; index < visible.length; index += 1) {
+        if (segmentIntersectsRect(visible[index - 1], visible[index], expanded, 0)) {
+          return true
+        }
+      }
+    }
+
+    return false
+  }
+
   private tokenLayouts(sectionId: string): TokenLayout[] {
     const section = this.sectionById.get(sectionId)
 
@@ -1218,19 +1739,49 @@ class GraphboundApp {
     const scale = Math.min(scaleX, scaleY)
     const tokenSize = visual.slotSize * scale
     const gap = visual.tokenGap * scale
-    const prefixWidth = 56 * scale
+    const prefixWidth = this.equationPrefixWidth(scale)
+    const tokenWidths = section.equation.map((part) =>
+      part.type === 'slot' ? tokenSize : this.fixedEquationTokenWidth(part.value, scale, tokenSize),
+    )
     const totalWidth =
-      prefixWidth + section.equation.length * tokenSize + (section.equation.length - 1) * gap
-    let cursor = rect.x + rect.width / 2 - totalWidth / 2 + prefixWidth
+      prefixWidth +
+      tokenWidths.reduce((sum, width) => sum + width, 0) +
+      (section.equation.length - 1) * gap
+    const equationY = this.equationCenterY(sectionId)
+    const candidates = [
+      rect.x + rect.width / 2 - totalWidth / 2,
+      rect.x + rect.width * 0.62 - totalWidth / 2,
+      rect.x + rect.width * 0.72 - totalWidth / 2,
+      rect.x + rect.width * 0.38 - totalWidth / 2,
+    ]
 
-    return section.equation.map((part) => {
+    let rowStart = candidates[0]
+
+    for (const candidate of candidates) {
+      const rowRect = {
+        x: candidate,
+        y: equationY - tokenSize * 0.7,
+        width: totalWidth,
+        height: tokenSize * 1.4,
+      }
+
+      if (!this.equationConnectorCollision(sectionId, rowRect)) {
+        rowStart = candidate
+        break
+      }
+    }
+
+    let cursor = rowStart + prefixWidth
+
+    return section.equation.map((part, index) => {
+      const width = tokenWidths[index]
       const rectForToken = {
         x: cursor,
-        y: this.equationCenterY(sectionId) - tokenSize / 2,
-        width: tokenSize,
+        y: equationY - tokenSize / 2,
+        width,
         height: tokenSize,
       }
-      cursor += tokenSize + gap
+      cursor += width + gap
       return { rect: rectForToken, part }
     })
   }
@@ -1254,6 +1805,22 @@ class GraphboundApp {
       y: rect.y + 2,
       width: rect.width - 4,
       height: rect.height - 4,
+    }
+  }
+
+  private draggedTileRect(drag: Extract<DragState, { kind: 'tile' }>): Rect {
+    return {
+      x: drag.current.x - drag.offset.x,
+      y: drag.current.y - drag.offset.y,
+      width: this.layout.tileSize,
+      height: this.layout.tileSize,
+    }
+  }
+
+  private rectCenter(rect: Rect): Point {
+    return {
+      x: rect.x + rect.width / 2,
+      y: rect.y + rect.height / 2,
     }
   }
 
@@ -1350,36 +1917,45 @@ class GraphboundApp {
     return this.defaultGoalAnchor(sectionId, goal)
   }
 
-  private goalRouteWaypoints(sectionId: string, goal: GoalDefinition): Point[] {
-    const mapped = goal.route?.map((point) => this.terrainLocalToScreen(sectionId, point)) ?? []
-
-    if (mapped.length > 0) {
-      return mapped
-    }
-
+  private goalRouteDeparture(sectionId: string, goal: GoalDefinition): Point {
     const anchor = this.defaultGoalAnchor(sectionId, goal)
-    const extension = 44 * this.layout.worldScale
+    const extension = 42 * this.layout.worldScale
 
     if (goal.edge === 'top') {
-      return [{ x: anchor.x, y: anchor.y - extension }]
+      return { x: anchor.x, y: anchor.y - extension }
     }
     if (goal.edge === 'right') {
-      return [{ x: anchor.x + extension, y: anchor.y }]
+      return { x: anchor.x + extension, y: anchor.y }
     }
     if (goal.edge === 'left') {
-      return [{ x: anchor.x - extension, y: anchor.y }]
+      return { x: anchor.x - extension, y: anchor.y }
     }
 
-    return [{ x: anchor.x, y: anchor.y + extension }]
+    return { x: anchor.x, y: anchor.y + extension }
   }
 
-  private goalLockPoint(sectionId: string, goal: GoalDefinition): Point | null {
-    const route = this.goalRoutePoints(sectionId, goal)
-    return route[route.length - 1] ?? null
+  private goalRouteWaypoints(sectionId: string, goal: GoalDefinition): Point[] {
+    return [this.goalRouteDeparture(sectionId, goal)]
+  }
+
+  private goalShapeCenter(sectionId: string, goal: GoalDefinition): Point {
+    return this.goalAnchor(sectionId, goal)
+  }
+
+  private goalShapeRect(sectionId: string, goal: GoalDefinition): Rect {
+    const center = this.goalShapeCenter(sectionId, goal)
+    const radius = 18 * this.layout.worldScale
+
+    return {
+      x: center.x - radius,
+      y: center.y - radius,
+      width: radius * 2,
+      height: radius * 2,
+    }
   }
 
   private goalRoutePoints(sectionId: string, goal: GoalDefinition): Point[] {
-    const anchor = this.goalAnchor(sectionId, goal)
+    const anchor = this.goalRouteDeparture(sectionId, goal)
     const route = this.goalRouteWaypoints(sectionId, goal)
 
     if (route.length === 0) {
@@ -1424,10 +2000,24 @@ class GraphboundApp {
     ]
   }
 
-  private connectorObstacles(ignoredIds: Set<string>): Array<{ id: string; rect: Rect }> {
-    return this.sections
+  private connectorObstacles(
+    ignoredIds: Set<string>,
+    ignoredGoalKeys = new Set<string>(),
+  ): Array<{ id: string; rect: Rect }> {
+    const graphObstacles = this.sections
       .filter((section) => this.unlockedSections.has(section.id) && !ignoredIds.has(section.id))
-      .map((section) => ({ id: section.id, rect: this.boardRect(section.id) }))
+      .map((section) => ({ id: `graph:${section.id}`, rect: this.graphRect(section.id) }))
+
+    const goalObstacles = this.sections.flatMap((section) =>
+      section.goals
+        .filter((goal) => !ignoredGoalKeys.has(`${section.id}:${goal.id}`))
+        .map((goal) => ({
+          id: `goal:${section.id}:${goal.id}`,
+          rect: this.goalShapeRect(section.id, goal),
+        }))
+    )
+
+    return [...graphObstacles, ...goalObstacles]
   }
 
   private segmentObstacleCount(
@@ -1552,12 +2142,16 @@ class GraphboundApp {
     this.appendAvoidedSegment(path, target, obstacles, depth + 1)
   }
 
-  private routedConnectorPoints(points: Point[], ignoredIds: Set<string>): Point[] {
+  private routedConnectorPoints(
+    points: Point[],
+    ignoredIds: Set<string>,
+    ignoredGoalKeys = new Set<string>(),
+  ): Point[] {
     if (points.length <= 1) {
       return points
     }
 
-    const obstacles = this.connectorObstacles(ignoredIds)
+    const obstacles = this.connectorObstacles(ignoredIds, ignoredGoalKeys)
     const routed: Point[] = [points[0]]
 
     for (let index = 1; index < points.length; index += 1) {
@@ -1567,31 +2161,60 @@ class GraphboundApp {
     return simplifyConnectorPoints(routed)
   }
 
-  private targetConnectionPoints(sourcePoint: Point, targetId: string): Point[] {
-    const ignored = new Set<string>([targetId])
-    const candidates = this.axisConnectorCandidates(targetId)
-    let best = candidates[0]
-    let bestScore = Number.POSITIVE_INFINITY
-    const obstacles = this.connectorObstacles(ignored)
+  private pathSelfIntersectionCount(points: Point[]): number {
+    if (points.length < 4) {
+      return 0
+    }
 
-    for (const candidate of candidates) {
-      const blockerCount = this.segmentObstacleCount(sourcePoint, candidate.approach, obstacles)
-      const score =
-        blockerCount * 100000 + distanceBetween(sourcePoint, candidate.approach)
+    let intersections = 0
 
-      if (score < bestScore) {
-        bestScore = score
-        best = candidate
+    for (let index = 1; index < points.length; index += 1) {
+      const start = points[index - 1]
+      const end = points[index]
+
+      for (let compare = index + 2; compare < points.length; compare += 1) {
+        if (index === 1 && compare === points.length - 1) {
+          continue
+        }
+
+        const otherStart = points[compare - 1]
+        const otherEnd = points[compare]
+
+        if (segmentsIntersect(start, end, otherStart, otherEnd)) {
+          intersections += 1
+        }
       }
     }
 
-    return [best.approach, best.anchor]
+    return intersections
   }
 
-  private terrainConnectorPoints(sectionId: string, targetId: string): Point[] {
-    void sectionId
-    void targetId
-    return []
+  private targetConnectionPoints(
+    sourcePoint: Point,
+    targetId: string,
+    ignoredGoalKeys = new Set<string>(),
+  ): Point[] {
+    const candidates = this.axisConnectorCandidates(targetId)
+    let best: Point[] = [sourcePoint, candidates[0].approach]
+    let bestScore = Number.POSITIVE_INFINITY
+
+    for (const candidate of candidates) {
+      const routed = this.routedConnectorPoints(
+        [sourcePoint, candidate.approach],
+        new Set<string>(),
+        ignoredGoalKeys,
+      )
+      const full = simplifyConnectorPoints(routed)
+      const score =
+        this.pathSelfIntersectionCount(full) * 1000000 + polylineLength(full)
+
+      if (score < bestScore) {
+        bestScore = score
+        best = full
+      }
+    }
+
+    return best
   }
 
   private goalConnectionPoints(sectionId: string, goal: GoalDefinition): Point[] {
@@ -1606,8 +2229,56 @@ class GraphboundApp {
       return route
     }
 
-    const bridge = this.targetConnectionPoints(route[route.length - 1], targetId)
-    return this.routedConnectorPoints([...route, ...bridge], new Set([sectionId, targetId]))
+    const bridge = this.targetConnectionPoints(
+      route[route.length - 1],
+      targetId,
+      new Set<string>([`${sectionId}:${goal.id}`]),
+    )
+    return simplifyConnectorPoints([route[0], ...bridge])
+  }
+
+  private goalConnectionWorldPoints(sectionId: string, goal: GoalDefinition): Point[] {
+    return this.goalConnectionPoints(sectionId, goal).map((point) => this.screenToWorld(point))
+  }
+
+  private connectorTipWorldPoint(
+    sectionId: string,
+    goal: GoalDefinition,
+    progress: number,
+  ): Point | null {
+    const route = this.goalConnectionWorldPoints(sectionId, goal)
+
+    if (route.length < 2) {
+      return null
+    }
+
+    const rendered = this.connectorRenderedPoints(route)
+    const visible = progress >= 1 ? rendered : partialPolyline(rendered, progress)
+    return visible[visible.length - 1] ?? null
+  }
+
+  private followAnimatingGoalCamera(sectionId: string, goalId: string | null, progress: number): void {
+    if (!goalId) {
+      return
+    }
+
+    const section = this.sectionById.get(sectionId)
+    const runtime = this.sectionRuntimes.get(sectionId)
+    const goal = section?.goals.find((candidate) => candidate.id === goalId)
+    const anchorScreen = runtime?.fuseCameraAnchorScreen
+
+    if (!runtime || !goal || !anchorScreen) {
+      return
+    }
+
+    const tip = this.connectorTipWorldPoint(sectionId, goal, progress)
+
+    if (!tip) {
+      return
+    }
+
+    this.cameraTween = null
+    this.camera = this.cameraForWorldPointAtScreen(tip, anchorScreen)
   }
 
   private dogRect(sectionId: string): Rect | null {
@@ -1629,7 +2300,9 @@ class GraphboundApp {
     runtime.animatingGoalId =
       result?.achievedGoalIds.find((goalId) => !this.completedGoals.has(`${sectionId}:${goalId}`)) ??
       null
+    runtime.targetFillProgress = 0
     runtime.fuseProgress = 0
+    runtime.fuseCameraAnchorScreen = null
 
     if (!result) {
       runtime.plotProgress = 0
@@ -1647,7 +2320,15 @@ class GraphboundApp {
       return
     }
 
+    if (animated && runtime.animatingGoalId) {
+      const goal = section.goals.find((candidate) => candidate.id === runtime.animatingGoalId)
+      const route = goal ? this.goalConnectionPoints(sectionId, goal) : []
+      runtime.fuseCameraAnchorScreen =
+        route[0] ?? (goal ? this.goalAnchor(sectionId, goal) : null)
+    }
+
     runtime.plotProgress = animated ? 0 : 1
+    runtime.targetFillProgress = !animated && runtime.animatingGoalId ? 1 : 0
     runtime.fuseProgress = !animated && runtime.animatingGoalId ? 1 : 0
     runtime.animating = animated
     runtime.statusMessage =
@@ -1696,7 +2377,9 @@ class GraphboundApp {
     runtime.animating = false
     runtime.animatingGoalId = null
     runtime.plotProgress = runtime.plotResult.hasVisiblePath ? 1 : 0
+    runtime.targetFillProgress = runtime.pendingGoalIds.length > 0 ? 1 : runtime.targetFillProgress
     runtime.fuseProgress = runtime.pendingGoalIds.length > 0 ? 1 : runtime.fuseProgress
+    runtime.fuseCameraAnchorScreen = null
 
     if (runtime.solvedGoalIds.length === section.goals.length && !this.completedSections.has(sectionId)) {
       this.completedSections.add(sectionId)
@@ -1743,12 +2426,6 @@ class GraphboundApp {
 
     if (!slot) {
       return
-    }
-
-    for (const currentSlot of this.activeSection.slots) {
-      if (this.activeRuntime.placements[currentSlot.id] === tileId) {
-        this.activeRuntime.placements[currentSlot.id] = null
-      }
     }
 
     this.activeRuntime.placements[slotId] = tileId
@@ -1803,6 +2480,7 @@ class GraphboundApp {
           x: lerp(this.cameraTween.from.x, this.cameraTween.to.x, eased),
           y: lerp(this.cameraTween.from.y, this.cameraTween.to.y, eased),
         }
+        this.camera = this.constrainedCamera(this.camera)
 
         if (this.cameraTween.progress >= 1) {
           this.camera = { ...this.cameraTween.to }
@@ -1854,10 +2532,10 @@ class GraphboundApp {
     }
 
     if (this.keyboardVelocity.x !== 0 || this.keyboardVelocity.y !== 0) {
-      this.camera = {
+      this.camera = this.constrainedCamera({
         x: this.camera.x + (this.keyboardVelocity.x * deltaMs) / 1000,
         y: this.camera.y + (this.keyboardVelocity.y * deltaMs) / 1000,
-      }
+      })
       keepGoing = true
     } else if (inputMagnitude > 0) {
       keepGoing = true
@@ -1891,8 +2569,26 @@ class GraphboundApp {
         }
       }
 
+      if (runtime.animatingGoalId && runtime.targetFillProgress < 1) {
+        runtime.targetFillProgress = clamp(
+          runtime.targetFillProgress + deltaMs / TARGET_FILL_DURATION_MS,
+          0,
+          1,
+        )
+        keepGoing = true
+
+        if (runtime.targetFillProgress < 1) {
+          continue
+        }
+      }
+
       if (runtime.animatingGoalId && runtime.fuseProgress < 1) {
-        runtime.fuseProgress = clamp(runtime.fuseProgress + deltaMs / FUSE_DURATION_MS, 0, 1)
+        const goal = section.goals.find((candidate) => candidate.id === runtime.animatingGoalId)
+        const route = goal ? this.goalConnectionPoints(section.id, goal) : []
+        const durationMs =
+          route.length > 1 ? this.connectorDurationMs(section.id, route) : FUSE_DURATION_MS
+        runtime.fuseProgress = clamp(runtime.fuseProgress + deltaMs / durationMs, 0, 1)
+        this.followAnimatingGoalCamera(section.id, runtime.animatingGoalId, runtime.fuseProgress)
         keepGoing = true
 
         if (runtime.fuseProgress < 1) {
@@ -1928,6 +2624,17 @@ class GraphboundApp {
 
   private handlePointerDown = (event: PointerEvent): void => {
     const point = this.getPointerPoint(event)
+
+    if (event.pointerType === 'touch') {
+      this.activeTouchPoints.set(event.pointerId, point)
+      this.canvas.setPointerCapture(event.pointerId)
+
+      if (this.activeTouchPoints.size >= 2) {
+        this.beginPinchGesture()
+        this.render()
+        return
+      }
+    }
 
     for (const { tileId, rect } of this.trayTileRects()) {
       if (!pointInRect(point, rect)) {
@@ -2016,11 +2723,23 @@ class GraphboundApp {
   }
 
   private handlePointerMove = (event: PointerEvent): void => {
+    const point = this.getPointerPoint(event)
+
+    if (this.activeTouchPoints.has(event.pointerId)) {
+      this.activeTouchPoints.set(event.pointerId, point)
+
+      if (this.pinchState) {
+        this.updatePinchGesture()
+        this.render()
+        return
+      }
+    }
+
     if (!this.drag || this.drag.pointerId !== event.pointerId) {
       return
     }
 
-    this.drag.current = this.getPointerPoint(event)
+    this.drag.current = point
 
     if (this.drag.kind === 'pan') {
       if (!this.drag.dragging && distance(this.drag.start, this.drag.current) > PAN_DRAG_THRESHOLD) {
@@ -2028,10 +2747,10 @@ class GraphboundApp {
       }
 
       if (this.drag.dragging) {
-        this.camera = {
+        this.camera = this.constrainedCamera({
           x: this.drag.cameraStart.x - (this.drag.current.x - this.drag.start.x) / this.layout.worldScale,
           y: this.drag.cameraStart.y - (this.drag.current.y - this.drag.start.y) / this.layout.worldScale,
-        }
+        })
       }
 
       this.render()
@@ -2051,11 +2770,22 @@ class GraphboundApp {
   }
 
   private handlePointerUp = (event: PointerEvent): void => {
+    const point = this.getPointerPoint(event)
+
+    if (this.activeTouchPoints.has(event.pointerId)) {
+      this.activeTouchPoints.set(event.pointerId, point)
+      this.activeTouchPoints.delete(event.pointerId)
+
+      if (this.pinchState?.pointerIds.includes(event.pointerId)) {
+        this.endPinchGesture()
+        this.render()
+        return
+      }
+    }
+
     if (!this.drag || this.drag.pointerId !== event.pointerId) {
       return
     }
-
-    const point = this.getPointerPoint(event)
 
     try {
       this.canvas.releasePointerCapture(event.pointerId)
@@ -2077,9 +2807,10 @@ class GraphboundApp {
     }
 
     if (this.drag.kind === 'tile') {
+      const dragCenter = this.rectCenter(this.draggedTileRect(this.drag))
       const targetSlot = this.compatibleSlots(this.drag.tileId).find((slotId) => {
         const rect = this.slotRect(slotId)
-        return rect ? pointInRect(point, rect) : false
+        return rect ? pointInRect(dragCenter, rect) : false
       })
 
       if (this.drag.dragging) {
@@ -2103,7 +2834,17 @@ class GraphboundApp {
     this.render()
   }
 
-  private handlePointerCancel = (): void => {
+  private handlePointerCancel = (event: PointerEvent): void => {
+    if (this.activeTouchPoints.has(event.pointerId)) {
+      this.activeTouchPoints.delete(event.pointerId)
+
+      if (this.pinchState?.pointerIds.includes(event.pointerId)) {
+        this.endPinchGesture()
+        this.render()
+        return
+      }
+    }
+
     if (this.drag?.kind === 'tile' && this.drag.sourceSlotId) {
       this.activeRuntime.placements[this.drag.sourceSlotId] = this.drag.tileId
       this.updateSectionPlot(this.activeSectionId, false)
@@ -2114,21 +2855,25 @@ class GraphboundApp {
   }
 
   private handleWheel = (event: WheelEvent): void => {
-    if (event.ctrlKey) {
-      return
-    }
-
     const delta = this.normalizedWheelDelta(event)
     if (Math.abs(delta.x) < 0.01 && Math.abs(delta.y) < 0.01) {
       return
     }
 
     event.preventDefault()
+
+    if (event.ctrlKey || event.metaKey) {
+      const anchor = this.clientPointToCanvasPoint(event.clientX, event.clientY)
+      const factor = Math.exp((-delta.y * WHEEL_ZOOM_SENSITIVITY))
+      this.zoomBy(factor, anchor)
+      return
+    }
+
     this.cameraTween = null
-    this.camera = {
+    this.camera = this.constrainedCamera({
       x: this.camera.x + delta.x / this.layout.worldScale,
       y: this.camera.y + delta.y / this.layout.worldScale,
-    }
+    })
     this.render()
   }
 
@@ -2149,6 +2894,12 @@ class GraphboundApp {
       this.cameraTween = null
       this.movementKeys.add(key)
       this.ensureAnimation()
+      return
+    }
+
+    if (key === 'e' || key === 'q') {
+      event.preventDefault()
+      this.zoomBy(key === 'e' ? KEY_ZOOM_FACTOR : 1 / KEY_ZOOM_FACTOR)
       return
     }
 
@@ -2182,6 +2933,8 @@ class GraphboundApp {
   private handleWindowBlur = (): void => {
     this.movementKeys.clear()
     this.keyboardVelocity = { x: 0, y: 0 }
+    this.activeTouchPoints.clear()
+    this.pinchState = null
   }
 
   private drawBackground(): void {
@@ -2262,16 +3015,542 @@ class GraphboundApp {
       context.arc(centerX, centerY, radius, 0, Math.PI * 2)
       context.fill()
     }
+
+    this.drawWritingPaperRules()
+    this.drawBackgroundDoodles()
+  }
+
+  private drawWritingPaperRules(): void {
+    const visible = this.visibleWorldRect()
+    const spacing = 56
+    const startY = Math.floor(visible.y / spacing) * spacing
+    const endY = visible.y + visible.height + spacing
+    const marginPeriod = 820
+    const marginOffset = 128
+    const startMarginX = Math.floor((visible.x - marginOffset) / marginPeriod) * marginPeriod + marginOffset
+    const endMarginX = visible.x + visible.width + marginPeriod
+
+    this.context.save()
+    this.context.strokeStyle = 'rgba(92, 96, 118, 0.075)'
+    this.context.lineWidth = Math.max(0.8, this.layout.worldScale * 0.9)
+
+    for (let y = startY; y <= endY; y += spacing) {
+      const screenY = this.worldToScreen({ x: visible.x, y }).y
+      this.context.beginPath()
+      this.context.moveTo(0, screenY)
+      this.context.lineTo(this.layout.width, screenY)
+      this.context.stroke()
+    }
+
+    this.context.strokeStyle = 'rgba(82, 74, 68, 0.11)'
+    this.context.setLineDash([6, 8])
+    for (let x = startMarginX; x <= endMarginX; x += marginPeriod) {
+      const screenX = this.worldToScreen({ x, y: visible.y }).x
+      this.context.beginPath()
+      this.context.moveTo(screenX, 0)
+      this.context.lineTo(screenX, this.layout.height)
+      this.context.stroke()
+    }
+    this.context.restore()
+  }
+
+  private backgroundDoodleBounds(center: Point, size: number): Rect {
+    return {
+      x: center.x - size * 1.05,
+      y: center.y - size * 1.05,
+      width: size * 2.1,
+      height: size * 2.1,
+    }
+  }
+
+  private canDrawBackgroundRect(rect: Rect, obstacles: Rect[]): boolean {
+    return !obstacles.some((obstacle) => rectsIntersect(rect, obstacle, 18))
+  }
+
+  private backgroundSketchStroke(alpha = 0.2): string {
+    return `rgba(45, 38, 32, ${alpha})`
+  }
+
+  private drawBackgroundLoop(center: Point, size: number, seedKey: string): void {
+    this.roughCanvas.circle(
+      center.x,
+      center.y,
+      size,
+      seeded(`${seedKey}:loop`, {
+        stroke: this.backgroundSketchStroke(0.17),
+        strokeWidth: Math.max(1, size * 0.045),
+        roughness: 1.35,
+        bowing: 1.2,
+      }),
+    )
+  }
+
+  private drawBackgroundStar(center: Point, size: number, seedKey: string): void {
+    const points: Point[] = Array.from({ length: 10 }, (_, index) => {
+      const angle = -Math.PI / 2 + (index * Math.PI) / 5
+      const radius = index % 2 === 0 ? size * 0.5 : size * 0.22
+      return {
+        x: center.x + Math.cos(angle) * radius,
+        y: center.y + Math.sin(angle) * radius,
+      }
+    })
+
+    this.roughCanvas.polygon(
+      points.map((point) => [point.x, point.y]),
+      seeded(`${seedKey}:star`, {
+        stroke: this.backgroundSketchStroke(0.16),
+        strokeWidth: Math.max(1, size * 0.04),
+        roughness: 1.45,
+        bowing: 1,
+      }),
+    )
+  }
+
+  private drawBackgroundArrow(center: Point, size: number, seedKey: string): void {
+    const points = [
+      { x: center.x - size * 0.42, y: center.y + size * 0.2 },
+      { x: center.x + size * 0.12, y: center.y - size * 0.18 },
+      { x: center.x + size * 0.42, y: center.y - size * 0.18 },
+    ]
+    this.drawRoughPolyline(points, `${seedKey}:arrow:shaft`, {
+      stroke: this.backgroundSketchStroke(0.16),
+      strokeWidth: Math.max(1, size * 0.05),
+      roughness: 1.45,
+      bowing: 1.2,
+    })
+    this.drawRoughPolyline(
+      [
+        { x: center.x + size * 0.42, y: center.y - size * 0.18 },
+        { x: center.x + size * 0.25, y: center.y - size * 0.32 },
+      ],
+      `${seedKey}:arrow:tip-a`,
+      {
+        stroke: this.backgroundSketchStroke(0.16),
+        strokeWidth: Math.max(1, size * 0.05),
+        roughness: 1.45,
+        bowing: 1.15,
+      },
+    )
+    this.drawRoughPolyline(
+      [
+        { x: center.x + size * 0.42, y: center.y - size * 0.18 },
+        { x: center.x + size * 0.27, y: center.y - size * 0.02 },
+      ],
+      `${seedKey}:arrow:tip-b`,
+      {
+        stroke: this.backgroundSketchStroke(0.16),
+        strokeWidth: Math.max(1, size * 0.05),
+        roughness: 1.45,
+        bowing: 1.15,
+      },
+    )
+  }
+
+  private drawBackgroundSmiley(center: Point, size: number, seedKey: string): void {
+    this.roughCanvas.circle(
+      center.x,
+      center.y,
+      size,
+      seeded(`${seedKey}:face`, {
+        stroke: this.backgroundSketchStroke(0.16),
+        strokeWidth: Math.max(1, size * 0.05),
+        roughness: 1.3,
+        bowing: 1.1,
+      }),
+    )
+
+    this.context.save()
+    this.context.fillStyle = this.backgroundSketchStroke(0.16)
+    this.context.beginPath()
+    this.context.arc(center.x - size * 0.16, center.y - size * 0.1, size * 0.03, 0, Math.PI * 2)
+    this.context.arc(center.x + size * 0.16, center.y - size * 0.1, size * 0.03, 0, Math.PI * 2)
+    this.context.fill()
+    this.context.strokeStyle = this.backgroundSketchStroke(0.16)
+    this.context.lineWidth = Math.max(1, size * 0.045)
+    this.context.lineCap = 'round'
+    this.context.beginPath()
+    this.context.arc(center.x, center.y + size * 0.02, size * 0.23, 0.2, Math.PI - 0.2)
+    this.context.stroke()
+    this.context.restore()
+  }
+
+  private drawBackgroundSpiral(center: Point, size: number, seedKey: string): void {
+    const points = Array.from({ length: 26 }, (_, index) => {
+      const t = index / 25
+      const angle = t * Math.PI * 3.2
+      const radius = size * (0.08 + t * 0.42)
+      return {
+        x: center.x + Math.cos(angle) * radius,
+        y: center.y + Math.sin(angle) * radius,
+      }
+    })
+
+    this.drawRoughPolyline(points, `${seedKey}:spiral`, {
+      stroke: this.backgroundSketchStroke(0.15),
+      strokeWidth: Math.max(1, size * 0.04),
+      roughness: 1.55,
+      bowing: 1.4,
+    })
+  }
+
+  private drawBackgroundSquiggle(center: Point, size: number, seedKey: string): void {
+    const points = Array.from({ length: 8 }, (_, index) => ({
+      x: center.x + (index - 3.5) * (size * 0.12),
+      y: center.y + Math.sin(index * 0.95) * size * 0.18,
+    }))
+
+    this.drawRoughPolyline(points, `${seedKey}:squiggle`, {
+      stroke: this.backgroundSketchStroke(0.14),
+      strokeWidth: Math.max(1, size * 0.04),
+      roughness: 1.65,
+      bowing: 1.7,
+    })
+  }
+
+  private drawBackgroundTickMark(center: Point, size: number, seedKey: string): void {
+    this.drawRoughPolyline(
+      [
+        { x: center.x - size * 0.28, y: center.y + size * 0.08 },
+        { x: center.x - size * 0.05, y: center.y + size * 0.28 },
+        { x: center.x + size * 0.3, y: center.y - size * 0.26 },
+      ],
+      `${seedKey}:tick`,
+      {
+        stroke: this.backgroundSketchStroke(0.12),
+        strokeWidth: Math.max(1, size * 0.05),
+        roughness: 1.45,
+        bowing: 1.2,
+      },
+    )
+  }
+
+  private drawBackgroundCross(center: Point, size: number, seedKey: string): void {
+    this.drawRoughPolyline(
+      [
+        { x: center.x - size * 0.24, y: center.y - size * 0.24 },
+        { x: center.x + size * 0.24, y: center.y + size * 0.24 },
+      ],
+      `${seedKey}:cross-a`,
+      {
+        stroke: this.backgroundSketchStroke(0.11),
+        strokeWidth: Math.max(1, size * 0.04),
+        roughness: 1.4,
+        bowing: 1.1,
+      },
+    )
+    this.drawRoughPolyline(
+      [
+        { x: center.x + size * 0.24, y: center.y - size * 0.24 },
+        { x: center.x - size * 0.24, y: center.y + size * 0.24 },
+      ],
+      `${seedKey}:cross-b`,
+      {
+        stroke: this.backgroundSketchStroke(0.11),
+        strokeWidth: Math.max(1, size * 0.04),
+        roughness: 1.4,
+        bowing: 1.1,
+      },
+    )
+  }
+
+  private drawBackgroundUnderline(center: Point, size: number, seedKey: string): void {
+    this.drawRoughPolyline(
+      [
+        { x: center.x - size * 0.34, y: center.y + size * 0.04 },
+        { x: center.x + size * 0.34, y: center.y - size * 0.02 },
+      ],
+      `${seedKey}:underline`,
+      {
+        stroke: this.backgroundSketchStroke(0.11),
+        strokeWidth: Math.max(1, size * 0.035),
+        roughness: 1.55,
+        bowing: 1.35,
+      },
+    )
+  }
+
+  private drawBackgroundFlower(center: Point, size: number, seedKey: string): void {
+    for (let petal = 0; petal < 5; petal += 1) {
+      const angle = -Math.PI / 2 + (petal * Math.PI * 2) / 5
+      this.roughCanvas.ellipse(
+        center.x + Math.cos(angle) * size * 0.24,
+        center.y + Math.sin(angle) * size * 0.24,
+        size * 0.34,
+        size * 0.22,
+        seeded(`${seedKey}:flower:petal:${petal}`, {
+          stroke: this.backgroundSketchStroke(0.15),
+          strokeWidth: Math.max(1, size * 0.036),
+          roughness: 1.35,
+          bowing: 1.1,
+        }),
+      )
+    }
+
+    this.roughCanvas.circle(
+      center.x,
+      center.y,
+      size * 0.18,
+      seeded(`${seedKey}:flower:center`, {
+        stroke: this.backgroundSketchStroke(0.16),
+        strokeWidth: Math.max(1, size * 0.04),
+        roughness: 1.25,
+        bowing: 1,
+      }),
+    )
+
+    this.drawRoughPolyline(
+      [
+        { x: center.x, y: center.y + size * 0.18 },
+        { x: center.x - size * 0.06, y: center.y + size * 0.44 },
+        { x: center.x + size * 0.02, y: center.y + size * 0.8 },
+      ],
+      `${seedKey}:flower:stem`,
+      {
+        stroke: this.backgroundSketchStroke(0.14),
+        strokeWidth: Math.max(1, size * 0.035),
+        roughness: 1.5,
+        bowing: 1.3,
+      },
+    )
+  }
+
+  private drawBackgroundCloud(center: Point, size: number, seedKey: string): void {
+    const points = [
+      { x: center.x - size * 0.46, y: center.y + size * 0.08 },
+      { x: center.x - size * 0.34, y: center.y - size * 0.1 },
+      { x: center.x - size * 0.12, y: center.y - size * 0.2 },
+      { x: center.x + size * 0.08, y: center.y - size * 0.08 },
+      { x: center.x + size * 0.24, y: center.y - size * 0.18 },
+      { x: center.x + size * 0.44, y: center.y + size * 0.02 },
+      { x: center.x + size * 0.28, y: center.y + size * 0.18 },
+      { x: center.x - size * 0.06, y: center.y + size * 0.2 },
+      { x: center.x - size * 0.32, y: center.y + size * 0.16 },
+    ]
+
+    this.roughCanvas.curve(
+      points.map((point) => [point.x, point.y]),
+      seeded(`${seedKey}:cloud`, {
+        stroke: this.backgroundSketchStroke(0.14),
+        strokeWidth: Math.max(1, size * 0.036),
+        roughness: 1.35,
+        bowing: 1.15,
+        curveTightness: 0.2,
+      }),
+    )
+  }
+
+  private drawBackgroundKite(center: Point, size: number, seedKey: string): void {
+    this.roughCanvas.polygon(
+      [
+        [center.x, center.y - size * 0.42],
+        [center.x + size * 0.28, center.y],
+        [center.x, center.y + size * 0.38],
+        [center.x - size * 0.28, center.y],
+      ],
+      seeded(`${seedKey}:kite:body`, {
+        stroke: this.backgroundSketchStroke(0.14),
+        strokeWidth: Math.max(1, size * 0.038),
+        roughness: 1.35,
+        bowing: 1,
+      }),
+    )
+
+    this.drawRoughPolyline(
+      [
+        { x: center.x, y: center.y + size * 0.38 },
+        { x: center.x + size * 0.12, y: center.y + size * 0.58 },
+        { x: center.x - size * 0.08, y: center.y + size * 0.76 },
+        { x: center.x + size * 0.1, y: center.y + size * 0.96 },
+      ],
+      `${seedKey}:kite:string`,
+      {
+        stroke: this.backgroundSketchStroke(0.13),
+        strokeWidth: Math.max(1, size * 0.03),
+        roughness: 1.6,
+        bowing: 1.35,
+      },
+    )
+  }
+
+  private drawBackgroundLeaf(center: Point, size: number, seedKey: string): void {
+    const points = [
+      { x: center.x - size * 0.04, y: center.y + size * 0.44 },
+      { x: center.x - size * 0.34, y: center.y + size * 0.08 },
+      { x: center.x - size * 0.1, y: center.y - size * 0.38 },
+      { x: center.x + size * 0.3, y: center.y - size * 0.02 },
+      { x: center.x + size * 0.04, y: center.y + size * 0.44 },
+    ]
+    this.roughCanvas.curve(
+      points.map((point) => [point.x, point.y]),
+      seeded(`${seedKey}:leaf`, {
+        stroke: this.backgroundSketchStroke(0.14),
+        strokeWidth: Math.max(1, size * 0.034),
+        roughness: 1.3,
+        bowing: 1.15,
+      }),
+    )
+    this.drawRoughPolyline(
+      [
+        { x: center.x - size * 0.02, y: center.y + size * 0.38 },
+        { x: center.x + size * 0.02, y: center.y + size * 0.02 },
+        { x: center.x + size * 0.12, y: center.y - size * 0.26 },
+      ],
+      `${seedKey}:leaf:vein`,
+      {
+        stroke: this.backgroundSketchStroke(0.12),
+        strokeWidth: Math.max(1, size * 0.028),
+        roughness: 1.45,
+        bowing: 1.2,
+      },
+    )
+  }
+
+  private drawBackgroundBoat(center: Point, size: number, seedKey: string): void {
+    this.drawRoughPolyline(
+      [
+        { x: center.x - size * 0.42, y: center.y + size * 0.16 },
+        { x: center.x - size * 0.22, y: center.y + size * 0.32 },
+        { x: center.x + size * 0.28, y: center.y + size * 0.28 },
+        { x: center.x + size * 0.42, y: center.y + size * 0.08 },
+      ],
+      `${seedKey}:boat:hull`,
+      {
+        stroke: this.backgroundSketchStroke(0.14),
+        strokeWidth: Math.max(1, size * 0.04),
+        roughness: 1.4,
+        bowing: 1.1,
+      },
+    )
+    this.drawRoughPolyline(
+      [
+        { x: center.x - size * 0.02, y: center.y + size * 0.24 },
+        { x: center.x - size * 0.02, y: center.y - size * 0.34 },
+        { x: center.x + size * 0.26, y: center.y - size * 0.04 },
+      ],
+      `${seedKey}:boat:mast`,
+      {
+        stroke: this.backgroundSketchStroke(0.13),
+        strokeWidth: Math.max(1, size * 0.034),
+        roughness: 1.45,
+        bowing: 1.2,
+      },
+    )
+  }
+
+  private drawBackgroundGlyph(kind: string, center: Point, size: number, seedKey: string): void {
+    if (kind === 'loop') {
+      this.drawBackgroundLoop(center, size, seedKey)
+      return
+    }
+    if (kind === 'star') {
+      this.drawBackgroundStar(center, size, seedKey)
+      return
+    }
+    if (kind === 'arrow') {
+      this.drawBackgroundArrow(center, size, seedKey)
+      return
+    }
+    if (kind === 'smiley') {
+      this.drawBackgroundSmiley(center, size, seedKey)
+      return
+    }
+    if (kind === 'spiral') {
+      this.drawBackgroundSpiral(center, size, seedKey)
+      return
+    }
+    if (kind === 'squiggle') {
+      this.drawBackgroundSquiggle(center, size, seedKey)
+      return
+    }
+    if (kind === 'tick') {
+      this.drawBackgroundTickMark(center, size, seedKey)
+      return
+    }
+    if (kind === 'cross') {
+      this.drawBackgroundCross(center, size, seedKey)
+      return
+    }
+    if (kind === 'flower') {
+      this.drawBackgroundFlower(center, size, seedKey)
+      return
+    }
+    if (kind === 'cloud') {
+      this.drawBackgroundCloud(center, size, seedKey)
+      return
+    }
+    if (kind === 'kite') {
+      this.drawBackgroundKite(center, size, seedKey)
+      return
+    }
+    if (kind === 'leaf') {
+      this.drawBackgroundLeaf(center, size, seedKey)
+      return
+    }
+    if (kind === 'boat') {
+      this.drawBackgroundBoat(center, size, seedKey)
+      return
+    }
+
+    this.drawBackgroundUnderline(center, size, seedKey)
+  }
+
+  private drawBackgroundDoodles(): void {
+    const visible = this.visibleWorldRect()
+    const obstacles = this.backgroundObstacleRects()
+    const artCell = 276
+    const doodleCell = 166
+    const markCell = 114
+    const artKinds = ['flower', 'cloud', 'kite', 'leaf', 'boat'] as const
+    const doodleKinds = ['arrow', 'smiley', 'spiral', 'squiggle', 'flower'] as const
+    const markKinds = ['tick', 'underline', 'squiggle'] as const
+
+    const drawCandidates = (
+      cell: number,
+      chanceThreshold: number,
+      sizeMin: number,
+      sizeRange: number,
+      kinds: readonly string[],
+      prefix: string,
+    ): void => {
+      const startX = Math.floor(visible.x / cell) * cell
+      const endX = visible.x + visible.width + cell
+      const startY = Math.floor(visible.y / cell) * cell
+      const endY = visible.y + visible.height + cell
+
+      for (let x = startX; x <= endX; x += cell) {
+        for (let y = startY; y <= endY; y += cell) {
+          const key = `${prefix}:${x}:${y}`
+          const chance = (hashSeed(`${key}:chance`) % 1000) / 1000
+          if (chance > chanceThreshold) {
+            continue
+          }
+
+          const center = {
+            x: x + cell * (0.18 + ((hashSeed(`${key}:offset-x`) % 1000) / 1000) * 0.64),
+            y: y + cell * (0.18 + ((hashSeed(`${key}:offset-y`) % 1000) / 1000) * 0.64),
+          }
+          const size = sizeMin + ((hashSeed(`${key}:size`) % 1000) / 1000) * sizeRange
+          const bounds = this.backgroundDoodleBounds(center, size)
+
+          if (!this.canDrawBackgroundRect(bounds, obstacles)) {
+            continue
+          }
+
+          const kind = kinds[hashSeed(`${key}:kind`) % kinds.length]
+          const screenCenter = this.worldToScreen(center)
+          this.drawBackgroundGlyph(kind, screenCenter, size * this.layout.worldScale, key)
+        }
+      }
+    }
+
+    drawCandidates(artCell, 0.27, 40, 34, artKinds, 'bg-art')
+    drawCandidates(doodleCell, 0.3, 28, 24, doodleKinds, 'bg-doodle')
+    drawCandidates(markCell, 0.46, 14, 16, markKinds, 'bg-mark')
   }
 
   private drawTerrainTexture(rect: Rect, seedKey: string): void {
     void rect
     void seedKey
-  }
-
-  private drawTerrainBridge(points: Point[], progress: number): void {
-    void points
-    void progress
   }
 
   private drawSketchProgressLine(
@@ -2288,73 +3567,42 @@ class GraphboundApp {
     this.drawRoughPolyline(visible, seedKey, options)
   }
 
-  private connectorStrokeGradient(points: Point[], color: string): CanvasGradient | string {
-    const start = points[0]
-    const end = points[points.length - 1]
-
-    if (!start || !end || distanceBetween(start, end) <= 0.5) {
-      return color
+  private connectorRenderedPoints(points: Point[]): Point[] {
+    if (points.length <= 2) {
+      return [...points]
     }
 
-    const gradient = this.context.createLinearGradient(start.x, start.y, end.x, end.y)
-    gradient.addColorStop(0, color)
-    gradient.addColorStop(0.68, color)
-    gradient.addColorStop(1, mixColors(color, INK, 1))
-    return gradient
+    return sampleSmoothPath(points, 18)
   }
 
-  private connectorSegmentColor(color: string, progress: number, alpha = 1): string {
-    const fade = clamp((progress - 0.68) / 0.32, 0, 1)
-    return mixColors(color, INK, fade, alpha)
+  private plotPixelsPerMs(sectionId: string): number | null {
+    const runtime = this.sectionRuntimes.get(sectionId)
+    const plotPoints = runtime?.plotResult?.points
+
+    if (!plotPoints || plotPoints.length < 2) {
+      return null
+    }
+
+    const screenPoints = plotPoints.map((point) => this.graphPointToScreen(sectionId, point))
+    const length = polylineLength(screenPoints)
+
+    if (length <= 0) {
+      return null
+    }
+
+    return length / PLOT_DURATION_MS
   }
 
-  private drawDirtRoad(
-    points: Point[],
-    widthScale = 1,
-    solved = false,
-    progress = 1,
-    color = GOAL,
-  ): void {
-    const visible = progress >= 1 ? points : partialPolyline(points, progress)
-    if (visible.length < 2) {
-      return
+  private connectorDurationMs(sectionId: string, points: Point[]): number {
+    const rendered = this.connectorRenderedPoints(points)
+    const length = Math.max(polylineLength(rendered), 1)
+    const plotSpeed = this.plotPixelsPerMs(sectionId)
+
+    if (!plotSpeed || plotSpeed <= 0) {
+      return FUSE_DURATION_MS
     }
 
-    const width = 4 * this.layout.worldScale * widthScale
-
-    this.context.save()
-    this.context.strokeStyle = this.connectorStrokeGradient(visible, color)
-    this.context.globalAlpha = solved ? 1 : 0.88
-    this.context.lineWidth = width + 1.2 * this.layout.worldScale
-    this.context.lineCap = 'round'
-    this.context.lineJoin = 'round'
-    this.context.beginPath()
-    traceSmoothPath(this.context, visible)
-    this.context.stroke()
-
-    const total = Math.max(polylineLength(visible), 0.001)
-    let covered = 0
-
-    for (let index = 1; index < visible.length; index += 1) {
-      const start = visible[index - 1]
-      const end = visible[index]
-      const segmentLength = distanceBetween(start, end)
-      const midpoint = (covered + segmentLength * 0.5) / total
-      this.roughCanvas.line(
-        start.x,
-        start.y,
-        end.x,
-        end.y,
-        seeded(`connector:${color}:${solved ? 'solved' : 'stub'}:${widthScale}:${index}`, {
-          stroke: this.connectorSegmentColor(color, midpoint, solved ? 1 : 0.9),
-          strokeWidth: Math.max(1.6, width),
-          roughness: 0.95,
-          bowing: 0.7,
-        }),
-      )
-      covered += segmentLength
-    }
-    this.context.restore()
+    return length / plotSpeed
   }
 
   private drawTree(center: Point, size: number, seedKey: string): void {
@@ -2667,22 +3915,40 @@ class GraphboundApp {
   }
 
   private drawLitPath(points: Point[], progress: number, color: string): void {
-    const partial = partialPolyline(points, progress)
-    if (partial.length < 2) {
+    const rendered = this.connectorRenderedPoints(points)
+    const visible = progress >= 1 ? rendered : partialPolyline(rendered, progress)
+
+    if (visible.length < 2) {
       return
     }
 
-    this.drawDirtRoad(partial, 1, true, 1, color)
-  }
+    const dashColor = mixColors(color, CHALKBOARD_MID, 0.46, 0.88)
+    const width = 7.6 * this.layout.worldScale
+    const dashSegments = dashedPolylineSegments(
+      visible,
+      24 * this.layout.worldScale,
+      18 * this.layout.worldScale,
+    )
 
-  private drawSpark(points: Point[], progress: number): void {
-    void points
-    void progress
-  }
+    this.context.save()
+    this.context.strokeStyle = mixColors(color, CHALKBOARD_MID, 0.58, 0.3)
+    this.context.lineWidth = width + 2.2 * this.layout.worldScale
+    this.context.lineCap = 'round'
+    this.context.lineJoin = 'round'
+    this.context.setLineDash([24 * this.layout.worldScale, 18 * this.layout.worldScale])
+    this.context.beginPath()
+    tracePolylinePath(this.context, visible)
+    this.context.stroke()
+    this.context.restore()
 
-  private drawLockIcon(center: Point, solved: boolean): void {
-    void center
-    void solved
+    dashSegments.forEach((segment, index) => {
+      this.drawRoughPolyline(segment, `unlock-path:${color}:${index}`, {
+        stroke: dashColor,
+        strokeWidth: Math.max(3.2, width),
+        roughness: 1.08,
+        bowing: 0.82,
+      })
+    })
   }
 
   private drawWorldLinksBase(): void {
@@ -2691,64 +3957,162 @@ class GraphboundApp {
         continue
       }
 
-      const routeReveal = this.sectionRevealPhase(section.id, 0.48, 0.86)
+      const runtime = this.sectionRuntimes.get(section.id)
+      if (!runtime) {
+        continue
+      }
 
       for (const goal of section.goals) {
-        const route = this.goalRoutePoints(section.id, goal)
-        this.drawTerrainBridge(
-          this.terrainConnectorPoints(section.id, goal.unlocks[0] ?? section.id),
-          0,
-        )
-        if (routeReveal <= 0) {
-          continue
+        const solved = this.completedGoals.has(`${section.id}:${goal.id}`)
+        const route = this.goalConnectionPoints(section.id, goal)
+        const isAnimatingGoal = runtime.animatingGoalId === goal.id
+        const fuseProgress = solved ? 1 : isAnimatingGoal ? runtime.fuseProgress : 0
+
+        if (route.length > 1 && fuseProgress > 0) {
+          this.drawLitPath(route, fuseProgress, this.goalColor(section.id, goal))
         }
-        this.drawDirtRoad(
-          route,
-          0.92,
-          this.completedGoals.has(`${section.id}:${goal.id}`),
-          routeReveal,
-          this.goalColor(section.id, goal),
-        )
       }
     }
   }
 
-  private drawGoalLine(
+  private drawGoalShape(
     sectionId: string,
     goal: GoalDefinition,
-    solved: boolean,
     progress = 1,
+    fillProgress = 0,
+    colorOverride?: string,
   ): void {
-    const graph = this.graphRect(sectionId)
-    const color = this.goalColor(sectionId, goal)
-    let start: Point
-    let end: Point
+    const color = colorOverride ?? this.goalColor(sectionId, goal)
+    const center = this.goalShapeCenter(sectionId, goal)
+    const size = 18 * this.layout.worldScale
+    const alpha = clamp(progress, 0, 1)
+    const fillAlpha = clamp(fillProgress, 0, 1)
+    const fillColor = mixColors(color, color, 0, 0.28 + fillAlpha * 0.24)
+    const fillOptions =
+      fillAlpha > 0.001
+        ? {
+            fill: fillColor,
+            fillStyle: 'cross-hatch',
+            hachureGap: Math.max(3, size * 0.14),
+            fillWeight: Math.max(1.1, size * 0.05),
+          }
+        : {}
 
-    if (goal.edge === 'top') {
-      start = { x: this.graphValueToScreenX(sectionId, goal.min), y: graph.y }
-      end = { x: this.graphValueToScreenX(sectionId, goal.max), y: graph.y }
-    } else if (goal.edge === 'right') {
-      start = { x: graph.x + graph.width, y: this.graphValueToScreenY(sectionId, goal.min) }
-      end = { x: graph.x + graph.width, y: this.graphValueToScreenY(sectionId, goal.max) }
-    } else if (goal.edge === 'left') {
-      start = { x: graph.x, y: this.graphValueToScreenY(sectionId, goal.min) }
-      end = { x: graph.x, y: this.graphValueToScreenY(sectionId, goal.max) }
-    } else {
-      start = { x: this.graphValueToScreenX(sectionId, goal.min), y: graph.y + graph.height }
-      end = { x: this.graphValueToScreenX(sectionId, goal.max), y: graph.y + graph.height }
+    this.context.save()
+    this.context.globalAlpha = alpha
+
+    if (goal.shape === 'circle') {
+      this.roughCanvas.circle(
+        center.x,
+        center.y,
+        size * 1.75,
+        seeded(`goal-shape:${sectionId}:${goal.id}`, {
+          stroke: color,
+          strokeWidth: Math.max(2.2, this.layout.worldScale * 2.15),
+          roughness: 1.1,
+          bowing: 1.1,
+          ...fillOptions,
+        }),
+      )
+      this.context.restore()
+      return
     }
 
-    this.drawSketchProgressLine(
-      [start, end],
-      progress,
-      `goal:${sectionId}:${goal.id}`,
-      {
+    if (goal.shape === 'x') {
+      if (fillAlpha > 0.001) {
+        this.roughCanvas.circle(
+          center.x,
+          center.y,
+          size * 1.15,
+          seeded(`goal-shape:${sectionId}:${goal.id}:fill`, {
+            stroke: 'transparent',
+            fill: fillColor,
+            fillStyle: 'hachure',
+            hachureGap: Math.max(4, size * 0.16),
+            fillWeight: Math.max(0.9, size * 0.04),
+            roughness: 1.05,
+            bowing: 0.9,
+          }),
+        )
+      }
+      this.drawRoughPolyline(
+        [
+          { x: center.x - size * 0.6, y: center.y - size * 0.6 },
+          { x: center.x + size * 0.6, y: center.y + size * 0.6 },
+        ],
+        `goal-shape:${sectionId}:${goal.id}:a`,
+        {
+          stroke: color,
+          strokeWidth: Math.max(2.2, this.layout.worldScale * 2.15),
+          roughness: 1.1,
+          bowing: 0.9,
+        },
+      )
+      this.drawRoughPolyline(
+        [
+          { x: center.x + size * 0.6, y: center.y - size * 0.6 },
+          { x: center.x - size * 0.6, y: center.y + size * 0.6 },
+        ],
+        `goal-shape:${sectionId}:${goal.id}:b`,
+        {
+          stroke: color,
+          strokeWidth: Math.max(2.2, this.layout.worldScale * 2.15),
+          roughness: 1.1,
+          bowing: 0.9,
+        },
+      )
+      this.context.restore()
+      return
+    }
+
+    if (goal.shape === 'star') {
+      const points: Point[] = Array.from({ length: 10 }, (_, index) => {
+        const angle = -Math.PI / 2 + (index * Math.PI) / 5
+        const radius = index % 2 === 0 ? size * 0.95 : size * 0.42
+        return {
+          x: center.x + Math.cos(angle) * radius,
+          y: center.y + Math.sin(angle) * radius,
+        }
+      })
+      this.roughCanvas.polygon(
+        points.map((point) => [point.x, point.y]),
+        seeded(`goal-shape:${sectionId}:${goal.id}`, {
+          stroke: color,
+          strokeWidth: Math.max(2.2, this.layout.worldScale * 2.15),
+          roughness: 1.15,
+          bowing: 0.95,
+          ...fillOptions,
+        }),
+      )
+      this.context.restore()
+      return
+    }
+
+    const heartPoints: Point[] = Array.from({ length: 24 }, (_, index) => {
+      const t = (index / 23) * Math.PI * 2
+      const x = 16 * Math.sin(t) ** 3
+      const y =
+        13 * Math.cos(t) -
+        5 * Math.cos(2 * t) -
+        2 * Math.cos(3 * t) -
+        Math.cos(4 * t)
+      return {
+        x: center.x + (x / 18) * size,
+        y: center.y - (y / 18) * size,
+      }
+    })
+    this.roughCanvas.polygon(
+      heartPoints.map((point) => [point.x, point.y]),
+      seeded(`goal-shape:${sectionId}:${goal.id}`, {
         stroke: color,
-        strokeWidth: (solved ? 4.6 : 4.1) * this.layout.worldScale,
-        roughness: 0.95,
-        bowing: 0.6,
-      },
+        strokeWidth: Math.max(2.2, this.layout.worldScale * 2.15),
+        roughness: 1.1,
+        bowing: 1,
+        ...fillOptions,
+      }),
     )
+
+    this.context.restore()
   }
 
   private drawEquationSlotPlaceholder(
@@ -2756,27 +4120,18 @@ class GraphboundApp {
     active: boolean,
     seedKey: string,
   ): void {
-    const radius = rect.width * 0.22
-    const fill = active ? 'rgba(239, 224, 162, 0.58)' : 'rgba(239, 224, 162, 0.36)'
+    void active
+    void seedKey
 
-    fillRoundedRect(this.context, rect, radius, fill)
+    const radius = rect.width * 0.22
 
     this.context.save()
-    this.context.strokeStyle = active ? SLOT_GLOW : SLOT
+    this.context.strokeStyle = INK
     this.context.lineWidth = Math.max(1.3, this.layout.worldScale * 1.5)
     this.context.setLineDash([6 * this.layout.worldScale, 4 * this.layout.worldScale])
     roundRectPath(this.context, rect, radius)
     this.context.stroke()
     this.context.restore()
-
-    if (active) {
-      this.drawRoughRoundedRect(rect, radius, `${seedKey}:focus`, {
-        stroke: SLOT_GLOW,
-        strokeWidth: Math.max(1.1, this.layout.worldScale * 1.35),
-        roughness: 0.85,
-        bowing: 0.65,
-      })
-    }
   }
 
   private drawTile(rect: Rect, tile: TileDefinition, active: boolean, seedKey: string): void {
@@ -2793,10 +4148,10 @@ class GraphboundApp {
     this.drawRoughRoundedRect(rect, radius, `tile:${seedKey}`, {
       stroke: active ? GOAL : 'rgba(85, 72, 57, 0.55)',
       strokeWidth: 1.6,
-      fill: '#efe1a5',
-      fillStyle: tile.id === '+' ? 'cross-hatch' : tile.role === 'operator' ? 'zigzag-line' : 'cross-hatch',
-      hachureGap: tile.id === '+' ? Math.max(2.4, rect.width * 0.055) : Math.max(4, rect.width * 0.11),
-      fillWeight: tile.id === '+' ? Math.max(1.2, rect.width * 0.035) : Math.max(0.75, rect.width * 0.02),
+      fill: tile.fill,
+      fillStyle: 'cross-hatch',
+      hachureGap: Math.max(4, rect.width * 0.11),
+      fillWeight: Math.max(0.75, rect.width * 0.02),
       roughness: 1.05,
       bowing: 0.8,
     })
@@ -2846,10 +4201,6 @@ class GraphboundApp {
     const scaleY = board.height / visual.boardHeight
     const scale = Math.min(scaleX, scaleY)
     const active = sectionId === this.activeSectionId
-    const tokenLayouts = this.tokenLayouts(sectionId)
-    const prefixX =
-      tokenLayouts.length > 0 ? tokenLayouts[0].rect.x - 52 * scale : board.x + board.width * 0.22
-    const equationY = this.equationCenterY(sectionId)
     const reveal = easeOutCubic(this.sectionReveal(sectionId))
     const yAxisReveal = this.sectionRevealPhase(sectionId, 0.02, 0.34)
     const xAxisReveal = this.sectionRevealPhase(sectionId, 0.12, 0.46)
@@ -2943,28 +4294,10 @@ class GraphboundApp {
       )
     }
 
-    for (const goal of section.goals) {
-      if (goalReveal <= 0) {
-        continue
-      }
-      this.drawGoalLine(
-        sectionId,
-        goal,
-        this.completedGoals.has(`${sectionId}:${goal.id}`),
-        goalReveal,
-      )
-    }
-
     if (runtime.plotResult && runtime.plotResult.points.length > 1) {
       const progress = runtime.animating ? runtime.plotProgress : 1
       const plotPoints = runtime.plotResult.points.map((point) => this.graphPointToScreen(sectionId, point))
       const visiblePoints = partialPolyline(plotPoints, progress)
-      const plotGoalId =
-        runtime.animatingGoalId ??
-        runtime.plotResult.achievedGoalIds[0] ??
-        runtime.solvedGoalIds[0] ??
-        null
-      const plotColor = plotGoalId ? this.goalColor(sectionId, plotGoalId) : PLOT
 
       if (visiblePoints.length > 1) {
         this.context.save()
@@ -2976,8 +4309,8 @@ class GraphboundApp {
         traceSmoothPath(this.context, visiblePoints)
         this.context.stroke()
 
-        this.context.strokeStyle = plotColor
-        this.context.globalAlpha = plotGoalId ? 1 : 0.88
+        this.context.strokeStyle = INK
+        this.context.globalAlpha = 0.95
         this.context.lineWidth = 3.6 * scale
         this.context.beginPath()
         traceSmoothPath(this.context, visiblePoints)
@@ -2986,7 +4319,18 @@ class GraphboundApp {
       }
     }
 
-    const activeTileId = this.drag?.kind === 'tile' ? this.drag.tileId : this.selectedTileId
+    void goalReveal
+
+    const tokenLayouts = this.tokenLayouts(sectionId)
+    const prefixX =
+      tokenLayouts.length > 0
+        ? tokenLayouts[0].rect.x - this.equationPrefixWidth(scale) + 2 * scale
+        : this.layout.width * 0.32
+    const equationY = this.equationCenterY(sectionId)
+    const activeTileId =
+      active && (this.drag?.kind === 'tile' ? this.drag.tileId : this.selectedTileId)
+        ? (this.drag?.kind === 'tile' ? this.drag.tileId : this.selectedTileId)
+        : null
 
     this.context.save()
     this.context.globalAlpha = equationReveal
@@ -3007,7 +4351,6 @@ class GraphboundApp {
 
       const placedTileId = runtime.placements[token.part.slotId]
       const compatible =
-        active &&
         !placedTileId &&
         (!activeTileId || this.compatibleSlots(activeTileId as TileId).includes(token.part.slotId))
 
@@ -3037,32 +4380,21 @@ class GraphboundApp {
 
   private drawWorldLinksOverlay(): void {
     for (const section of this.sections) {
-      if (!this.unlockedSections.has(section.id)) {
-        continue
-      }
-
+      const unlocked = this.unlockedSections.has(section.id)
       const runtime = this.sectionRuntimes.get(section.id)
-      if (!runtime) {
-        continue
-      }
 
       for (const goal of section.goals) {
         const solved = this.completedGoals.has(`${section.id}:${goal.id}`)
-        const route = this.goalConnectionPoints(section.id, goal)
-        const isAnimatingGoal = runtime.animatingGoalId === goal.id
-        const fuseProgress = solved ? 1 : isAnimatingGoal ? runtime.fuseProgress : 0
+        const isAnimatingGoal = runtime?.animatingGoalId === goal.id
+        const fillProgress = solved ? 1 : isAnimatingGoal ? (runtime?.targetFillProgress ?? 0) : 0
 
-        if (route.length > 1 && fuseProgress > 0) {
-          this.drawLitPath(route, fuseProgress, this.goalColor(section.id, goal))
-          if (!solved && runtime.animating) {
-            this.drawSpark(route, fuseProgress)
-          }
-        }
-
-        const lockPoint = this.goalLockPoint(section.id, goal)
-        if (lockPoint && goal.unlocks.length > 0 && !solved) {
-          this.drawLockIcon(lockPoint, false)
-        }
+        this.drawGoalShape(
+          section.id,
+          goal,
+          1,
+          fillProgress,
+          unlocked ? this.goalColor(section.id, goal) : LOCKED_GOAL,
+        )
       }
     }
   }
@@ -3167,7 +4499,7 @@ class GraphboundApp {
           ? 'animating'
           : 'explore',
       controls:
-        'drag or two-finger scroll to pan, use WASD or arrow keys to glide the camera, tap a board to center it, drag or tap tiles into slots',
+        'drag or two-finger scroll to pan, pinch or cmd+gesture to zoom, use WASD or arrow keys to glide the camera, use Q/E to zoom, tap a board to center it, drag or tap tiles into slots',
       coordinateSystem:
         'world uses screen-centered camera space; each graph uses its own axis bounds, with x increasing right and y increasing upward',
       activeSection: this.activeSectionId,
@@ -3176,6 +4508,7 @@ class GraphboundApp {
         x: Number(this.camera.x.toFixed(1)),
         y: Number(this.camera.y.toFixed(1)),
       },
+      zoom: Number(this.zoomLevel.toFixed(2)),
       unlockedTiles: [...this.unlockedTiles],
       trayTiles: this.trayTileRects().map(({ tileId }) => tileId),
       selectedTile: this.selectedTileId,

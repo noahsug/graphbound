@@ -12,6 +12,7 @@ export interface Rect {
 
 export type TileId = 'x' | '2' | '5' | '+'
 export type GoalEdge = 'top' | 'right' | 'bottom' | 'left'
+export type GoalShapeKind = 'heart' | 'circle' | 'x' | 'star'
 
 export interface AxisDefinition {
   min: number
@@ -61,6 +62,7 @@ export type EquationPart =
 export interface GoalDefinition {
   id: string
   label: string
+  shape: GoalShapeKind
   edge: GoalEdge
   min: number
   max: number
@@ -108,7 +110,9 @@ export interface SectionRuntime {
   placements: Record<string, TileId | null>
   plotResult: PlotResult | null
   plotProgress: number
+  targetFillProgress: number
   fuseProgress: number
+  fuseCameraAnchorScreen: Point | null
   animating: boolean
   animatingGoalId: string | null
   statusMessage: string
@@ -141,6 +145,7 @@ export interface Layout {
   width: number
   height: number
   worldCenter: Point
+  baseWorldScale: number
   worldScale: number
   tileSize: number
   trayY: number

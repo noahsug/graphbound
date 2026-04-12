@@ -55,8 +55,8 @@ export const TILE_DEFINITIONS: Record<string, TileDefinition> = {
   '+': {
     id: '+',
     label: '+',
-    fill: '#b9e4db',
-    text: '#274d48',
+    fill: '#f2dd9c',
+    text: '#48382a',
     role: 'operator',
   },
 }
@@ -94,6 +94,7 @@ export const SECTIONS: SectionDefinition[] = [
       {
         id: 'path-ridge',
         label: 'Wake the ridge path',
+        shape: 'heart',
         edge: 'top',
         min: 9.5,
         max: 10,
@@ -112,7 +113,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Ridge',
     blurb: 'A fixed + waits here. Add the new number tile to tilt the path upward.',
     accent: '#eb9b6f',
-    world: { x: 571, y: 13 },
+    world: { x: 468, y: 14 },
     axes: {
       x: { min: 0, max: 10, tickStep: 1 },
       y: { min: -2, max: 10, tickStep: 1 },
@@ -147,6 +148,7 @@ export const SECTIONS: SectionDefinition[] = [
       {
         id: 'path-orchard',
         label: 'Open the orchard',
+        shape: 'circle',
         edge: 'top',
         min: 7.6,
         max: 8.4,
@@ -170,7 +172,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Orchard',
     blurb: 'This board branches. x + 2 reveals the cove, and x + 5 reaches the canopy later.',
     accent: '#9c86d6',
-    world: { x: 1214, y: 0 },
+    world: { x: 1018, y: 0 },
     axes: {
       x: { min: 0, max: 10, tickStep: 1 },
       y: { min: 0, max: 12, tickStep: 1 },
@@ -214,6 +216,7 @@ export const SECTIONS: SectionDefinition[] = [
       {
         id: 'path-cove',
         label: 'Open the cove',
+        shape: 'x',
         edge: 'top',
         min: 9.6,
         max: 10,
@@ -228,6 +231,7 @@ export const SECTIONS: SectionDefinition[] = [
       {
         id: 'path-canopy',
         label: 'Reach the canopy route',
+        shape: 'star',
         edge: 'top',
         min: 6.6,
         max: 7.4,
@@ -251,7 +255,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Cove',
     blurb: 'Use the number tile alone here. y = 2 brings in the 5 tile for the upper branch.',
     accent: '#8db6d9',
-    world: { x: 1289, y: 355 },
+    world: { x: 1082, y: 318 },
     axes: {
       x: { min: -5, max: 5, tickStep: 1 },
       y: { min: -3, max: 4, tickStep: 1 },
@@ -282,6 +286,7 @@ export const SECTIONS: SectionDefinition[] = [
       {
         id: 'path-water',
         label: 'Trace the calm water',
+        shape: 'circle',
         edge: 'right',
         min: 1.6,
         max: 2.4,
@@ -300,7 +305,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Canopy',
     blurb: 'The high branch only opens once you come back with the 5 tile.',
     accent: '#7eb17d',
-    world: { x: 1282, y: -388 },
+    world: { x: 1078, y: -344 },
     axes: {
       x: { min: -4, max: 4, tickStep: 1 },
       y: { min: 0, max: 10, tickStep: 1 },
@@ -331,6 +336,7 @@ export const SECTIONS: SectionDefinition[] = [
       {
         id: 'path-summit',
         label: 'Wake the summit',
+        shape: 'x',
         edge: 'right',
         min: 4.6,
         max: 5.4,
@@ -354,7 +360,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Summit',
     blurb: 'Build x + 5 one last time to finish the visible world.',
     accent: '#d18d79',
-    world: { x: 1844, y: -339 },
+    world: { x: 1512, y: -306 },
     axes: {
       x: { min: 0, max: 10, tickStep: 1 },
       y: { min: 0, max: 12, tickStep: 1 },
@@ -398,6 +404,7 @@ export const SECTIONS: SectionDefinition[] = [
       {
         id: 'path-finish',
         label: 'Finish the summit line',
+        shape: 'star',
         edge: 'top',
         min: 6.6,
         max: 7.4,
