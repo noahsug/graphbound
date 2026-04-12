@@ -180,3 +180,4 @@ Original prompt: Create a GitHub repo for this web game project, write a detaile
 - Split the target-fill and dashed-route phases more cleanly so the filled target gets its own animation beat before the dashed route starts advancing.
 - Normalized tile paper colors by role so variables share one background color, numbers share one, and operators share one instead of each individual symbol using its own separate tint.
 - Added a dedicated `PUZZLE_BRAINSTORMING_PLAN.md` with equation-family ideas, unlock-order suggestions, revisit strategy, and a recommended difficulty arc from simple line puzzles through absolute value, quadratics, logs, trig, piecewise functions, and polar space.
+- Added `GRAPH_AUTHORING_PLAN.md` describing how to make graph add/remove/move work cheaper by separating puzzle content from world layout, introducing graph visual presets, and eventually adding a drag-to-reposition debug authoring mode.
