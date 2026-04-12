@@ -89,7 +89,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Ridge',
     blurb: 'A fixed + waits here. Add the new number tile to tilt the path upward.',
     accent: '#eb9b6f',
-    world: { x: 468, y: 14 },
+    world: { x: 560, y: 12 },
     axes: {
       x: { min: 0, max: 10, tickStep: 1 },
       y: { min: -2, max: 10, tickStep: 1 },
@@ -137,7 +137,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Orchard',
     blurb: 'This board branches. x + 2 reveals the cove, and x + 5 reaches the canopy later.',
     accent: '#9c86d6',
-    world: { x: 1018, y: 0 },
+    world: { x: 1080, y: 0 },
     axes: {
       x: { min: 0, max: 10, tickStep: 1 },
       y: { min: 0, max: 12, tickStep: 1 },
@@ -198,7 +198,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Cove',
     blurb: 'A calm constant line earns the 5 tile and opens the lower branch.',
     accent: '#8db6d9',
-    world: { x: 1090, y: 318 },
+    world: { x: 1120, y: 528 },
     axes: {
       x: { min: -5, max: 5, tickStep: 1 },
       y: { min: -3, max: 4, tickStep: 1 },
@@ -242,7 +242,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Basin',
     blurb: 'Let the number hug x so the line shoots sharply upward.',
     accent: '#7ba5bf',
-    world: { x: 1490, y: 320 },
+    world: { x: 1690, y: 536 },
     axes: {
       x: { min: 0, max: 2, tickStep: 0.5 },
       y: { min: 0, max: 10, tickStep: 1 },
@@ -273,7 +273,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Gallery',
     blurb: 'Push the line high enough to reveal the center of the world.',
     accent: '#cc8eb4',
-    world: { x: 1910, y: 286 },
+    world: { x: 2250, y: 486 },
     axes: {
       x: { min: 0, max: 5, tickStep: 1 },
       y: { min: 5, max: 9, tickStep: 1 },
@@ -302,7 +302,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Canopy',
     blurb: 'The upper branch turns x into a higher line and finally grants minus.',
     accent: '#7eb17d',
-    world: { x: 1096, y: -344 },
+    world: { x: 1126, y: -532 },
     axes: {
       x: { min: 0, max: 5, tickStep: 1 },
       y: { min: 5, max: 9, tickStep: 1 },
@@ -351,7 +351,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Crossroads',
     blurb: 'This middle board opens one branch at a time as your tile kit grows.',
     accent: '#8f86c9',
-    world: { x: 1634, y: -56 },
+    world: { x: 1990, y: -74 },
     axes: {
       x: { min: -2, max: 10, tickStep: 1 },
       y: { min: -2, max: 10, tickStep: 1 },
@@ -429,7 +429,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Eastreach',
     blurb: 'A small parabola is the first curve in the world.',
     accent: '#d9aa78',
-    world: { x: 2240, y: -46 },
+    world: { x: 2672, y: -62 },
     axes: {
       x: { min: 0, max: 1.5, tickStep: 0.25 },
       y: { min: 0, max: 3, tickStep: 0.5 },
@@ -459,7 +459,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'East Vault',
     blurb: 'A taller parabola finally grants the 1 tile.',
     accent: '#e29d78',
-    world: { x: 2670, y: -6 },
+    world: { x: 3248, y: -18 },
     axes: {
       x: { min: 0, max: 2.5, tickStep: 0.5 },
       y: { min: 0, max: 9, tickStep: 1 },
@@ -490,7 +490,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Arch',
     blurb: 'Subtract x from 5 to bend the line back down.',
     accent: '#a685d8',
-    world: { x: 1540, y: -620 },
+    world: { x: 1840, y: -706 },
     axes: {
       x: { min: -1, max: 4, tickStep: 1 },
       y: { min: 0, max: 6, tickStep: 1 },
@@ -519,7 +519,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Mire',
     blurb: 'Now mix multiplication and subtraction in the same equation.',
     accent: '#9188d9',
-    world: { x: 1106, y: -746 },
+    world: { x: 1280, y: -908 },
     axes: {
       x: { min: 0, max: 2, tickStep: 0.5 },
       y: { min: 0, max: 5, tickStep: 1 },
@@ -549,7 +549,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Hollow',
     blurb: 'A downward parabola waits here as a late revisit.',
     accent: '#7f7cc0',
-    world: { x: 666, y: -536 },
+    world: { x: 648, y: -628 },
     axes: {
       x: { min: 0, max: 4, tickStep: 1 },
       y: { min: -5, max: 11, tickStep: 1 },
@@ -579,7 +579,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Southreach',
     blurb: 'The 1 tile opens a low horizontal line.',
     accent: '#6ea7de',
-    world: { x: 1716, y: 452 },
+    world: { x: 2022, y: 612 },
     axes: {
       x: { min: -2, max: 6, tickStep: 1 },
       y: { min: -2, max: 4, tickStep: 1 },
@@ -608,7 +608,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'South Vault',
     blurb: 'Use the same number twice to make ten and finally unlock 0.',
     accent: '#63a8dd',
-    world: { x: 2144, y: 640 },
+    world: { x: 2588, y: 812 },
     axes: {
       x: { min: 0, max: 5, tickStep: 1 },
       y: { min: 0, max: 10, tickStep: 1 },
@@ -638,7 +638,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Northreach',
     blurb: 'Concatenate 1 and 0, then attach x for a steep final branch.',
     accent: '#d28e7d',
-    world: { x: 2190, y: -542 },
+    world: { x: 2468, y: -664 },
     axes: {
       x: { min: 0, max: 1, tickStep: 0.1 },
       y: { min: 0, max: 10, tickStep: 1 },
@@ -670,7 +670,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Loft',
     blurb: 'Return to a parabola, this time shifted far below the axis.',
     accent: '#cf9479',
-    world: { x: 2582, y: -760 },
+    world: { x: 3080, y: -916 },
     axes: {
       x: { min: 0, max: 4, tickStep: 1 },
       y: { min: -5, max: 11, tickStep: 1 },
@@ -700,7 +700,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Weave',
     blurb: 'Now the numbers wrap into both a coefficient and a two-digit offset.',
     accent: '#d68c6e',
-    world: { x: 3002, y: -556 },
+    world: { x: 3642, y: -664 },
     axes: {
       x: { min: 0, max: 3, tickStep: 0.5 },
       y: { min: 0, max: 10, tickStep: 1 },
@@ -734,7 +734,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Cellar',
     blurb: 'Use the two-digit subtraction again, but on a parabola this time.',
     accent: '#d58b77',
-    world: { x: 3384, y: -226 },
+    world: { x: 4210, y: -288 },
     axes: {
       x: { min: 0, max: 4, tickStep: 1 },
       y: { min: -2, max: 6, tickStep: 1 },
@@ -768,7 +768,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Finale',
     blurb: 'The last graph mixes a coefficient with a parabola and a two-digit shift.',
     accent: '#c78882',
-    world: { x: 3760, y: -44 },
+    world: { x: 4788, y: -52 },
     axes: {
       x: { min: 0, max: 4, tickStep: 1 },
       y: { min: -2, max: 8, tickStep: 1 },

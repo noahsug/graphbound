@@ -319,43 +319,6 @@ function tracePolylinePath(context: CanvasRenderingContext2D, points: Point[]): 
   }
 }
 
-function quadraticPoint(start: Point, control: Point, end: Point, t: number): Point {
-  const inverse = 1 - t
-  return {
-    x: inverse * inverse * start.x + 2 * inverse * t * control.x + t * t * end.x,
-    y: inverse * inverse * start.y + 2 * inverse * t * control.y + t * t * end.y,
-  }
-}
-
-function sampleSmoothPath(points: Point[], segmentsPerCurve = 14): Point[] {
-  if (points.length <= 2) {
-    return [...points]
-  }
-
-  const sampled: Point[] = [{ ...points[0] }]
-  let currentStart = points[0]
-
-  for (let index = 1; index < points.length - 1; index += 1) {
-    const control = points[index]
-    const next = points[index + 1]
-    const currentEnd =
-      index === points.length - 2
-        ? next
-        : {
-            x: (control.x + next.x) / 2,
-            y: (control.y + next.y) / 2,
-          }
-
-    for (let segment = 1; segment <= segmentsPerCurve; segment += 1) {
-      sampled.push(quadraticPoint(currentStart, control, currentEnd, segment / segmentsPerCurve))
-    }
-
-    currentStart = currentEnd
-  }
-
-  return sampled
-}
-
 function dashedPolylineSegments(
   points: Point[],
   dashLength: number,
@@ -3556,11 +3519,7 @@ class GraphboundApp {
   }
 
   private connectorRenderedPoints(points: Point[]): Point[] {
-    if (points.length <= 2) {
-      return [...points]
-    }
-
-    return sampleSmoothPath(points, 18)
+    return [...points]
   }
 
   private plotPixelsPerMs(sectionId: string): number | null {
