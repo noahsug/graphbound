@@ -179,3 +179,4 @@ Original prompt: Create a GitHub repo for this web game project, write a detaile
 - Removed the old post-route camera tween and changed dashed unlock travel to use the same progress value for both line reveal and camera pan, so the camera now travels with the dashed path instead of waiting for a second “scroll to next graph” pass afterward.
 - Split the target-fill and dashed-route phases more cleanly so the filled target gets its own animation beat before the dashed route starts advancing.
 - Normalized tile paper colors by role so variables share one background color, numbers share one, and operators share one instead of each individual symbol using its own separate tint.
+- Added a dedicated `PUZZLE_BRAINSTORMING_PLAN.md` with equation-family ideas, unlock-order suggestions, revisit strategy, and a recommended difficulty arc from simple line puzzles through absolute value, quadratics, logs, trig, piecewise functions, and polar space.
