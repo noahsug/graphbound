@@ -1918,20 +1918,26 @@ class GraphboundApp {
   }
 
   private goalRouteDeparture(sectionId: string, goal: GoalDefinition): Point {
-    const anchor = this.defaultGoalAnchor(sectionId, goal)
-    const extension = 42 * this.layout.worldScale
+    const targetId = goal.unlocks[0]
 
-    if (goal.edge === 'top') {
-      return { x: anchor.x, y: anchor.y - extension }
-    }
-    if (goal.edge === 'right') {
-      return { x: anchor.x + extension, y: anchor.y }
-    }
-    if (goal.edge === 'left') {
-      return { x: anchor.x - extension, y: anchor.y }
+    if (!targetId) {
+      const anchor = this.defaultGoalAnchor(sectionId, goal)
+      const extension = 42 * this.layout.worldScale
+
+      if (goal.edge === 'top') {
+        return { x: anchor.x, y: anchor.y - extension }
+      }
+      if (goal.edge === 'right') {
+        return { x: anchor.x + extension, y: anchor.y }
+      }
+      if (goal.edge === 'left') {
+        return { x: anchor.x - extension, y: anchor.y }
+      }
+
+      return { x: anchor.x, y: anchor.y + extension }
     }
 
-    return { x: anchor.x, y: anchor.y + extension }
+    return this.graphOutsidePointToward(sectionId, targetId)
   }
 
   private goalRouteWaypoints(sectionId: string, goal: GoalDefinition): Point[] {
@@ -1969,35 +1975,40 @@ class GraphboundApp {
     return [anchor, ...route]
   }
 
-  private axisConnectorCandidates(sectionId: string): Array<{ anchor: Point; approach: Point }> {
-    const graph = this.graphRect(sectionId)
-    const axes = this.sectionAxes(sectionId)
+  private graphOutsidePointToward(sectionId: string, targetId: string): Point {
+    const sourceRect = this.graphRect(sectionId)
+    const sourceCenter = this.rectCenter(sourceRect)
+    const targetCenter = this.rectCenter(this.graphRect(targetId))
     const offset = 42 * this.layout.worldScale
-    const yAxisX =
-      axes.x.min <= 0 && axes.x.max >= 0 ? this.graphValueToScreenX(sectionId, 0) : graph.x
-    const xAxisY =
-      axes.y.min <= 0 && axes.y.max >= 0
-        ? this.graphValueToScreenY(sectionId, 0)
-        : graph.y + graph.height
 
-    return [
-      {
-        anchor: { x: yAxisX, y: graph.y },
-        approach: { x: yAxisX, y: graph.y - offset },
-      },
-      {
-        anchor: { x: yAxisX, y: graph.y + graph.height },
-        approach: { x: yAxisX, y: graph.y + graph.height + offset },
-      },
-      {
-        anchor: { x: graph.x, y: xAxisY },
-        approach: { x: graph.x - offset, y: xAxisY },
-      },
-      {
-        anchor: { x: graph.x + graph.width, y: xAxisY },
-        approach: { x: graph.x + graph.width + offset, y: xAxisY },
-      },
-    ]
+    return this.rectOutsidePointToward(sourceRect, sourceCenter, targetCenter, offset)
+  }
+
+  private graphOutsidePointFrom(sectionId: string, sourceId: string): Point {
+    const targetRect = this.graphRect(sectionId)
+    const targetCenter = this.rectCenter(targetRect)
+    const sourceCenter = this.rectCenter(this.graphRect(sourceId))
+    const offset = 42 * this.layout.worldScale
+
+    return this.rectOutsidePointToward(targetRect, targetCenter, sourceCenter, offset)
+  }
+
+  private rectOutsidePointToward(rect: Rect, from: Point, toward: Point, offset: number): Point {
+    const dx = toward.x - from.x
+    const dy = toward.y - from.y
+    const distance = Math.hypot(dx, dy) || 1
+    const unitX = dx / distance
+    const unitY = dy / distance
+    const halfWidth = rect.width / 2
+    const halfHeight = rect.height / 2
+    const scaleX = Math.abs(unitX) > 0.0001 ? halfWidth / Math.abs(unitX) : Number.POSITIVE_INFINITY
+    const scaleY = Math.abs(unitY) > 0.0001 ? halfHeight / Math.abs(unitY) : Number.POSITIVE_INFINITY
+    const boundaryScale = Math.min(scaleX, scaleY)
+
+    return {
+      x: from.x + unitX * (boundaryScale + offset),
+      y: from.y + unitY * (boundaryScale + offset),
+    }
   }
 
   private connectorObstacles(
@@ -2161,60 +2172,19 @@ class GraphboundApp {
     return simplifyConnectorPoints(routed)
   }
 
-  private pathSelfIntersectionCount(points: Point[]): number {
-    if (points.length < 4) {
-      return 0
-    }
-
-    let intersections = 0
-
-    for (let index = 1; index < points.length; index += 1) {
-      const start = points[index - 1]
-      const end = points[index]
-
-      for (let compare = index + 2; compare < points.length; compare += 1) {
-        if (index === 1 && compare === points.length - 1) {
-          continue
-        }
-
-        const otherStart = points[compare - 1]
-        const otherEnd = points[compare]
-
-        if (segmentsIntersect(start, end, otherStart, otherEnd)) {
-          intersections += 1
-        }
-      }
-    }
-
-    return intersections
-  }
-
   private targetConnectionPoints(
     sourcePoint: Point,
+    sourceId: string,
     targetId: string,
     ignoredGoalKeys = new Set<string>(),
   ): Point[] {
-    const candidates = this.axisConnectorCandidates(targetId)
-    let best: Point[] = [sourcePoint, candidates[0].approach]
-    let bestScore = Number.POSITIVE_INFINITY
-
-    for (const candidate of candidates) {
-      const routed = this.routedConnectorPoints(
-        [sourcePoint, candidate.approach],
-        new Set<string>(),
-        ignoredGoalKeys,
-      )
-      const full = simplifyConnectorPoints(routed)
-      const score =
-        this.pathSelfIntersectionCount(full) * 1000000 + polylineLength(full)
-
-      if (score < bestScore) {
-        bestScore = score
-        best = full
-      }
-    }
-
-    return best
+    const targetPoint = this.graphOutsidePointFrom(targetId, sourceId)
+    const routed = this.routedConnectorPoints(
+      [sourcePoint, targetPoint],
+      new Set<string>([sourceId, targetId]),
+      ignoredGoalKeys,
+    )
+    return simplifyConnectorPoints(routed)
   }
 
   private goalConnectionPoints(sectionId: string, goal: GoalDefinition): Point[] {
@@ -2231,6 +2201,7 @@ class GraphboundApp {
 
     const bridge = this.targetConnectionPoints(
       route[route.length - 1],
+      sectionId,
       targetId,
       new Set<string>([`${sectionId}:${goal.id}`]),
     )

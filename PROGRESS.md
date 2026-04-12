@@ -175,3 +175,4 @@ Original prompt: Create a GitHub repo for this web game project, write a detaile
 - Changed drag-and-drop slot targeting so placement is based on the dragged tile’s visual center instead of the mouse cursor hotspot, which makes off-corner grabs behave naturally when dropping into equation slots.
 - Moved dashed unlock paths so they start just outside the current graph edge and end just outside the next graph edge, instead of appearing to grow out of the target shape or into the next graph.
 - Lightened the locked black-and-white target shapes so unreached goals stay visible from the opening view without competing as strongly with unlocked colored targets.
+- Reworked dashed unlock routing to follow the line between graph centers, with the visible path clipped to begin and end just outside each graph body instead of hugging the top edge or attaching to interior graph anchors.
