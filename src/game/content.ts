@@ -30,32 +30,38 @@ export const DEFAULT_SECTION_VISUAL: Required<SectionVisualDefinition> = {
   tokenGap: 10,
 }
 
+const TILE_ROLE_FILLS = {
+  variable: '#f9d36d',
+  number: '#ffd3aa',
+  operator: '#f2dd9c',
+} as const
+
 export const TILE_DEFINITIONS: Record<string, TileDefinition> = {
   x: {
     id: 'x',
     label: 'x',
-    fill: '#f9d36d',
+    fill: TILE_ROLE_FILLS.variable,
     text: '#48382a',
     role: 'variable',
   },
   '2': {
     id: '2',
     label: '2',
-    fill: '#ffd3aa',
+    fill: TILE_ROLE_FILLS.number,
     text: '#48382a',
     role: 'number',
   },
   '5': {
     id: '5',
     label: '5',
-    fill: '#f3b8c6',
+    fill: TILE_ROLE_FILLS.number,
     text: '#48382a',
     role: 'number',
   },
   '+': {
     id: '+',
     label: '+',
-    fill: '#f2dd9c',
+    fill: TILE_ROLE_FILLS.operator,
     text: '#48382a',
     role: 'operator',
   },

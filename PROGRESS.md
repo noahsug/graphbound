@@ -178,3 +178,4 @@ Original prompt: Create a GitHub repo for this web game project, write a detaile
 - Reworked dashed unlock routing to follow the line between graph centers, with the visible path clipped to begin and end just outside each graph body instead of hugging the top edge or attaching to interior graph anchors.
 - Removed the old post-route camera tween and changed dashed unlock travel to use the same progress value for both line reveal and camera pan, so the camera now travels with the dashed path instead of waiting for a second “scroll to next graph” pass afterward.
 - Split the target-fill and dashed-route phases more cleanly so the filled target gets its own animation beat before the dashed route starts advancing.
+- Normalized tile paper colors by role so variables share one background color, numbers share one, and operators share one instead of each individual symbol using its own separate tint.
