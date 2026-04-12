@@ -112,7 +112,8 @@ export interface SectionRuntime {
   plotProgress: number
   targetFillProgress: number
   fuseProgress: number
-  fuseCameraAnchorScreen: Point | null
+  fuseCameraFrom: Point | null
+  fuseCameraTo: Point | null
   animating: boolean
   animatingGoalId: string | null
   statusMessage: string

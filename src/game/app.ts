@@ -36,7 +36,6 @@ const CHALKBOARD_MID = '#f6eddf'
 const CHALK_DUST = 'rgba(120, 101, 79, 0.055)'
 const SHADOW = 'rgba(75, 60, 44, 0.12)'
 const CAMERA_DURATION_MS = 880
-const CAMERA_DELAY_MS = 180
 const FUSE_DURATION_MS = 560
 const TARGET_FILL_DURATION_MS = 220
 const SECTION_REVEAL_DURATION_MS = 1160
@@ -671,7 +670,8 @@ class GraphboundApp {
         plotProgress: 0,
         targetFillProgress: 0,
         fuseProgress: 0,
-        fuseCameraAnchorScreen: null,
+        fuseCameraFrom: null,
+        fuseCameraTo: null,
         animating: false,
         animatingGoalId: null,
         statusMessage: section.blurb,
@@ -739,7 +739,8 @@ class GraphboundApp {
     runtime.plotProgress = 0
     runtime.targetFillProgress = 0
     runtime.fuseProgress = 0
-    runtime.fuseCameraAnchorScreen = null
+    runtime.fuseCameraFrom = null
+    runtime.fuseCameraTo = null
     runtime.animating = false
     runtime.animatingGoalId = null
     runtime.statusMessage = section.blurb
@@ -2208,48 +2209,25 @@ class GraphboundApp {
     return simplifyConnectorPoints([route[0], ...bridge])
   }
 
-  private goalConnectionWorldPoints(sectionId: string, goal: GoalDefinition): Point[] {
-    return this.goalConnectionPoints(sectionId, goal).map((point) => this.screenToWorld(point))
-  }
-
-  private connectorTipWorldPoint(
-    sectionId: string,
-    goal: GoalDefinition,
-    progress: number,
-  ): Point | null {
-    const route = this.goalConnectionWorldPoints(sectionId, goal)
-
-    if (route.length < 2) {
-      return null
-    }
-
-    const rendered = this.connectorRenderedPoints(route)
-    const visible = progress >= 1 ? rendered : partialPolyline(rendered, progress)
-    return visible[visible.length - 1] ?? null
-  }
-
   private followAnimatingGoalCamera(sectionId: string, goalId: string | null, progress: number): void {
     if (!goalId) {
       return
     }
 
-    const section = this.sectionById.get(sectionId)
     const runtime = this.sectionRuntimes.get(sectionId)
-    const goal = section?.goals.find((candidate) => candidate.id === goalId)
-    const anchorScreen = runtime?.fuseCameraAnchorScreen
+    const from = runtime?.fuseCameraFrom
+    const to = runtime?.fuseCameraTo
 
-    if (!runtime || !goal || !anchorScreen) {
-      return
-    }
-
-    const tip = this.connectorTipWorldPoint(sectionId, goal, progress)
-
-    if (!tip) {
+    if (!runtime || !from || !to) {
       return
     }
 
     this.cameraTween = null
-    this.camera = this.cameraForWorldPointAtScreen(tip, anchorScreen)
+    const eased = easeInOutCubic(clamp(progress, 0, 1))
+    this.camera = this.constrainedCamera({
+      x: lerp(from.x, to.x, eased),
+      y: lerp(from.y, to.y, eased),
+    })
   }
 
   private dogRect(sectionId: string): Rect | null {
@@ -2273,7 +2251,8 @@ class GraphboundApp {
       null
     runtime.targetFillProgress = 0
     runtime.fuseProgress = 0
-    runtime.fuseCameraAnchorScreen = null
+    runtime.fuseCameraFrom = null
+    runtime.fuseCameraTo = null
 
     if (!result) {
       runtime.plotProgress = 0
@@ -2293,9 +2272,9 @@ class GraphboundApp {
 
     if (animated && runtime.animatingGoalId) {
       const goal = section.goals.find((candidate) => candidate.id === runtime.animatingGoalId)
-      const route = goal ? this.goalConnectionPoints(sectionId, goal) : []
-      runtime.fuseCameraAnchorScreen =
-        route[0] ?? (goal ? this.goalAnchor(sectionId, goal) : null)
+      const targetSectionId = goal?.unlocks[0] ?? null
+      runtime.fuseCameraFrom = { ...this.camera }
+      runtime.fuseCameraTo = targetSectionId ? this.sectionFocusPoint(targetSectionId) : { ...this.camera }
     }
 
     runtime.plotProgress = animated ? 0 : 1
@@ -2325,10 +2304,45 @@ class GraphboundApp {
       (goalId) => !this.completedGoals.has(`${sectionId}:${goalId}`),
     )
 
-    const newlyUnlockedSections: string[] = []
-
     for (const goalId of newGoals) {
       this.completedGoals.add(`${sectionId}:${goalId}`)
+    }
+
+    runtime.solvedGoalIds = section.goals
+      .filter((goal) => this.completedGoals.has(`${sectionId}:${goal.id}`))
+      .map((goal) => goal.id)
+    runtime.animating = false
+    runtime.animatingGoalId = null
+    runtime.plotProgress = runtime.plotResult.hasVisiblePath ? 1 : 0
+    runtime.targetFillProgress = runtime.pendingGoalIds.length > 0 ? 1 : runtime.targetFillProgress
+    runtime.fuseProgress = runtime.pendingGoalIds.length > 0 ? 1 : runtime.fuseProgress
+    runtime.fuseCameraFrom = null
+    runtime.fuseCameraTo = null
+
+    if (runtime.solvedGoalIds.length === section.goals.length && !this.completedSections.has(sectionId)) {
+      this.completedSections.add(sectionId)
+
+      if (section.rewardTileId) {
+        this.unlockedTiles.add(section.rewardTileId)
+        runtime.statusMessage = `tile-${section.rewardTileId}-unlocked`
+      } else {
+        runtime.statusMessage = `${sectionId}-completed`
+      }
+    }
+
+    this.statusMessage = runtime.statusMessage
+  }
+
+  private unlockSectionsForGoals(sectionId: string, goalIds: string[]): string[] {
+    const section = this.sectionById.get(sectionId)
+
+    if (!section || goalIds.length === 0) {
+      return []
+    }
+
+    const newlyUnlockedSections: string[] = []
+
+    for (const goalId of goalIds) {
       const goal = section.goals.find((candidate) => candidate.id === goalId)
 
       for (const unlockId of goal?.unlocks ?? []) {
@@ -2342,37 +2356,7 @@ class GraphboundApp {
       }
     }
 
-    runtime.solvedGoalIds = section.goals
-      .filter((goal) => this.completedGoals.has(`${sectionId}:${goal.id}`))
-      .map((goal) => goal.id)
-    runtime.animating = false
-    runtime.animatingGoalId = null
-    runtime.plotProgress = runtime.plotResult.hasVisiblePath ? 1 : 0
-    runtime.targetFillProgress = runtime.pendingGoalIds.length > 0 ? 1 : runtime.targetFillProgress
-    runtime.fuseProgress = runtime.pendingGoalIds.length > 0 ? 1 : runtime.fuseProgress
-    runtime.fuseCameraAnchorScreen = null
-
-    if (runtime.solvedGoalIds.length === section.goals.length && !this.completedSections.has(sectionId)) {
-      this.completedSections.add(sectionId)
-
-      if (section.rewardTileId) {
-        this.unlockedTiles.add(section.rewardTileId)
-        runtime.statusMessage = `tile-${section.rewardTileId}-unlocked`
-      } else {
-        runtime.statusMessage = `${sectionId}-completed`
-      }
-    }
-
-    if (newlyUnlockedSections.length > 0) {
-      const nextSectionId = newlyUnlockedSections[0]
-      this.centerCameraOn(nextSectionId, true, CAMERA_DELAY_MS)
-      runtime.statusMessage = `unlock-${nextSectionId}`
-      this.statusMessage = runtime.statusMessage
-      this.ensureAnimation()
-      return
-    }
-
-    this.statusMessage = runtime.statusMessage
+    return newlyUnlockedSections
   }
 
   private setSelectedTile(tileId: TileId | null): void {
@@ -2541,6 +2525,7 @@ class GraphboundApp {
       }
 
       if (runtime.animatingGoalId && runtime.targetFillProgress < 1) {
+        const wasFilling = runtime.targetFillProgress < 1
         runtime.targetFillProgress = clamp(
           runtime.targetFillProgress + deltaMs / TARGET_FILL_DURATION_MS,
           0,
@@ -2549,6 +2534,16 @@ class GraphboundApp {
         keepGoing = true
 
         if (runtime.targetFillProgress < 1) {
+          continue
+        }
+
+        const newlyUnlockedSections = this.unlockSectionsForGoals(section.id, [runtime.animatingGoalId])
+        if (newlyUnlockedSections.length > 0) {
+          runtime.statusMessage = `unlock-${newlyUnlockedSections[0]}`
+          this.statusMessage = runtime.statusMessage
+        }
+
+        if (wasFilling) {
           continue
         }
       }

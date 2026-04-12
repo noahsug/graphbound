@@ -176,3 +176,5 @@ Original prompt: Create a GitHub repo for this web game project, write a detaile
 - Moved dashed unlock paths so they start just outside the current graph edge and end just outside the next graph edge, instead of appearing to grow out of the target shape or into the next graph.
 - Lightened the locked black-and-white target shapes so unreached goals stay visible from the opening view without competing as strongly with unlocked colored targets.
 - Reworked dashed unlock routing to follow the line between graph centers, with the visible path clipped to begin and end just outside each graph body instead of hugging the top edge or attaching to interior graph anchors.
+- Removed the old post-route camera tween and changed dashed unlock travel to use the same progress value for both line reveal and camera pan, so the camera now travels with the dashed path instead of waiting for a second “scroll to next graph” pass afterward.
+- Split the target-fill and dashed-route phases more cleanly so the filled target gets its own animation beat before the dashed route starts advancing.
