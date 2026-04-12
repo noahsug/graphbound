@@ -38,6 +38,7 @@ const SHADOW = 'rgba(75, 60, 44, 0.12)'
 const CAMERA_DURATION_MS = 880
 const FUSE_DURATION_MS = 560
 const TARGET_FILL_DURATION_MS = 220
+const UNLOCK_CAMERA_DURATION_MULTIPLIER = 1.7
 const SECTION_REVEAL_DURATION_MS = 1160
 const DOG_PET_MS = 1200
 const PAN_DRAG_THRESHOLD = 7
@@ -670,6 +671,7 @@ class GraphboundApp {
         plotProgress: 0,
         targetFillProgress: 0,
         fuseProgress: 0,
+        fuseCameraProgress: 0,
         fuseCameraFrom: null,
         fuseCameraTo: null,
         animating: false,
@@ -739,6 +741,7 @@ class GraphboundApp {
     runtime.plotProgress = 0
     runtime.targetFillProgress = 0
     runtime.fuseProgress = 0
+    runtime.fuseCameraProgress = 0
     runtime.fuseCameraFrom = null
     runtime.fuseCameraTo = null
     runtime.animating = false
@@ -884,6 +887,7 @@ class GraphboundApp {
     runtime.plotProgress = runtime.plotResult?.hasVisiblePath ? 1 : 0
     runtime.targetFillProgress = runtime.plotResult?.achievedGoalIds.length ? 1 : 0
     runtime.fuseProgress = runtime.plotResult?.achievedGoalIds.length ? 1 : 0
+    runtime.fuseCameraProgress = runtime.plotResult?.achievedGoalIds.length ? 1 : 0
     runtime.animating = false
     runtime.animatingGoalId = null
     runtime.pendingGoalIds = []
@@ -2249,6 +2253,7 @@ class GraphboundApp {
       null
     runtime.targetFillProgress = 0
     runtime.fuseProgress = 0
+    runtime.fuseCameraProgress = 0
     runtime.fuseCameraFrom = null
     runtime.fuseCameraTo = null
 
@@ -2278,6 +2283,7 @@ class GraphboundApp {
     runtime.plotProgress = animated ? 0 : 1
     runtime.targetFillProgress = !animated && runtime.animatingGoalId ? 1 : 0
     runtime.fuseProgress = !animated && runtime.animatingGoalId ? 1 : 0
+    runtime.fuseCameraProgress = !animated && runtime.animatingGoalId ? 1 : 0
     runtime.animating = animated
     runtime.statusMessage =
       runtime.animatingGoalId || result.achievedGoalIds.length > 0 ? 'goal-lined-up' : 'line-drawn'
@@ -2314,6 +2320,7 @@ class GraphboundApp {
     runtime.plotProgress = runtime.plotResult.hasVisiblePath ? 1 : 0
     runtime.targetFillProgress = runtime.pendingGoalIds.length > 0 ? 1 : runtime.targetFillProgress
     runtime.fuseProgress = runtime.pendingGoalIds.length > 0 ? 1 : runtime.fuseProgress
+    runtime.fuseCameraProgress = runtime.pendingGoalIds.length > 0 ? 1 : runtime.fuseCameraProgress
     runtime.fuseCameraFrom = null
     runtime.fuseCameraTo = null
 
@@ -2546,16 +2553,33 @@ class GraphboundApp {
         }
       }
 
-      if (runtime.animatingGoalId && runtime.fuseProgress < 1) {
+      if (runtime.animatingGoalId && (runtime.fuseProgress < 1 || runtime.fuseCameraProgress < 1)) {
         const goal = section.goals.find((candidate) => candidate.id === runtime.animatingGoalId)
         const route = goal ? this.goalConnectionPoints(section.id, goal) : []
         const durationMs =
           route.length > 1 ? this.connectorDurationMs(section.id, route) : FUSE_DURATION_MS
-        runtime.fuseProgress = clamp(runtime.fuseProgress + deltaMs / durationMs, 0, 1)
-        this.followAnimatingGoalCamera(section.id, runtime.animatingGoalId, runtime.fuseProgress)
-        keepGoing = true
 
         if (runtime.fuseProgress < 1) {
+          runtime.fuseProgress = clamp(runtime.fuseProgress + deltaMs / durationMs, 0, 1)
+        }
+
+        if (runtime.fuseCameraProgress < 1) {
+          const cameraDurationMs = durationMs * UNLOCK_CAMERA_DURATION_MULTIPLIER
+          runtime.fuseCameraProgress = clamp(
+            runtime.fuseCameraProgress + deltaMs / cameraDurationMs,
+            0,
+            1,
+          )
+        }
+
+        this.followAnimatingGoalCamera(
+          section.id,
+          runtime.animatingGoalId,
+          runtime.fuseCameraProgress,
+        )
+        keepGoing = true
+
+        if (runtime.fuseProgress < 1 || runtime.fuseCameraProgress < 1) {
           continue
         }
       }
