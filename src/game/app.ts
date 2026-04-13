@@ -2065,6 +2065,31 @@ class GraphboundApp {
     return this.compatibleSlotsForSection(this.activeSectionId, tileId)
   }
 
+  private nearestOverlappingOpenSlot(tileId: TileId, tileRect: Rect): string | null {
+    const tileCenter = this.rectCenter(tileRect)
+    let bestSlotId: string | null = null
+    let bestDistance = Number.POSITIVE_INFINITY
+
+    for (const slotId of this.compatibleSlots(tileId)) {
+      if (this.activeRuntime.placements[slotId]) {
+        continue
+      }
+
+      const rect = this.slotRect(slotId)
+      if (!rect || !rectsIntersect(tileRect, rect)) {
+        continue
+      }
+
+      const distanceToSlot = distanceBetween(tileCenter, this.rectCenter(rect))
+      if (distanceToSlot < bestDistance) {
+        bestDistance = distanceToSlot
+        bestSlotId = slotId
+      }
+    }
+
+    return bestSlotId
+  }
+
   private goalColor(sectionId: string, goal: GoalDefinition | string | null): string {
     const resolvedGoal =
       typeof goal === 'string'
@@ -3167,11 +3192,8 @@ class GraphboundApp {
     }
 
     if (this.drag.kind === 'tile') {
-      const dragCenter = this.rectCenter(this.draggedTileRect(this.drag))
-      const targetSlot = this.compatibleSlots(this.drag.tileId).find((slotId) => {
-        const rect = this.slotRect(slotId)
-        return rect ? pointInRect(dragCenter, rect) : false
-      })
+      const draggedRect = this.draggedTileRect(this.drag)
+      const targetSlot = this.nearestOverlappingOpenSlot(this.drag.tileId, draggedRect)
 
       if (this.drag.dragging) {
         if (targetSlot) {
