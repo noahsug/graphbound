@@ -158,6 +158,8 @@ function formatDisplayExpression(tokens: ResolvedToken[]): string {
     .replace(/\|\s+/g, '|')
     .replace(/\s+\|/g, '|')
     .replace(/sin \(/g, 'sin(')
+    .replace(/cos \(/g, 'cos(')
+    .replace(/ln \(/g, 'ln(')
     .replace(/log_([^\s]+) \(/g, 'log_$1(')
     .replace(/\s+\/\s+/g, ' / ')
 }
@@ -190,8 +192,75 @@ function isPrimaryToken(token: ResolvedToken | undefined): boolean {
     token.text === 'x²' ||
     token.text === '(' ||
     token.text === 'sin' ||
-    token.text === 'log'
+    token.text === 'cos' ||
+    token.text === 'ln' ||
+    token.text === 'log' ||
+    token.text === 'e' ||
+    token.text === 'π' ||
+    token.text === 'pi'
   )
+}
+
+function splitPiecewiseSegments(tokens: ResolvedToken[]): ResolvedToken[][] {
+  const segments: ResolvedToken[][] = [[]]
+
+  for (const token of tokens) {
+    if (token.style === 'normal' && token.text === ';') {
+      segments.push([])
+      continue
+    }
+
+    segments[segments.length - 1].push(token)
+  }
+
+  return segments.filter((segment) => segment.length > 0)
+}
+
+function parsePiecewiseCondition(tokens: ResolvedToken[]): string {
+  const text = tokens
+    .map((token) => token.text)
+    .join('')
+    .replace(/Θ/g, 'theta')
+    .replace(/θ/g, 'theta')
+
+  const match = text.match(/^(x|theta)(<=|>=|<|>)(-?(?:\d+(?:\.\d+)?|pi|π))$/i)
+  if (!match) {
+    throw new Error(`Unsupported piecewise condition: ${text}`)
+  }
+
+  const variable = match[1].toLowerCase() === 'theta' ? 'theta' : 'x'
+  const operator = match[2]
+  const rawValue = match[3].toLowerCase()
+  const value = rawValue === 'pi' || rawValue === 'π' ? 'Math.PI' : rawValue
+
+  return `(${variable} ${operator} ${value})`
+}
+
+function buildPiecewiseExpression(tokens: ResolvedToken[]): string {
+  const segments = splitPiecewiseSegments(tokens)
+
+  if (segments.length < 2) {
+    throw new Error('Piecewise equations need at least two branches')
+  }
+
+  const branches = segments.map((segment) => {
+    const forIndex = segment.findIndex((token) => token.style === 'normal' && token.text === 'for')
+    if (forIndex <= 0 || forIndex >= segment.length - 1) {
+      throw new Error('Each piecewise branch must be written as expression for condition')
+    }
+
+    const expression = new TokenParser(segment.slice(0, forIndex)).parseExpression()
+    const condition = parsePiecewiseCondition(segment.slice(forIndex + 1))
+    return { expression, condition }
+  })
+
+  let expression = 'NaN'
+
+  for (let index = branches.length - 1; index >= 0; index -= 1) {
+    expression = `((${branches[index].condition}) ? (${branches[index].expression}) : (${expression}))`
+  }
+
+  return expression
 }
 
 class TokenParser {
@@ -338,6 +407,20 @@ class TokenParser {
       return `Math.sin(${expression})`
     }
 
+    if (this.matchNormal('cos')) {
+      this.expectNormal('(')
+      const expression = this.parseAdditive()
+      this.expectNormal(')')
+      return `Math.cos(${expression})`
+    }
+
+    if (this.matchNormal('ln')) {
+      this.expectNormal('(')
+      const expression = this.parseAdditive()
+      this.expectNormal(')')
+      return `Math.log(${expression})`
+    }
+
     if (this.matchNormal('log')) {
       let base = '10'
       if (this.current()?.style === 'subscript') {
@@ -362,6 +445,16 @@ class TokenParser {
     if (token.text === 'x²') {
       this.consume()
       return '(x * x)'
+    }
+
+    if (token.text === 'e') {
+      this.consume()
+      return 'Math.E'
+    }
+
+    if (token.text === 'π' || token.text === 'pi') {
+      this.consume()
+      return 'Math.PI'
     }
 
     if (isNumberText(token.text)) {
@@ -424,6 +517,10 @@ function buildExpressionString(
   }
 
   try {
+    if (tokens.some((token) => token.style === 'normal' && (token.text === 'for' || token.text === ';'))) {
+      return buildPiecewiseExpression(tokens)
+    }
+
     return new TokenParser(tokens).parseExpression()
   } catch {
     return null
