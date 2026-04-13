@@ -684,6 +684,7 @@ class GraphboundApp {
     window.advanceTime = (ms: number) => this.advanceTime(ms)
     window.__graphbound_debug = {
       focusSection: (sectionId: string) => this.focusSection(sectionId, true, false),
+      selectTile: (tileId: TileId | null) => this.setSelectedTile(tileId),
       placeTile: (tileId: TileId, slotId: string) => this.debugPlaceTile(tileId, slotId),
       animatePlaceTile: (tileId: TileId, slotId: string) => this.debugAnimatePlaceTile(tileId, slotId),
       startAtLevel: (levelNumber: number) => this.debugStartAtLevel(levelNumber),
@@ -2026,10 +2027,20 @@ class GraphboundApp {
     }
   }
 
-  private compatibleSlots(tileId: TileId): string[] {
-    return this.activeSection.slots
+  private compatibleSlotsForSection(sectionId: string, tileId: TileId): string[] {
+    const section = this.sectionById.get(sectionId)
+
+    if (!section) {
+      return []
+    }
+
+    return section.slots
       .filter((slot) => slot.allowedTiles.includes(tileId))
       .map((slot) => slot.id)
+  }
+
+  private compatibleSlots(tileId: TileId): string[] {
+    return this.compatibleSlotsForSection(this.activeSectionId, tileId)
   }
 
   private goalColor(sectionId: string, goal: GoalDefinition | string | null): string {
@@ -4484,18 +4495,24 @@ class GraphboundApp {
 
   private drawEquationSlotPlaceholder(
     rect: Rect,
-    active: boolean,
+    state: 'normal' | 'compatible' | 'disabled',
     seedKey: string,
   ): void {
-    void active
     void seedKey
 
     const radius = rect.width * 0.22
 
     this.context.save()
-    this.context.strokeStyle = INK
-    this.context.lineWidth = Math.max(1.3, this.layout.worldScale * 1.5)
+    this.context.strokeStyle =
+      state === 'disabled' ? 'rgba(45, 38, 32, 0.25)' : state === 'compatible' ? INK : 'rgba(45, 38, 32, 0.72)'
+    this.context.lineWidth =
+      state === 'compatible'
+        ? Math.max(1.45, this.layout.worldScale * 1.7)
+        : Math.max(1.2, this.layout.worldScale * 1.35)
     this.context.setLineDash([6 * this.layout.worldScale, 4 * this.layout.worldScale])
+    if (state === 'disabled') {
+      fillRoundedRect(this.context, rect, radius, 'rgba(45, 38, 32, 0.06)')
+    }
     roundRectPath(this.context, rect, radius)
     this.context.stroke()
     this.context.restore()
@@ -4567,7 +4584,6 @@ class GraphboundApp {
     const scaleX = board.width / visual.boardWidth
     const scaleY = board.height / visual.boardHeight
     const scale = Math.min(scaleX, scaleY)
-    const active = sectionId === this.activeSectionId
     const reveal = easeOutCubic(this.sectionReveal(sectionId))
     const yAxisReveal = this.sectionRevealPhase(sectionId, 0.02, 0.34)
     const xAxisReveal = this.sectionRevealPhase(sectionId, 0.12, 0.46)
@@ -4700,9 +4716,10 @@ class GraphboundApp {
         : this.layout.width * 0.32
     const equationY = this.equationCenterY(sectionId)
     const activeTileId =
-      active && (this.drag?.kind === 'tile' ? this.drag.tileId : this.selectedTileId)
-        ? (this.drag?.kind === 'tile' ? this.drag.tileId : this.selectedTileId)
-        : null
+      this.drag?.kind === 'tile' ? this.drag.tileId : this.selectedTileId
+    const compatibleSlotIds = activeTileId
+      ? this.compatibleSlotsForSection(sectionId, activeTileId as TileId)
+      : []
 
     this.context.save()
     this.context.globalAlpha = equationReveal
@@ -4724,9 +4741,14 @@ class GraphboundApp {
       }
 
       const placedTileId = runtime.placements[token.part.slotId]
-      const compatible =
-        !placedTileId &&
-        (!activeTileId || this.compatibleSlots(activeTileId as TileId).includes(token.part.slotId))
+      const slotState: 'normal' | 'compatible' | 'disabled' =
+        placedTileId
+          ? 'normal'
+          : !activeTileId
+            ? 'normal'
+            : compatibleSlotIds.includes(token.part.slotId)
+              ? 'compatible'
+              : 'disabled'
 
       if (placedTileId) {
         this.drawTile(
@@ -4745,7 +4767,7 @@ class GraphboundApp {
 
       this.drawEquationSlotPlaceholder(
         token.rect,
-        compatible,
+        slotState,
         `slot:${sectionId}:${token.part.slotId}`,
       )
     }
@@ -4910,6 +4932,7 @@ declare global {
     render_game_to_text: () => string
     __graphbound_debug: {
       focusSection: (sectionId: string) => void
+      selectTile: (tileId: TileId | null) => void
       placeTile: (tileId: TileId, slotId: string) => void
       animatePlaceTile: (tileId: TileId, slotId: string) => void
       startAtLevel: (levelNumber: number) => void
