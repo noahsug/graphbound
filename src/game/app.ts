@@ -140,8 +140,9 @@ function resolveAxes(axes: GraphAxes | undefined): GraphAxes {
 
 function resolveVisual(
   visual: SectionVisualDefinition | undefined,
+  axes: GraphAxes,
 ): Required<SectionVisualDefinition> {
-  return {
+  const base = {
     terrainWidth: visual?.terrainWidth ?? DEFAULT_SECTION_VISUAL.terrainWidth,
     terrainHeight: visual?.terrainHeight ?? DEFAULT_SECTION_VISUAL.terrainHeight,
     boardX: visual?.boardX ?? DEFAULT_SECTION_VISUAL.boardX,
@@ -156,14 +157,44 @@ function resolveVisual(
     slotSize: visual?.slotSize ?? DEFAULT_SECTION_VISUAL.slotSize,
     tokenGap: visual?.tokenGap ?? DEFAULT_SECTION_VISUAL.tokenGap,
   }
+
+  const graphWidth = axisRange(axes.x) * GRAPH_UNIT_WORLD_X
+  const graphHeight = axisRange(axes.y) * GRAPH_UNIT_WORLD_Y
+  const boardLeft = base.graphX
+  const boardRight = Math.max(0, base.boardWidth - base.graphX - base.graphWidth)
+  const boardTop = base.graphY
+  const boardBottom = Math.max(0, base.boardHeight - base.graphY - base.graphHeight)
+  const boardWidth = boardLeft + graphWidth + boardRight
+  const boardHeight = boardTop + graphHeight + boardBottom
+  const terrainLeft = base.boardX
+  const terrainRight = Math.max(0, base.terrainWidth - base.boardX - base.boardWidth)
+  const terrainTop = base.boardY
+  const terrainBottom = Math.max(0, base.terrainHeight - base.boardY - base.boardHeight)
+  const equationGap = Math.max(0, base.equationY - (base.graphY + base.graphHeight))
+
+  return {
+    terrainWidth: terrainLeft + boardWidth + terrainRight,
+    terrainHeight: terrainTop + boardHeight + terrainBottom,
+    boardX: base.boardX,
+    boardY: base.boardY,
+    boardWidth,
+    boardHeight,
+    graphX: base.graphX,
+    graphY: base.graphY,
+    graphWidth,
+    graphHeight,
+    equationY: base.graphY + graphHeight + equationGap,
+    slotSize: base.slotSize,
+    tokenGap: base.tokenGap,
+  }
 }
 
 function axisRange(axis: AxisDefinition): number {
   return Math.max(0.001, axis.max - axis.min)
 }
 
-const GRAPH_UNIT_WORLD_X = DEFAULT_SECTION_VISUAL.graphWidth / axisRange(DEFAULT_AXES.x)
-const GRAPH_UNIT_WORLD_Y = DEFAULT_SECTION_VISUAL.graphHeight / axisRange(DEFAULT_AXES.y)
+const GRAPH_UNIT_WORLD_X = 30
+const GRAPH_UNIT_WORLD_Y = 30
 
 function axisTicks(axis: AxisDefinition): number[] {
   const step = Math.max(0.1, axis.tickStep ?? 1)
@@ -1007,7 +1038,10 @@ class GraphboundApp {
   }
 
   private sectionVisual(sectionId: string): Required<SectionVisualDefinition> {
-    return resolveVisual(this.sectionById.get(sectionId)?.visual)
+    return resolveVisual(
+      this.sectionById.get(sectionId)?.visual,
+      this.sectionAxes(sectionId),
+    )
   }
 
   private worldToScreen(point: Point): Point {
@@ -1033,10 +1067,10 @@ class GraphboundApp {
   }
 
   private graphWorldSize(sectionId: string): { width: number; height: number } {
-    const axes = this.sectionAxes(sectionId)
+    const visual = this.sectionVisual(sectionId)
     return {
-      width: axisRange(axes.x) * GRAPH_UNIT_WORLD_X,
-      height: axisRange(axes.y) * GRAPH_UNIT_WORLD_Y,
+      width: visual.graphWidth,
+      height: visual.graphHeight,
     }
   }
 
