@@ -600,7 +600,7 @@ function mixColors(start: string, end: string, progress: number, alpha = 1): str
 }
 
 function createLayout(width: number, height: number, zoomLevel = 1): Layout {
-  const tileSize = clamp(Math.min(width, height) * 0.099, 52, 76)
+  const tileSize = clamp(Math.min(width, height) * 0.0792, 42, 61)
   const trayY = height - tileSize - clamp(height * 0.04, 18, 30)
   const minimumScale = width < 720 ? 1.04 : 0.9
   const baseWorldScale = clamp(Math.min(width / 1280, height / 900) * 1.55, minimumScale, 1.82)

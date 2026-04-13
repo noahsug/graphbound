@@ -331,3 +331,6 @@ Original prompt: Create a GitHub repo for this web game project, write a detaile
 - Increased the size of placed equation tiles so they now match the dashed placeholder footprint much more closely instead of shrinking noticeably once dropped into a slot.
 - Nudged the standard `y =` / `r =` prefix spacing a few pixels wider, which moves the first slot slightly right and prevents the placed tile from crowding or overlapping the `=` sign.
 - Verified the slot sizing and prefix spacing with `npm run build`, the required Playwright client at `output/web-game/equation-slot-size-client/shot-0.png`, and direct before/after slot captures at `output/web-game/equation-slot-size-direct/empty-slot.png` and `output/web-game/equation-slot-size-direct/filled-slot.png`.
+- Shrunk the bottom tray tiles to about 80% of their previous size by reducing the shared tray tile size in the responsive layout calculation.
+- Kept the wrap behavior intact, so the smaller tiles still center correctly and continue stacking into multiple rows on narrow or inventory-heavy screens.
+- Verified the new tray scale with `npm run build`, the required Playwright client at `output/web-game/smaller-tray-client-level1/shot-0.png` and `output/web-game/smaller-tray-client-level30/shot-0.png`.
