@@ -1343,6 +1343,16 @@ class GraphboundApp {
     return [...this.unlockedTiles]
   }
 
+  private sectionAlreadyUsesTile(sectionId: string, tileId: TileId): boolean {
+    const runtime = this.sectionRuntimes.get(sectionId)
+
+    if (!runtime) {
+      return false
+    }
+
+    return Object.values(runtime.placements).some((placedTileId) => placedTileId === tileId)
+  }
+
   private tileAllowedForSection(sectionId: string, tileId: TileId): boolean {
     const section = this.sectionById.get(sectionId)
 
@@ -2083,7 +2093,11 @@ class GraphboundApp {
   private compatibleSlotsForSection(sectionId: string, tileId: TileId): string[] {
     const section = this.sectionById.get(sectionId)
 
-    if (!section || !this.tileAllowedForSection(sectionId, tileId)) {
+    if (
+      !section ||
+      !this.tileAllowedForSection(sectionId, tileId) ||
+      this.sectionAlreadyUsesTile(sectionId, tileId)
+    ) {
       return []
     }
 
@@ -2785,7 +2799,11 @@ class GraphboundApp {
   private placeTileInSlot(tileId: TileId, slotId: string, animated: boolean): void {
     const slot = this.activeSection.slots.find((candidate) => candidate.id === slotId)
 
-    if (!slot || !this.tileAllowedForSection(this.activeSectionId, tileId)) {
+    if (
+      !slot ||
+      !this.tileAllowedForSection(this.activeSectionId, tileId) ||
+      this.sectionAlreadyUsesTile(this.activeSectionId, tileId)
+    ) {
       return
     }
 
