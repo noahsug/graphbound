@@ -64,6 +64,19 @@ const LOCKED_GOAL_MIN_ALPHA = 0.08
 const LOCKED_GOAL_MAX_ALPHA = 0.38
 const SOLVED_GOAL_ALPHA = 0.52
 const SOLVED_GOAL_LIGHTEN = 0.64
+const EQUATION_FONT_SIZE = 23
+const EQUATION_TOKEN_SIZE = 38
+const EQUATION_PREFIX_WIDTH_Y = 34
+const EQUATION_PREFIX_WIDTH_R = 28
+const EQUATION_GAP = 10
+const EQUATION_PAREN_GAP = 4
+const EQUATION_SUPERSCRIPT_OVERLAP = -4
+const MAJOR_TICK_SIZE = 12
+const MINOR_TICK_SIZE = 6
+const TICK_STROKE_WIDTH = 1.55
+const GOAL_GUIDE_MAJOR_TICK_SIZE = 16
+const GOAL_GUIDE_MINOR_TICK_SIZE = 10
+const GOAL_GUIDE_LABEL_SIZE = 14
 
 type RoughCanvas = ReturnType<typeof rough.canvas>
 
@@ -1675,7 +1688,7 @@ class GraphboundApp {
     const graph = this.graphRect(sectionId)
     const visual = this.sectionVisual(sectionId)
     const scale = this.boardScale(sectionId)
-    const tokenSize = visual.slotSize * scale
+    const tokenSize = EQUATION_TOKEN_SIZE * this.layout.worldScale
     const gapBelowGraph = Math.max(0, visual.equationY - (visual.graphY + visual.graphHeight))
     const desiredBelow = graph.y + graph.height + gapBelowGraph * scale + 1
     const minimumBelow = graph.y + graph.height + tokenSize * 0.82
@@ -1715,10 +1728,14 @@ class GraphboundApp {
   }
 
   private equationPrefixWidth(sectionId: string, scale: number): number {
+    void scale
     if (this.usesCustomEquationDisplay(sectionId)) {
       return 0
     }
-    return this.equationPrefix(sectionId) === 'r' ? 28 * scale : 34 * scale
+    return (
+      (this.equationPrefix(sectionId) === 'r' ? EQUATION_PREFIX_WIDTH_R : EQUATION_PREFIX_WIDTH_Y) *
+      this.layout.worldScale
+    )
   }
 
   private equationPartMetrics(
@@ -1726,15 +1743,17 @@ class GraphboundApp {
     scale: number,
     tokenSize: number,
   ): { width: number; height: number; yOffset: number } {
+    void scale
     const style = part.displayStyle ?? 'normal'
     const value = part.type === 'fixed' ? part.value : '_'
+    const fontSize = EQUATION_FONT_SIZE * this.layout.worldScale
 
     if (style === 'superscript') {
       return {
         width:
           part.type === 'slot'
             ? tokenSize * 0.82
-            : Math.max(18 * scale, Math.min(tokenSize * 0.58, value.length * 18 * scale)),
+            : Math.max(fontSize * 0.9, Math.min(tokenSize * 0.72, value.length * fontSize * 0.9)),
         height: tokenSize,
         yOffset: -tokenSize * 0.34,
       }
@@ -1745,7 +1764,7 @@ class GraphboundApp {
         width:
           part.type === 'slot'
             ? tokenSize * 0.82
-            : Math.max(18 * scale, Math.min(tokenSize * 0.58, value.length * 18 * scale)),
+            : Math.max(fontSize * 0.9, Math.min(tokenSize * 0.72, value.length * fontSize * 0.9)),
         height: tokenSize,
         yOffset: tokenSize * 0.26,
       }
@@ -1757,7 +1776,7 @@ class GraphboundApp {
 
     if (value === '+' || value === '-' || value === '/' || value === '(' || value === ')' || value === '|') {
       return {
-        width: Math.max(14 * scale, tokenSize * 0.26),
+        width: Math.max(fontSize * 0.7, tokenSize * 0.26),
         height: tokenSize,
         yOffset: 0,
       }
@@ -1765,34 +1784,35 @@ class GraphboundApp {
 
     if (value === 'sin' || value === 'log') {
       return {
-        width: Math.max(28 * scale, Math.min(tokenSize * 0.74, value.length * 14 * scale)),
+        width: Math.max(fontSize * 1.35, Math.min(tokenSize * 1.22, value.length * fontSize * 0.7)),
         height: tokenSize,
         yOffset: 0,
       }
     }
 
     return {
-      width: Math.max(18 * scale, Math.min(tokenSize * 0.52, value.length * 18 * scale)),
+      width: Math.max(fontSize * 0.9, Math.min(tokenSize * 0.82, value.length * fontSize * 0.9)),
       height: tokenSize,
       yOffset: 0,
     }
   }
 
   private equationGapBetween(previous: EquationPart | null, next: EquationPart, scale: number): number {
+    void scale
     const nextStyle = next.displayStyle ?? 'normal'
 
     if (nextStyle === 'superscript' || nextStyle === 'subscript') {
-      return -4 * scale
+      return EQUATION_SUPERSCRIPT_OVERLAP * this.layout.worldScale
     }
 
     const previousValue = previous?.type === 'fixed' ? previous.value : null
     const nextValue = next.type === 'fixed' ? next.value : null
 
     if (nextValue === ')' || nextValue === '|' || previousValue === '(' || previousValue === '|') {
-      return 4 * scale
+      return EQUATION_PAREN_GAP * this.layout.worldScale
     }
 
-    return 10 * scale
+    return EQUATION_GAP * this.layout.worldScale
   }
 
   private equationConnectorCollision(sectionId: string, rect: Rect): boolean {
@@ -1890,7 +1910,7 @@ class GraphboundApp {
     const scale = this.boardScale(sectionId)
     const prefixWidth = this.equationPrefixWidth(sectionId, scale)
     const equationY = this.equationCenterY(sectionId)
-    const tokenSize = this.sectionVisual(sectionId).slotSize * scale
+    const tokenSize = EQUATION_TOKEN_SIZE * this.layout.worldScale
     const first = tokenLayouts[0]
     const last = tokenLayouts[tokenLayouts.length - 1]
     const rect = {
@@ -1964,9 +1984,8 @@ class GraphboundApp {
 
     const equationParts = this.equationDisplayParts(sectionId)
     const rect = this.boardRect(sectionId)
-    const visual = this.sectionVisual(sectionId)
     const scale = this.boardScale(sectionId)
-    const tokenSize = visual.slotSize * scale
+    const tokenSize = EQUATION_TOKEN_SIZE * this.layout.worldScale
     const prefixWidth = this.equationPrefixWidth(sectionId, scale)
     const tokenMetrics = equationParts.map((part) => this.equationPartMetrics(part, scale, tokenSize))
     const totalWidth = prefixWidth + tokenMetrics.reduce((sum, metrics, index) => {
@@ -2288,13 +2307,14 @@ class GraphboundApp {
     yAxisX: number,
     scale: number,
   ): void {
+    void scale
     const point = this.goalTargetPoint(sectionId, goal)
     const color = this.goalColor(sectionId, goal)
     const labelColor = mixColors(color, INK, 0.22, 0.96)
     const x = this.graphValueToScreenX(sectionId, point.x)
     const y = this.graphValueToScreenY(sectionId, point.y)
-    const majorTick = 16 * scale
-    const minorTick = 10 * scale
+    const majorTick = GOAL_GUIDE_MAJOR_TICK_SIZE * this.layout.worldScale
+    const minorTick = GOAL_GUIDE_MINOR_TICK_SIZE * this.layout.worldScale
     const xLabel = this.formatGoalAxisLabel(point.x)
     const yLabel = this.formatGoalAxisLabel(point.y)
 
@@ -2305,7 +2325,7 @@ class GraphboundApp {
       xAxisY + majorTick / 2,
       seeded(`goal-guide:${sectionId}:${goal.id}:x`, {
         stroke: color,
-        strokeWidth: Math.max(1.8, 2.2 * scale),
+        strokeWidth: Math.max(1.8, 2.2 * this.layout.worldScale),
         roughness: 0.65,
         bowing: 0.4,
       }),
@@ -2318,7 +2338,7 @@ class GraphboundApp {
       y,
       seeded(`goal-guide:${sectionId}:${goal.id}:y`, {
         stroke: color,
-        strokeWidth: Math.max(1.8, 2.2 * scale),
+        strokeWidth: Math.max(1.8, 2.2 * this.layout.worldScale),
         roughness: 0.65,
         bowing: 0.4,
       }),
@@ -2326,7 +2346,7 @@ class GraphboundApp {
 
     this.context.save()
     this.context.fillStyle = labelColor
-    this.context.font = `${Math.round(14 * scale)}px 'Short Stack', cursive`
+    this.context.font = `${Math.round(GOAL_GUIDE_LABEL_SIZE * this.layout.worldScale)}px 'Short Stack', cursive`
     this.context.textBaseline = 'top'
     this.context.textAlign = 'center'
     this.context.fillText(xLabel, x, xAxisY + majorTick * 0.7)
@@ -4773,7 +4793,8 @@ class GraphboundApp {
         continue
       }
       const x = this.graphValueToScreenX(sectionId, tick)
-      const tickSize = isMajorTick(tick, axes.x) ? 12 * scale : 6 * scale
+      const tickSize =
+        (isMajorTick(tick, axes.x) ? MAJOR_TICK_SIZE : MINOR_TICK_SIZE) * this.layout.worldScale
       this.roughCanvas.line(
         x,
         xAxisY - tickSize / 2,
@@ -4781,7 +4802,7 @@ class GraphboundApp {
         xAxisY + tickSize / 2,
         seeded(`tick:${sectionId}:x:${tick}`, {
           stroke: AXIS,
-          strokeWidth: Math.max(1.2, 1.55 * scale),
+          strokeWidth: Math.max(1.2, TICK_STROKE_WIDTH * this.layout.worldScale),
           roughness: 0.7,
           bowing: 0.4,
         }),
@@ -4794,7 +4815,8 @@ class GraphboundApp {
         continue
       }
       const y = this.graphValueToScreenY(sectionId, tick)
-      const tickSize = isMajorTick(tick, axes.y) ? 12 * scale : 6 * scale
+      const tickSize =
+        (isMajorTick(tick, axes.y) ? MAJOR_TICK_SIZE : MINOR_TICK_SIZE) * this.layout.worldScale
       this.roughCanvas.line(
         yAxisX - tickSize / 2,
         y,
@@ -4802,7 +4824,7 @@ class GraphboundApp {
         y,
         seeded(`tick:${sectionId}:y:${tick}`, {
           stroke: AXIS,
-          strokeWidth: Math.max(1.2, 1.55 * scale),
+          strokeWidth: Math.max(1.2, TICK_STROKE_WIDTH * this.layout.worldScale),
           roughness: 0.7,
           bowing: 0.4,
         }),
@@ -4856,7 +4878,7 @@ class GraphboundApp {
     this.context.save()
     this.context.globalAlpha = equationReveal
     this.context.fillStyle = INK
-    this.context.font = `${Math.round(19 * scale)}px 'Short Stack', cursive`
+    this.context.font = `${Math.round(EQUATION_FONT_SIZE * this.layout.worldScale)}px 'Short Stack', cursive`
     this.context.textBaseline = 'middle'
     if (!this.usesCustomEquationDisplay(sectionId)) {
       this.context.fillText(`${this.equationPrefix(sectionId)} =`, prefixX, equationY)
@@ -4864,7 +4886,7 @@ class GraphboundApp {
 
     for (const token of tokenLayouts) {
       if (token.part.type === 'fixed') {
-        const fontSize = Math.round(19 * scale)
+        const fontSize = Math.round(EQUATION_FONT_SIZE * this.layout.worldScale)
         this.context.font = `${fontSize}px 'Short Stack', cursive`
         this.context.fillText(
           token.part.value,
