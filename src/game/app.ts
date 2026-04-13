@@ -1398,7 +1398,10 @@ class GraphboundApp {
     ignoredSlotIds: string[] = [],
     placementsOverride?: Record<string, TileId | null>,
   ): boolean {
-    if (!this.tileAllowedForSection(sectionId, tileId) || !this.slotAllowsTile(sectionId, slotId, tileId)) {
+    if (
+      !this.tileAllowedForSection(sectionId, tileId) ||
+      !this.slotAllowsTile(sectionId, slotId, tileId, placementsOverride)
+    ) {
       return false
     }
 
@@ -1431,11 +1434,30 @@ class GraphboundApp {
     return TILE_DEFINITIONS[tileId].role === 'operator'
   }
 
-  private slotAllowsTile(sectionId: string, slotId: string, tileId: TileId): boolean {
-    if (!this.tileIsOperator(tileId)) {
-      return true
+  private equationPartValue(
+    sectionId: string,
+    part: EquationPart | undefined,
+    placementsOverride?: Record<string, TileId | null>,
+  ): string | null {
+    if (!part) {
+      return null
     }
 
+    if (part.type === 'fixed') {
+      return part.value
+    }
+
+    const placements = placementsOverride ?? this.sectionRuntimes.get(sectionId)?.placements
+    const tileId = placements?.[part.slotId]
+    return tileId ? TILE_DEFINITIONS[tileId].label : null
+  }
+
+  private slotAllowsTile(
+    sectionId: string,
+    slotId: string,
+    tileId: TileId,
+    placementsOverride?: Record<string, TileId | null>,
+  ): boolean {
     const parts = this.equationDisplayParts(sectionId)
     const slotIndex = parts.findIndex(
       (part) => part.type === 'slot' && part.slotId === slotId,
@@ -1445,7 +1467,25 @@ class GraphboundApp {
       return false
     }
 
-    return slotIndex < parts.length - 1
+    if (!this.tileIsOperator(tileId)) {
+      return true
+    }
+
+    if (slotIndex >= parts.length - 1) {
+      return false
+    }
+
+    const previousValue = this.equationPartValue(sectionId, parts[slotIndex - 1], placementsOverride)
+    const nextValue = this.equationPartValue(sectionId, parts[slotIndex + 1], placementsOverride)
+
+    if (
+      (tileId === '+' && (previousValue === '-' || nextValue === '-')) ||
+      (tileId === '-' && (previousValue === '+' || nextValue === '+'))
+    ) {
+      return false
+    }
+
+    return true
   }
 
   private setActiveSection(sectionId: string): void {
