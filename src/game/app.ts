@@ -31,7 +31,6 @@ const INK = '#2d2620'
 const AXIS = '#27211c'
 const PLOT_GLOW = 'rgba(45, 38, 32, 0.08)'
 const GOAL = '#c79d45'
-const LOCKED_GOAL = 'rgba(45, 38, 32, 0.38)'
 const GRASS_TOP = '#97e4a6'
 const CHALKBOARD_MID = '#f6eddf'
 const CHALK_DUST = 'rgba(120, 101, 79, 0.055)'
@@ -60,6 +59,9 @@ const MIN_PINCH_DISTANCE = 12
 const GOAL_GLOW_ZOOM_THRESHOLD = 0.42
 const GOAL_GLOW_MIN_ALPHA = 0.12
 const GOAL_GLOW_MAX_ALPHA = 0.32
+const LOCKED_GOAL_ZOOM_THRESHOLD = 0.5
+const LOCKED_GOAL_MIN_ALPHA = 0.08
+const LOCKED_GOAL_MAX_ALPHA = 0.38
 
 type RoughCanvas = ReturnType<typeof rough.canvas>
 
@@ -4565,6 +4567,15 @@ class GraphboundApp {
     return lerp(GOAL_GLOW_MIN_ALPHA, GOAL_GLOW_MAX_ALPHA, progress)
   }
 
+  private lockedGoalAlpha(): number {
+    if (this.zoomLevel >= LOCKED_GOAL_ZOOM_THRESHOLD) {
+      return LOCKED_GOAL_MAX_ALPHA
+    }
+
+    const progress = clamp(this.zoomLevel / LOCKED_GOAL_ZOOM_THRESHOLD, 0, 1)
+    return lerp(LOCKED_GOAL_MIN_ALPHA, LOCKED_GOAL_MAX_ALPHA, progress)
+  }
+
   private drawGoalGlow(sectionId: string, goal: GoalDefinition, color: string): void {
     const alpha = this.goalGlowAlpha()
 
@@ -4881,7 +4892,9 @@ class GraphboundApp {
         const solved = this.completedGoals.has(`${section.id}:${goal.id}`)
         const isAnimatingGoal = runtime?.animatingGoalId === goal.id
         const fillProgress = solved ? 1 : isAnimatingGoal ? (runtime?.targetFillProgress ?? 0) : 0
-        const color = unlocked ? this.goalColor(section.id, goal) : LOCKED_GOAL
+        const color = unlocked
+          ? this.goalColor(section.id, goal)
+          : `rgba(45, 38, 32, ${this.lockedGoalAlpha()})`
 
         if (unlocked && !solved && fillProgress < 0.999) {
           this.drawGoalGlow(section.id, goal, color)

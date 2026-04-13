@@ -251,3 +251,6 @@ Original prompt: Create a GitHub repo for this web game project, write a detaile
 - Tuned the background doodle renderer so tiny marks get thinner and lighter as the camera zooms far out, which prevents the random paper doodles from collapsing into dark specks at low zoom.
 - Kept the close-up look unchanged by leaving the full stroke weight and alpha in place near the default zoom, then only fading/thinning doodles once the camera pulls back.
 - Verified the doodle zoom fix with `npm run build`, comparison captures at `output/web-game/doodle-zoom-fix/zoomed-in.png` and `output/web-game/doodle-zoom-fix/zoomed-out.png`, plus the required Playwright client at `output/web-game/doodle-zoom-fix-client/shot-0.png`.
+- Applied the same low-zoom softening idea to locked grayscale target shapes, so they no longer read as dark specks when the camera is far out.
+- Left the close-up locked-target look unchanged and kept unlocked-but-unsolved colored targets prominent by not touching their glow treatment.
+- Verified the locked-goal zoom pass with `npm run build`, comparison captures at `output/web-game/locked-goal-zoom-fix/zoomed-in.png` and `output/web-game/locked-goal-zoom-fix/zoomed-out.png`, plus the required Playwright client at `output/web-game/locked-goal-zoom-fix-client/shot-0.png`.
