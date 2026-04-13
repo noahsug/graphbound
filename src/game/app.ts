@@ -565,7 +565,7 @@ function mixColors(start: string, end: string, progress: number, alpha = 1): str
 }
 
 function createLayout(width: number, height: number, zoomLevel = 1): Layout {
-  const tileSize = clamp(Math.min(width, height) * 0.11, 58, 84)
+  const tileSize = clamp(Math.min(width, height) * 0.099, 52, 76)
   const trayY = height - tileSize - clamp(height * 0.04, 18, 30)
   const minimumScale = width < 720 ? 1.04 : 0.9
   const baseWorldScale = clamp(Math.min(width / 1280, height / 900) * 1.55, minimumScale, 1.82)
@@ -1720,18 +1720,28 @@ class GraphboundApp {
     const available = this.activeTileIds()
     const size = this.layout.tileSize
     const gap = this.layout.trayGap
-    const totalWidth = available.length * size + Math.max(0, available.length - 1) * gap
-    const startX = (this.layout.width - totalWidth) / 2
+    const maxWidth = Math.max(size, this.layout.width - clamp(this.layout.width * 0.12, 36, 88))
+    const columns = Math.max(1, Math.floor((maxWidth + gap) / (size + gap)))
+    const rows = Math.max(1, Math.ceil(available.length / columns))
 
-    return available.map((tileId, index) => ({
-      tileId,
-      rect: {
-        x: startX + index * (size + gap),
-        y: this.layout.trayY,
-        width: size,
-        height: size,
-      },
-    }))
+    return available.map((tileId, index) => {
+      const row = Math.floor(index / columns)
+      const column = index % columns
+      const rowCount =
+        row === rows - 1 ? available.length - row * columns || columns : columns
+      const rowWidth = rowCount * size + Math.max(0, rowCount - 1) * gap
+      const startX = (this.layout.width - rowWidth) / 2
+
+      return {
+        tileId,
+        rect: {
+          x: startX + column * (size + gap),
+          y: this.layout.trayY - (rows - 1 - row) * (size + gap),
+          width: size,
+          height: size,
+        },
+      }
+    })
   }
 
   private equationPrefix(sectionId: string): 'y' | 'r' {
