@@ -615,6 +615,8 @@ class GraphboundApp {
     | {
         from: Point
         to: Point
+        fromScale: number
+        toScale: number
         progress: number
         durationMs: number
         delayMs: number
@@ -1229,10 +1231,29 @@ class GraphboundApp {
     return bestPoint
   }
 
-  private moveCameraTo(point: Point, animated: boolean, delayMs = 0): void {
+  private constrainedCameraForScale(point: Point, scale: number): Point {
+    const previousScale = this.layout.worldScale
+    const previousZoomLevel = this.zoomLevel
+    this.layout.worldScale = this.clampWorldScale(scale)
+    this.zoomLevel = this.layout.worldScale / this.layout.baseWorldScale
     const constrained = this.constrainedCamera(point)
+    this.layout.worldScale = previousScale
+    this.zoomLevel = previousZoomLevel
+    return constrained
+  }
+
+  private moveCameraAndScaleTo(
+    point: Point,
+    scale: number,
+    animated: boolean,
+    delayMs = 0,
+  ): void {
+    const targetScale = this.clampWorldScale(scale)
+    const constrained = this.constrainedCameraForScale(point, targetScale)
 
     if (!animated) {
+      this.layout.worldScale = targetScale
+      this.zoomLevel = this.layout.worldScale / this.layout.baseWorldScale
       this.camera = constrained
       this.cameraTween = null
       this.render()
@@ -1242,6 +1263,8 @@ class GraphboundApp {
     this.cameraTween = {
       from: { ...this.camera },
       to: constrained,
+      fromScale: this.layout.worldScale,
+      toScale: targetScale,
       progress: 0,
       durationMs: CAMERA_DURATION_MS,
       delayMs,
@@ -1256,23 +1279,18 @@ class GraphboundApp {
     })
   }
 
-  private centerCameraOn(sectionId: string, animated: boolean, delayMs = 0): void {
-    const section = this.sectionById.get(sectionId)
-    if (!section) {
-      return
-    }
-
-    this.moveCameraTo(this.sectionFocusPoint(sectionId), animated, delayMs)
-  }
-
   private focusSection(sectionId: string, centerCamera: boolean, animated = true): void {
     if (!this.unlockedSections.has(sectionId)) {
       return
     }
 
     if (centerCamera) {
-      this.setWorldScale(this.layout.baseWorldScale * START_ZOOM_LEVEL, this.layout.worldCenter)
-      this.centerCameraOn(sectionId, animated, animated ? 0 : 0)
+      this.moveCameraAndScaleTo(
+        this.sectionFocusPoint(sectionId),
+        this.layout.baseWorldScale * START_ZOOM_LEVEL,
+        animated,
+        animated ? 0 : 0,
+      )
     } else {
       this.setActiveSection(sectionId)
       this.render()
@@ -2764,6 +2782,8 @@ class GraphboundApp {
           1,
         )
         const eased = easeInOutCubic(this.cameraTween.progress)
+        this.layout.worldScale = lerp(this.cameraTween.fromScale, this.cameraTween.toScale, eased)
+        this.zoomLevel = this.layout.worldScale / this.layout.baseWorldScale
         this.camera = {
           x: lerp(this.cameraTween.from.x, this.cameraTween.to.x, eased),
           y: lerp(this.cameraTween.from.y, this.cameraTween.to.y, eased),
@@ -2771,6 +2791,8 @@ class GraphboundApp {
         this.camera = this.constrainedCamera(this.camera)
 
         if (this.cameraTween.progress >= 1) {
+          this.layout.worldScale = this.cameraTween.toScale
+          this.zoomLevel = this.layout.worldScale / this.layout.baseWorldScale
           this.camera = { ...this.cameraTween.to }
           this.cameraTween = null
         } else {
