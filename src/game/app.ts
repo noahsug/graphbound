@@ -1962,8 +1962,16 @@ class GraphboundApp {
 
   private goalHit(sectionId: string, goal: GoalDefinition): PlotPoint | null {
     const runtime = this.sectionRuntimes.get(sectionId)
-    const hit = runtime?.plotResult?.hits.find((candidate) => this.goalMatchesHit(goal, candidate))
-    return hit?.point ?? null
+    const hits = runtime?.plotResult?.hits ?? []
+
+    for (let index = hits.length - 1; index >= 0; index -= 1) {
+      const hit = hits[index]
+      if (this.goalMatchesHit(goal, hit)) {
+        return hit.point
+      }
+    }
+
+    return null
   }
 
   private defaultGoalPoint(sectionId: string, goal: GoalDefinition): PlotPoint {
