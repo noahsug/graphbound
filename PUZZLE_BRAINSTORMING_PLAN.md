@@ -15,6 +15,25 @@
 4. Use revisits to teach mastery: an old graph that was impossible before should become easy with one new tile.
 5. Save notation-heavy ideas like logs, trig, absolute value, and left-side equations until the player already trusts the drag-and-graph loop.
 
+## Current Advanced Mechanics Coverage
+
+Implemented in the current world:
+- Parentheses: `y = (x + 2) / 2`, `y = (5x) / (x + 5)`, `y = (x^2 + 5) / 5`, `y = log_5(x^2 + 5)`
+- Division: early fraction boards, the absolute-value-over-2 revisit, and the later power-over-5 boards
+- Absolute value: `|x - 5|`, `|x - 5| + 2`, `|x - 5| / 2`
+- Sine: `sin(x) + 5`, `sin(x + 2) + 2`
+- Exponents: `x^2`, `x^2 + 5`, plus later mixed forms like `(x^2 + 5) / 5`
+- Logarithms: `log_2(x + 1)`, `log_5(x + 5)`, `log_5(x^2 + 5)`
+- Polar with theta: `r = Θ`, `r = 2Θ`
+
+Still worth adding later:
+- Parentheses used for true factorization: `y = (x - 2)(x + 5)`
+- Division with moving numerator and denominator on both sides: `y = (_ _) / (_ _)`
+- Absolute values nested inside other wrappers: `y = |(x - 5) / 2|`
+- Polar trig curves: `r = 2sin(Θ)`, `r = 1 + cos(Θ)`
+- Exponent slots with non-2 exponents: `y = x^5`, `y = (x + 1)^2`
+- Logs whose base is genuinely strategic instead of forced: `y = log_2(x + 5)` versus `y = log_5(x + 5)`
+
 ## Recommended World Progression
 
 ### Stage 1: First Marks
@@ -164,6 +183,14 @@ Level ideas:
 - graph with goals in opposite quadrants
 - revisit where `1/x` solves a board that linear tools always crashed into
 
+Additional notation-first puzzle ideas:
+- `y = (x + 2) / 2`
+- `y = (5x) / (x + 5)`
+- `y = (x^2 - 5) / 5`
+- `y = |x - 5| / 2`
+- `y = |(x - 5) / 2|`
+- `y = (x + 5)(x - 2)`
+
 ### Stage 6: Exponentials And Logarithms
 
 Focus:
@@ -194,6 +221,13 @@ Level ideas:
 - an exit just barely reachable by exponential growth
 - revisit where a log curve sneaks under a barrier that a parabola cannot
 
+Additional log/base ideas:
+- `y = log_2(x + 1)`
+- `y = log_5(x + 5)`
+- `y = log_2(x^2 + 1)`
+- `y = log_5((x + 5) / 2)`
+- `y = log_(2x)(x + 5)` for very late experimentation
+
 ### Stage 7: Trig Curves
 
 Focus:
@@ -222,6 +256,13 @@ Level ideas:
 - board with multiple exits across the width
 - obstacle course that rewards choosing the right phase/height
 - revisit board where sine reaches a goal that no monotone function can
+
+Additional trig ideas:
+- `y = sin(x) + 5`
+- `y = sin(x + 2) + 2`
+- `y = sin(2x)`
+- `y = 2sin(x + 1)`
+- `y = |sin(x)|`
 
 ### Stage 8: Piecewise And Conditional Rules
 
@@ -257,6 +298,68 @@ Focus:
 Good tiles:
 - `theta`
 - `r`
+
+Good equation patterns:
+- `r = Θ`
+- `r = 2Θ`
+- `r = 2sin(Θ)`
+- `r = 1 + cos(Θ)`
+- `r = |Θ - 2|`
+
+What this teaches:
+- the graph plane can stay familiar while the input variable changes completely
+- radius and angle combine into shapes that feel magical compared with cartesian lines
+- hiding `x` on polar-only boards keeps the notation honest and teaches players that variable choice matters
+
+Level ideas:
+- first polar spiral with `r = Θ`
+- second spiral that scales outward faster with `r = 2Θ`
+- late-game flower or cardioid reveal
+- revisit where a polar curve reaches a goal that no cartesian formula can approach cleanly
+
+## Notation-Focused Puzzle Bank
+
+### Parentheses
+- `y = (x + 2) / 2`
+- `y = 2(x + 5)`
+- `y = (x - 5)(x + 1)`
+- `y = (x^2 + 5) / 5`
+
+### Division
+- `y = x / 2`
+- `y = (5x) / (x + 5)`
+- `y = |x - 5| / 2`
+- `y = (x^2 - 5) / 5`
+
+### Absolute Value
+- `y = |x - 5|`
+- `y = |x - 5| + 2`
+- `y = |(x - 5) / 2|`
+- `y = |x^2 - 5|`
+
+### Sine
+- `y = sin(x) + 5`
+- `y = sin(x + 2) + 2`
+- `y = sin(2x)`
+- `y = |sin(x)|`
+
+### Exponents
+- `y = x^2`
+- `y = x^2 + 5`
+- `y = (x + 1)^2`
+- `y = x^5`
+
+### Logarithms
+- `y = log_2(x + 1)`
+- `y = log_5(x + 5)`
+- `y = log_5(x^2 + 5)`
+- `y = log_2((x + 5) / 2)`
+
+### Polar
+- `r = Θ`
+- `r = 2Θ`
+- `r = 2sin(Θ)`
+- `r = 1 + cos(Θ)`
 
 Good equation patterns:
 - `r = theta`

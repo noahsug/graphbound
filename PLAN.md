@@ -33,6 +33,8 @@ Build a responsive web game where players solve graph-based equation puzzles to 
 - The equation row should stay clearly readable directly on the paper background, never overlapping the graph itself, with light-yellow dashed slot placeholders
 - The current graph treatment is even more minimal than that: no graph border and no grid, only pencil axes plus unnumbered unit ticks with larger marks every five units
 - Active graph boards should be generously sized on screen, with tick marks large enough to read quickly even though the minimalist pass no longer uses numeric labels
+- Later-game notation should stay legible in the same hand-drawn system, including parentheses, fractions, absolute-value bars, `sin`, log bases as subscripts, and exponent slots as superscripts
+- Polar boards should switch the equation prefix to `r =` and only surface theta-compatible tiles in their tray, while cartesian boards continue to use `y =` and `x`-compatible tiles
 - Colored goal routes should visibly leave each graph before it is solved, then complete their connection into the next graph’s axis once the matching equation is drawn, fading toward dark graphite as they approach that unlocked graph
 - Newly unlocked graphs should sketch themselves into existence in place rather than falling in from off-screen
 - The graph closest to the center of the screen should be treated as selected, so camera movement alone can change which puzzle is active

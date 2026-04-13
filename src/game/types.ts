@@ -10,9 +10,11 @@ export interface Rect {
   height: number
 }
 
-export type TileId = 'x' | '2' | '5' | '+' | '-' | '1' | '0'
+export type TileId = 'x' | 'θ' | '2' | '5' | '+' | '-' | '1' | '0'
 export type GoalEdge = 'top' | 'right' | 'bottom' | 'left'
 export type GoalShapeKind = 'heart' | 'circle' | 'x' | 'star'
+export type EquationTokenStyle = 'normal' | 'superscript' | 'subscript'
+export type CoordinateMode = 'cartesian' | 'polar'
 
 export interface AxisDefinition {
   min: number
@@ -56,8 +58,8 @@ export interface SlotDefinition {
 }
 
 export type EquationPart =
-  | { type: 'fixed'; value: string }
-  | { type: 'slot'; slotId: string }
+  | { type: 'fixed'; value: string; displayStyle?: EquationTokenStyle }
+  | { type: 'slot'; slotId: string; displayStyle?: EquationTokenStyle }
 
 export interface GoalDefinition {
   id: string
@@ -79,6 +81,9 @@ export interface SectionDefinition {
   accent: string
   world: Point
   axes?: GraphAxes
+  coordinateMode?: CoordinateMode
+  parameterDomain?: AxisDefinition
+  equationPrefix?: 'y' | 'r'
   visual?: SectionVisualDefinition
   rewardTileId?: TileId
   initialUnlocked?: boolean

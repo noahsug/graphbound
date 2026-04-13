@@ -7,11 +7,12 @@ import {
   SECTIONS,
   TILE_DEFINITIONS,
 } from './content'
-import { evaluateSectionPlot } from './math'
+import { evaluateSectionPlot, formatEquationLabel } from './math'
 import type {
   AxisDefinition,
   BoundaryHit,
   DragState,
+  EquationPart,
   GoalDefinition,
   GraphAxes,
   Layout,
@@ -819,8 +820,12 @@ class GraphboundApp {
       }
 
       const slotId = slotIds[slotIndex]
+      const slot = section.slots[slotIndex]
 
       for (const tileId of availableTiles) {
+        if (!slot.allowedTiles.includes(tileId)) {
+          continue
+        }
         placements[slotId] = tileId
         search(slotIndex + 1, placements)
         placements[slotId] = null
@@ -1294,8 +1299,22 @@ class GraphboundApp {
   }
 
   private remainingTileIdsForSection(sectionId: string): TileId[] {
-    void sectionId
-    return this.activeTileIds()
+    const section = this.sectionById.get(sectionId)
+
+    if (!section) {
+      return this.activeTileIds()
+    }
+
+    const allowed = new Set<TileId>()
+    for (const slot of section.slots) {
+      for (const tileId of slot.allowedTiles) {
+        if (this.unlockedTiles.has(tileId)) {
+          allowed.add(tileId)
+        }
+      }
+    }
+
+    return [...allowed]
   }
 
   private setActiveSection(sectionId: string): void {
@@ -1666,16 +1685,87 @@ class GraphboundApp {
     }))
   }
 
-  private equationPrefixWidth(scale: number): number {
-    return 34 * scale
+  private equationPrefix(sectionId: string): 'y' | 'r' {
+    return this.sectionById.get(sectionId)?.equationPrefix ??
+      (this.sectionById.get(sectionId)?.coordinateMode === 'polar' ? 'r' : 'y')
   }
 
-  private fixedEquationTokenWidth(value: string, scale: number, tokenSize: number): number {
-    if (value === '+') {
-      return Math.max(14 * scale, tokenSize * 0.26)
+  private equationPrefixWidth(sectionId: string, scale: number): number {
+    return this.equationPrefix(sectionId) === 'r' ? 28 * scale : 34 * scale
+  }
+
+  private equationPartMetrics(
+    part: EquationPart,
+    scale: number,
+    tokenSize: number,
+  ): { width: number; height: number; yOffset: number } {
+    const style = part.displayStyle ?? 'normal'
+    const value = part.type === 'fixed' ? part.value : '_'
+
+    if (style === 'superscript') {
+      return {
+        width:
+          part.type === 'slot'
+            ? tokenSize * 0.54
+            : Math.max(12 * scale, Math.min(tokenSize * 0.34, value.length * 12 * scale)),
+        height: tokenSize * 0.62,
+        yOffset: -tokenSize * 0.34,
+      }
     }
 
-    return Math.max(18 * scale, Math.min(tokenSize * 0.44, value.length * 18 * scale))
+    if (style === 'subscript') {
+      return {
+        width:
+          part.type === 'slot'
+            ? tokenSize * 0.56
+            : Math.max(12 * scale, Math.min(tokenSize * 0.42, value.length * 12 * scale)),
+        height: tokenSize * 0.62,
+        yOffset: tokenSize * 0.26,
+      }
+    }
+
+    if (part.type === 'slot') {
+      return { width: tokenSize, height: tokenSize, yOffset: 0 }
+    }
+
+    if (value === '+' || value === '-' || value === '/' || value === '(' || value === ')' || value === '|') {
+      return {
+        width: Math.max(14 * scale, tokenSize * 0.26),
+        height: tokenSize,
+        yOffset: 0,
+      }
+    }
+
+    if (value === 'sin' || value === 'log') {
+      return {
+        width: Math.max(28 * scale, Math.min(tokenSize * 0.74, value.length * 14 * scale)),
+        height: tokenSize,
+        yOffset: 0,
+      }
+    }
+
+    return {
+      width: Math.max(18 * scale, Math.min(tokenSize * 0.52, value.length * 18 * scale)),
+      height: tokenSize,
+      yOffset: 0,
+    }
+  }
+
+  private equationGapBetween(previous: EquationPart | null, next: EquationPart, scale: number): number {
+    const nextStyle = next.displayStyle ?? 'normal'
+
+    if (nextStyle === 'superscript' || nextStyle === 'subscript') {
+      return -4 * scale
+    }
+
+    const previousValue = previous?.type === 'fixed' ? previous.value : null
+    const nextValue = next.type === 'fixed' ? next.value : null
+
+    if (nextValue === ')' || nextValue === '|' || previousValue === '(' || previousValue === '|') {
+      return 4 * scale
+    }
+
+    return 10 * scale
   }
 
   private equationConnectorCollision(sectionId: string, rect: Rect): boolean {
@@ -1731,15 +1821,12 @@ class GraphboundApp {
     const visual = this.sectionVisual(sectionId)
     const scale = this.boardScale(sectionId)
     const tokenSize = visual.slotSize * scale
-    const gap = visual.tokenGap * scale
-    const prefixWidth = this.equationPrefixWidth(scale)
-    const tokenWidths = section.equation.map((part) =>
-      part.type === 'slot' ? tokenSize : this.fixedEquationTokenWidth(part.value, scale, tokenSize),
-    )
-    const totalWidth =
-      prefixWidth +
-      tokenWidths.reduce((sum, width) => sum + width, 0) +
-      (section.equation.length - 1) * gap
+    const prefixWidth = this.equationPrefixWidth(sectionId, scale)
+    const tokenMetrics = section.equation.map((part) => this.equationPartMetrics(part, scale, tokenSize))
+    const totalWidth = prefixWidth + tokenMetrics.reduce((sum, metrics, index) => {
+      const gapBefore = index === 0 ? 0 : this.equationGapBetween(section.equation[index - 1], section.equation[index], scale)
+      return sum + gapBefore + metrics.width
+    }, 0)
     const equationY = this.equationCenterY(sectionId)
     const candidates = [
       rect.x + rect.width / 2 - totalWidth / 2,
@@ -1767,14 +1854,17 @@ class GraphboundApp {
     let cursor = rowStart + prefixWidth
 
     return section.equation.map((part, index) => {
-      const width = tokenWidths[index]
+      const metrics = tokenMetrics[index]
+      if (index > 0) {
+        cursor += this.equationGapBetween(section.equation[index - 1], part, scale)
+      }
       const rectForToken = {
         x: cursor,
-        y: equationY - tokenSize / 2,
-        width,
-        height: tokenSize,
+        y: equationY - metrics.height / 2 + metrics.yOffset,
+        width: metrics.width,
+        height: metrics.height,
       }
-      cursor += width + gap
+      cursor += metrics.width
       return { rect: rectForToken, part }
     })
   }
@@ -1818,9 +1908,9 @@ class GraphboundApp {
   }
 
   private compatibleSlots(tileId: TileId): string[] {
-    void tileId
-
-    return this.activeSection.slots.map((slot) => slot.id)
+    return this.activeSection.slots
+      .filter((slot) => slot.allowedTiles.includes(tileId))
+      .map((slot) => slot.id)
   }
 
   private goalColor(sectionId: string, goal: GoalDefinition | string | null): string {
@@ -1858,15 +1948,7 @@ class GraphboundApp {
       return 'y = _'
     }
 
-    const tokens = section.equation.map((part) => {
-      if (part.type === 'fixed') {
-        return part.value
-      }
-      const tileId = runtime.placements[part.slotId]
-      return tileId ? TILE_DEFINITIONS[tileId].label : '_'
-    })
-
-    return `y = ${tokens.join(' ')}`
+    return formatEquationLabel(section, runtime.placements, true)
   }
 
   private goalMatchesHit(goal: GoalDefinition, hit: BoundaryHit): boolean {
@@ -2488,7 +2570,7 @@ class GraphboundApp {
   private placeTileInSlot(tileId: TileId, slotId: string, animated: boolean): void {
     const slot = this.activeSection.slots.find((candidate) => candidate.id === slotId)
 
-    if (!slot) {
+    if (!slot || !slot.allowedTiles.includes(tileId)) {
       return
     }
 
@@ -4474,7 +4556,7 @@ class GraphboundApp {
     const tokenLayouts = this.tokenLayouts(sectionId)
     const prefixX =
       tokenLayouts.length > 0
-        ? tokenLayouts[0].rect.x - this.equationPrefixWidth(scale) + 2 * scale
+        ? tokenLayouts[0].rect.x - this.equationPrefixWidth(sectionId, scale) + 2 * scale
         : this.layout.width * 0.32
     const equationY = this.equationCenterY(sectionId)
     const activeTileId =
@@ -4487,10 +4569,14 @@ class GraphboundApp {
     this.context.fillStyle = INK
     this.context.font = `${Math.round(19 * scale)}px 'Short Stack', cursive`
     this.context.textBaseline = 'middle'
-    this.context.fillText('y =', prefixX, equationY)
+    this.context.fillText(`${this.equationPrefix(sectionId)} =`, prefixX, equationY)
 
     for (const token of tokenLayouts) {
       if (token.part.type === 'fixed') {
+        const style = token.part.displayStyle ?? 'normal'
+        const fontSize =
+          style === 'normal' ? Math.round(19 * scale) : Math.round(Math.max(10, token.rect.height * 0.92))
+        this.context.font = `${fontSize}px 'Short Stack', cursive`
         this.context.fillText(
           token.part.value,
           token.rect.x + token.rect.width / 2 - token.rect.width * 0.18,
