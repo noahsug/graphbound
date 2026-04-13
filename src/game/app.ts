@@ -1303,35 +1303,12 @@ class GraphboundApp {
     return [...this.unlockedTiles]
   }
 
-  private remainingTileIdsForSection(sectionId: string): TileId[] {
-    const section = this.sectionById.get(sectionId)
-
-    if (!section) {
-      return this.activeTileIds()
-    }
-
-    const allowed = new Set<TileId>()
-    for (const slot of section.slots) {
-      for (const tileId of slot.allowedTiles) {
-        if (this.unlockedTiles.has(tileId)) {
-          allowed.add(tileId)
-        }
-      }
-    }
-
-    return [...allowed]
-  }
-
   private setActiveSection(sectionId: string): void {
     if (this.activeSectionId === sectionId) {
       return
     }
 
     this.activeSectionId = sectionId
-
-    if (this.selectedTileId && !this.remainingTileIdsForSection(sectionId).includes(this.selectedTileId)) {
-      this.selectedTileId = null
-    }
   }
 
   private nearestSectionToCenter(): string | null {
@@ -1673,7 +1650,7 @@ class GraphboundApp {
   }
 
   private trayTileRects(): Array<{ tileId: TileId; rect: Rect }> {
-    const available = this.remainingTileIdsForSection(this.activeSectionId)
+    const available = this.activeTileIds()
     const size = this.layout.tileSize
     const gap = this.layout.trayGap
     const totalWidth = available.length * size + Math.max(0, available.length - 1) * gap

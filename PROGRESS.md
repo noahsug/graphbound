@@ -257,3 +257,6 @@ Original prompt: Create a GitHub repo for this web game project, write a detaile
 - Removed the extra screen-space offset between graph endpoints and target-shape centers, so target shapes now sit directly on the line endpoint instead of floating above or beside it.
 - This keeps the graph line ending in the middle of the target shape, matching the intended “hit the shape dead center” read across single-goal and multi-goal boards.
 - Verified the goal-centering pass with `npm run build`, focused captures at `output/web-game/goal-center-fix/level1-start.png`, `output/web-game/goal-center-fix/level8-start.png`, and the required Playwright client at `output/web-game/goal-center-fix-client/shot-0.png`.
+- Switched the bottom tray back to a global unlocked-inventory view, so it always shows every tile the player has earned instead of filtering the tray based on the currently selected graph.
+- Also stopped clearing the selected tile when the active graph changes, which keeps tray interaction consistent while moving around the world.
+- Verified the global tray behavior with `npm run build`, focused captures at `output/web-game/global-tray/crossroads.png` and `output/web-game/global-tray/focused-other-graph.png`, debug state in `output/web-game/global-tray/state.json`, and the required Playwright client at `output/web-game/global-tray-client/shot-0.png`.
