@@ -62,6 +62,8 @@ const GOAL_GLOW_MAX_ALPHA = 0.32
 const LOCKED_GOAL_ZOOM_THRESHOLD = 0.5
 const LOCKED_GOAL_MIN_ALPHA = 0.08
 const LOCKED_GOAL_MAX_ALPHA = 0.38
+const SOLVED_GOAL_ALPHA = 0.52
+const SOLVED_GOAL_LIGHTEN = 0.64
 
 type RoughCanvas = ReturnType<typeof rough.canvas>
 
@@ -4595,6 +4597,10 @@ class GraphboundApp {
     return lerp(LOCKED_GOAL_MIN_ALPHA, LOCKED_GOAL_MAX_ALPHA, progress)
   }
 
+  private solvedGoalColor(color: string): string {
+    return mixColors(color, CHALKBOARD_MID, SOLVED_GOAL_LIGHTEN, 0.92)
+  }
+
   private drawGoalGlow(sectionId: string, goal: GoalDefinition, color: string): void {
     const alpha = this.goalGlowAlpha()
 
@@ -4911,9 +4917,13 @@ class GraphboundApp {
         const solved = this.completedGoals.has(`${section.id}:${goal.id}`)
         const isAnimatingGoal = runtime?.animatingGoalId === goal.id
         const fillProgress = solved ? 1 : isAnimatingGoal ? (runtime?.targetFillProgress ?? 0) : 0
+        const baseColor = this.goalColor(section.id, goal)
         const color = unlocked
-          ? this.goalColor(section.id, goal)
+          ? solved
+            ? this.solvedGoalColor(baseColor)
+            : baseColor
           : `rgba(45, 38, 32, ${this.lockedGoalAlpha()})`
+        const alpha = unlocked && solved ? SOLVED_GOAL_ALPHA : 1
 
         if (unlocked && !solved && fillProgress < 0.999) {
           this.drawGoalGlow(section.id, goal, color)
@@ -4922,7 +4932,7 @@ class GraphboundApp {
         this.drawGoalShape(
           section.id,
           goal,
-          1,
+          alpha,
           fillProgress,
           color,
         )
