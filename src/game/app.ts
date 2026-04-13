@@ -140,6 +140,9 @@ function axisRange(axis: AxisDefinition): number {
   return Math.max(0.001, axis.max - axis.min)
 }
 
+const GRAPH_UNIT_WORLD_X = DEFAULT_SECTION_VISUAL.graphWidth / axisRange(DEFAULT_AXES.x)
+const GRAPH_UNIT_WORLD_Y = DEFAULT_SECTION_VISUAL.graphHeight / axisRange(DEFAULT_AXES.y)
+
 function axisTicks(axis: AxisDefinition): number[] {
   const step = Math.max(0.1, axis.tickStep ?? 1)
   const ticks: number[] = []
@@ -959,43 +962,105 @@ class GraphboundApp {
     }
   }
 
+  private graphWorldSize(sectionId: string): { width: number; height: number } {
+    const axes = this.sectionAxes(sectionId)
+    return {
+      width: axisRange(axes.x) * GRAPH_UNIT_WORLD_X,
+      height: axisRange(axes.y) * GRAPH_UNIT_WORLD_Y,
+    }
+  }
+
+  private graphBoardMargins(sectionId: string): {
+    left: number
+    right: number
+    top: number
+    bottom: number
+  } {
+    const visual = this.sectionVisual(sectionId)
+    return {
+      left: visual.graphX,
+      right: Math.max(0, visual.boardWidth - visual.graphX - visual.graphWidth),
+      top: visual.graphY,
+      bottom: Math.max(0, visual.boardHeight - visual.graphY - visual.graphHeight),
+    }
+  }
+
+  private boardTerrainMargins(sectionId: string): {
+    left: number
+    right: number
+    top: number
+    bottom: number
+  } {
+    const visual = this.sectionVisual(sectionId)
+    return {
+      left: visual.boardX,
+      right: Math.max(0, visual.terrainWidth - visual.boardX - visual.boardWidth),
+      top: visual.boardY,
+      bottom: Math.max(0, visual.terrainHeight - visual.boardY - visual.boardHeight),
+    }
+  }
+
+  private graphCenterOffset(sectionId: string): Point {
+    const visual = this.sectionVisual(sectionId)
+    return {
+      x: -visual.terrainWidth / 2 + visual.boardX + visual.graphX + visual.graphWidth / 2,
+      y: -visual.terrainHeight / 2 + visual.boardY + visual.graphY + visual.graphHeight / 2,
+    }
+  }
+
+  private worldRectToScreen(rect: Rect): Rect {
+    const topLeft = this.worldToScreen({ x: rect.x, y: rect.y })
+    return {
+      x: topLeft.x,
+      y: topLeft.y,
+      width: rect.width * this.layout.worldScale,
+      height: rect.height * this.layout.worldScale,
+    }
+  }
+
   private boardWorldRect(sectionId: string): Rect {
+    const graph = this.graphWorldRect(sectionId)
+    const margins = this.graphBoardMargins(sectionId)
+
+    return {
+      x: graph.x - margins.left,
+      y: graph.y - margins.top,
+      width: graph.width + margins.left + margins.right,
+      height: graph.height + margins.top + margins.bottom,
+    }
+  }
+
+  private graphWorldRect(sectionId: string): Rect {
     const section = this.sectionById.get(sectionId)
 
     if (!section) {
       return { x: 0, y: 0, width: 0, height: 0 }
     }
 
-    const visual = this.sectionVisual(sectionId)
-    const terrain = {
-      x: section.world.x - visual.terrainWidth / 2,
-      y: section.world.y - visual.terrainHeight / 2,
-      width: visual.terrainWidth,
-      height: visual.terrainHeight,
+    const graphSize = this.graphWorldSize(sectionId)
+    const offset = this.graphCenterOffset(sectionId)
+    const center = {
+      x: section.world.x + offset.x,
+      y: section.world.y + offset.y,
     }
 
     return {
-      x: terrain.x + visual.boardX,
-      y: terrain.y + visual.boardY,
-      width: visual.boardWidth,
-      height: visual.boardHeight,
+      x: center.x - graphSize.width / 2,
+      y: center.y - graphSize.height / 2,
+      width: graphSize.width,
+      height: graphSize.height,
     }
   }
 
-  private graphWorldRect(sectionId: string): Rect {
+  private terrainWorldRect(sectionId: string): Rect {
     const board = this.boardWorldRect(sectionId)
-
-    if (board.width <= 0 || board.height <= 0) {
-      return { x: 0, y: 0, width: 0, height: 0 }
-    }
-
-    const visual = this.sectionVisual(sectionId)
+    const margins = this.boardTerrainMargins(sectionId)
 
     return {
-      x: board.x + visual.graphX,
-      y: board.y + visual.graphY,
-      width: visual.graphWidth,
-      height: visual.graphHeight,
+      x: board.x - margins.left,
+      y: board.y - margins.top,
+      width: board.width + margins.left + margins.right,
+      height: board.height + margins.top + margins.bottom,
     }
   }
 
@@ -1498,41 +1563,11 @@ class GraphboundApp {
   }
 
   private terrainRect(sectionId: string): Rect {
-    const section = this.sectionById.get(sectionId)
-
-    if (!section) {
-      return { x: 0, y: 0, width: 0, height: 0 }
-    }
-
-    const visual = this.sectionVisual(sectionId)
-    const scale = this.boardScale(sectionId)
-    const width = visual.terrainWidth * scale
-    const height = visual.terrainHeight * scale
-    const center = this.worldToScreen({
-      x: section.world.x,
-      y: section.world.y + this.boardDropOffset(sectionId),
-    })
-
-    return {
-      x: center.x - width / 2,
-      y: center.y - height / 2,
-      width,
-      height,
-    }
+    return this.worldRectToScreen(this.terrainWorldRect(sectionId))
   }
 
   private boardRect(sectionId: string): Rect {
-    const terrain = this.terrainRect(sectionId)
-    const visual = this.sectionVisual(sectionId)
-    const scaleX = terrain.width / visual.terrainWidth
-    const scaleY = terrain.height / visual.terrainHeight
-
-    return {
-      x: terrain.x + visual.boardX * scaleX,
-      y: terrain.y + visual.boardY * scaleY,
-      width: visual.boardWidth * scaleX,
-      height: visual.boardHeight * scaleY,
-    }
+    return this.worldRectToScreen(this.boardWorldRect(sectionId))
   }
 
   private sectionAtPoint(point: Point): string | null {
@@ -1569,17 +1604,7 @@ class GraphboundApp {
   }
 
   private graphRect(sectionId: string): Rect {
-    const rect = this.boardRect(sectionId)
-    const visual = this.sectionVisual(sectionId)
-    const scaleX = rect.width / visual.boardWidth
-    const scaleY = rect.height / visual.boardHeight
-
-    return {
-      x: rect.x + visual.graphX * scaleX,
-      y: rect.y + visual.graphY * scaleY,
-      width: visual.graphWidth * scaleX,
-      height: visual.graphHeight * scaleY,
-    }
+    return this.worldRectToScreen(this.graphWorldRect(sectionId))
   }
 
   private graphPointToScreen(sectionId: string, point: PlotPoint): Point {
@@ -1607,14 +1632,12 @@ class GraphboundApp {
   }
 
   private equationCenterY(sectionId: string): number {
-    const board = this.boardRect(sectionId)
     const graph = this.graphRect(sectionId)
     const visual = this.sectionVisual(sectionId)
-    const scaleX = board.width / visual.boardWidth
-    const scaleY = board.height / visual.boardHeight
-    const scale = Math.min(scaleX, scaleY)
+    const scale = this.boardScale(sectionId)
     const tokenSize = visual.slotSize * scale
-    const desiredBelow = board.y + visual.equationY * scaleY + 1
+    const gapBelowGraph = Math.max(0, visual.equationY - (visual.graphY + visual.graphHeight))
+    const desiredBelow = graph.y + graph.height + gapBelowGraph * scale + 1
     const minimumBelow = graph.y + graph.height + tokenSize * 0.82
     return Math.max(desiredBelow, minimumBelow)
   }
@@ -1700,9 +1723,7 @@ class GraphboundApp {
 
     const rect = this.boardRect(sectionId)
     const visual = this.sectionVisual(sectionId)
-    const scaleX = rect.width / visual.boardWidth
-    const scaleY = rect.height / visual.boardHeight
-    const scale = Math.min(scaleX, scaleY)
+    const scale = this.boardScale(sectionId)
     const tokenSize = visual.slotSize * scale
     const gap = visual.tokenGap * scale
     const prefixWidth = this.equationPrefixWidth(scale)
@@ -4409,7 +4430,8 @@ class GraphboundApp {
       .map((section) => {
         const runtime = this.sectionRuntimes.get(section.id)
         const axes = this.sectionAxes(section.id)
-        const visual = this.sectionVisual(section.id)
+        const terrain = this.terrainWorldRect(section.id)
+        const graph = this.graphWorldRect(section.id)
         const levelNumber = (this.sectionIndexById.get(section.id) ?? 0) + 1
 
         return {
@@ -4423,12 +4445,12 @@ class GraphboundApp {
           },
           axes,
           terrain: {
-            width: visual.terrainWidth,
-            height: visual.terrainHeight,
+            width: Number(terrain.width.toFixed(1)),
+            height: Number(terrain.height.toFixed(1)),
           },
           graphFrame: {
-            width: visual.graphWidth,
-            height: visual.graphHeight,
+            width: Number(graph.width.toFixed(1)),
+            height: Number(graph.height.toFixed(1)),
           },
           expression: this.placementExpression(section.id),
           goalsSolved: runtime?.solvedGoalIds ?? [],
