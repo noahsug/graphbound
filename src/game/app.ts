@@ -66,8 +66,8 @@ const SOLVED_GOAL_ALPHA = 0.52
 const SOLVED_GOAL_LIGHTEN = 0.64
 const EQUATION_FONT_SIZE = 23
 const EQUATION_TOKEN_SIZE = 38
-const EQUATION_PREFIX_WIDTH_Y = 34
-const EQUATION_PREFIX_WIDTH_R = 28
+const EQUATION_PREFIX_WIDTH_Y = 40
+const EQUATION_PREFIX_WIDTH_R = 34
 const EQUATION_GAP = 10
 const EQUATION_PAREN_GAP = 4
 const EQUATION_SUPERSCRIPT_OVERLAP = -4
@@ -2252,11 +2252,13 @@ class GraphboundApp {
       return null
     }
 
+    const insetX = Math.max(0.5, this.layout.worldScale * 0.45)
+    const insetY = Math.max(0.75, this.layout.worldScale * 0.7)
     return {
-      x: rect.x + 2,
-      y: rect.y + 2,
-      width: rect.width - 4,
-      height: rect.height - 4,
+      x: rect.x + insetX,
+      y: rect.y + insetY,
+      width: rect.width - insetX * 2,
+      height: rect.height - insetY * 2,
     }
   }
 
@@ -5190,13 +5192,9 @@ class GraphboundApp {
               : 'disabled'
 
       if (placedTileId) {
+        const placedRect = this.slottedTileRect(token.part.slotId) ?? token.rect
         this.drawTile(
-          {
-            x: token.rect.x + 1,
-            y: token.rect.y + 2,
-            width: token.rect.width - 2,
-            height: token.rect.height - 4,
-          },
+          placedRect,
           TILE_DEFINITIONS[placedTileId],
           false,
           `slot:${sectionId}:${token.part.slotId}`,
