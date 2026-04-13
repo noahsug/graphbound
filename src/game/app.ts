@@ -422,6 +422,41 @@ function pointInExpandedRect(point: Point, rect: Rect, inset = 0): boolean {
   )
 }
 
+function pointToSegmentDistance(point: Point, start: Point, end: Point): number {
+  const dx = end.x - start.x
+  const dy = end.y - start.y
+  const lengthSquared = dx * dx + dy * dy
+
+  if (lengthSquared <= 0.000001) {
+    return distanceBetween(point, start)
+  }
+
+  const t = clamp(
+    ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared,
+    0,
+    1,
+  )
+
+  return distanceBetween(point, {
+    x: start.x + dx * t,
+    y: start.y + dy * t,
+  })
+}
+
+function pointToPolylineDistance(point: Point, points: Point[]): number {
+  if (points.length < 2) {
+    return Number.POSITIVE_INFINITY
+  }
+
+  let best = Number.POSITIVE_INFINITY
+
+  for (let index = 1; index < points.length; index += 1) {
+    best = Math.min(best, pointToSegmentDistance(point, points[index - 1], points[index]))
+  }
+
+  return best
+}
+
 function rectsIntersect(a: Rect, b: Rect, inset = 0): boolean {
   return !(
     a.x + a.width < b.x - inset ||
@@ -1663,6 +1698,61 @@ class GraphboundApp {
     }
 
     return null
+  }
+
+  private connectorTargetAtPoint(point: Point): string | null {
+    const hitThreshold = Math.max(12, 18 * this.layout.worldScale)
+    const activeFocus = this.sectionFocusPoint(this.activeSectionId)
+    let bestTargetId: string | null = null
+    let bestHitDistance = Number.POSITIVE_INFINITY
+
+    for (const section of this.sections) {
+      if (!this.unlockedSections.has(section.id)) {
+        continue
+      }
+
+      const runtime = this.sectionRuntimes.get(section.id)
+      if (!runtime) {
+        continue
+      }
+
+      for (const goal of section.goals) {
+        const targetId = goal.unlocks[0]
+        if (!targetId || !this.unlockedSections.has(targetId)) {
+          continue
+        }
+
+        const solved = this.completedGoals.has(`${section.id}:${goal.id}`)
+        const isAnimatingGoal = runtime.animatingGoalId === goal.id
+        const fuseProgress = solved ? 1 : isAnimatingGoal ? runtime.fuseProgress : 0
+
+        if (fuseProgress <= 0) {
+          continue
+        }
+
+        const route = this.goalConnectionPoints(section.id, goal)
+        if (route.length < 2) {
+          continue
+        }
+
+        const visible = fuseProgress >= 1 ? route : partialPolyline(route, fuseProgress)
+        const hitDistance = pointToPolylineDistance(point, visible)
+        if (hitDistance > hitThreshold) {
+          continue
+        }
+
+        const sourceDistance = distanceBetween(activeFocus, this.sectionFocusPoint(section.id))
+        const targetDistance = distanceBetween(activeFocus, this.sectionFocusPoint(targetId))
+        const destinationId = targetDistance >= sourceDistance ? targetId : section.id
+
+        if (hitDistance < bestHitDistance) {
+          bestHitDistance = hitDistance
+          bestTargetId = destinationId
+        }
+      }
+    }
+
+    return bestTargetId
   }
 
   private terrainLocalToScreen(sectionId: string, localPoint: Point): Point {
@@ -3141,6 +3231,7 @@ class GraphboundApp {
     }
 
     this.cameraTween = null
+    const clickedConnectorTargetId = this.connectorTargetAtPoint(point)
     this.drag = {
       kind: 'pan',
       pointerId: event.pointerId,
@@ -3148,7 +3239,7 @@ class GraphboundApp {
       start: point,
       cameraStart: { ...this.camera },
       dragging: false,
-      startedSectionId: this.sectionAtPoint(point),
+      startedSectionId: this.sectionAtPoint(point) ?? clickedConnectorTargetId,
     }
     this.canvas.setPointerCapture(event.pointerId)
   }
