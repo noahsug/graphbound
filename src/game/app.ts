@@ -1270,6 +1270,7 @@ class GraphboundApp {
     }
 
     if (centerCamera) {
+      this.setWorldScale(this.layout.baseWorldScale * START_ZOOM_LEVEL, this.layout.worldCenter)
       this.centerCameraOn(sectionId, animated, animated ? 0 : 0)
     } else {
       this.setActiveSection(sectionId)
