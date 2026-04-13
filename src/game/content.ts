@@ -38,6 +38,33 @@ const TILE_ROLE_FILLS = {
 
 const PENCIL = '#48382a'
 
+function normalizeCanonicalExpression(expression: string): string {
+  return expression.replace(/\s+/g, ' ').trim().toLowerCase()
+}
+
+function assertUniqueGoalSolutions(sections: SectionDefinition[]): void {
+  const seen = new Map<string, { sectionId: string; goalId: string }>()
+
+  for (const section of sections) {
+    for (const goal of section.goals) {
+      if (!goal.canonicalExpression) {
+        continue
+      }
+
+      const normalized = normalizeCanonicalExpression(goal.canonicalExpression)
+      const duplicate = seen.get(normalized)
+
+      if (duplicate) {
+        throw new Error(
+          `Duplicate canonical puzzle solution "${goal.canonicalExpression}" on ${section.id}:${goal.id}; already used by ${duplicate.sectionId}:${duplicate.goalId}`,
+        )
+      }
+
+      seen.set(normalized, { sectionId: section.id, goalId: goal.id })
+    }
+  }
+}
+
 export const TILE_DEFINITIONS: Record<string, TileDefinition> = {
   x: { id: 'x', label: 'x', fill: TILE_ROLE_FILLS.variable, text: PENCIL, role: 'variable' },
   '2': { id: '2', label: '2', fill: TILE_ROLE_FILLS.number, text: PENCIL, role: 'number' },
@@ -81,6 +108,7 @@ export const SECTIONS: SectionDefinition[] = [
         max: 10,
         unlocks: ['ridge'],
         color: '#ef9551',
+        canonicalExpression: 'x',
       },
     ],
   },
@@ -124,6 +152,7 @@ export const SECTIONS: SectionDefinition[] = [
         max: 8.4,
         unlocks: ['orchard'],
         color: '#eb7eb5',
+        canonicalExpression: 'x + 2',
       },
     ],
     entryPath: [
@@ -135,7 +164,7 @@ export const SECTIONS: SectionDefinition[] = [
   {
     id: 'orchard',
     title: 'Orchard',
-    blurb: 'This board branches. x + 2 reveals the cove, and x + 5 reaches the canopy later.',
+    blurb: 'This board branches. 2x reveals the cove, and x + 5 reaches the canopy later.',
     accent: '#9c86d6',
     world: { x: 1080, y: 0 },
     axes: {
@@ -156,14 +185,16 @@ export const SECTIONS: SectionDefinition[] = [
       equationY: 252,
     },
     equation: [
-      { type: 'slot', slotId: 'var' },
-      { type: 'slot', slotId: 'op' },
-      { type: 'slot', slotId: 'step' },
+      { type: 'slot', slotId: 'lead' },
+      { type: 'slot', slotId: 'middle' },
+      { type: 'slot', slotId: 'tail' },
+      { type: 'slot', slotId: 'cleanup' },
     ],
     slots: [
-      { id: 'var', allowedTiles: ['x'], label: 'variable' },
-      { id: 'op', allowedTiles: ['+'], label: 'operator' },
-      { id: 'step', allowedTiles: ['2', '5'], label: 'number' },
+      { id: 'lead', allowedTiles: ['2', 'x'], label: 'lead token' },
+      { id: 'middle', allowedTiles: ['x', '+'], label: 'middle token' },
+      { id: 'tail', allowedTiles: ['2', '5', '+'], label: 'tail token' },
+      { id: 'cleanup', allowedTiles: ['+'], label: 'cleanup token' },
     ],
     goals: [
       {
@@ -171,10 +202,11 @@ export const SECTIONS: SectionDefinition[] = [
         label: 'Open the cove',
         shape: 'x',
         edge: 'top',
-        min: 9.6,
-        max: 10,
+        min: 5.8,
+        max: 6.2,
         unlocks: ['cove'],
         color: '#3f72f0',
+        canonicalExpression: '2x',
       },
       {
         id: 'path-canopy',
@@ -185,6 +217,7 @@ export const SECTIONS: SectionDefinition[] = [
         max: 7.4,
         unlocks: ['canopy'],
         color: '#a764f4',
+        canonicalExpression: 'x + 5',
       },
     ],
     entryPath: [
@@ -229,6 +262,7 @@ export const SECTIONS: SectionDefinition[] = [
         max: 2.4,
         unlocks: ['basin'],
         color: '#3f72f0',
+        canonicalExpression: '2',
       },
     ],
     entryPath: [
@@ -265,13 +299,14 @@ export const SECTIONS: SectionDefinition[] = [
         max: 2,
         unlocks: ['gallery'],
         color: '#f19d57',
+        canonicalExpression: '5x',
       },
     ],
   },
   {
     id: 'gallery',
     title: 'Gallery',
-    blurb: 'Push the line high enough to reveal the center of the world.',
+    blurb: 'Build a calm horizontal line to reveal the center of the world.',
     accent: '#cc8eb4',
     world: { x: 2250, y: 486 },
     axes: {
@@ -279,7 +314,7 @@ export const SECTIONS: SectionDefinition[] = [
       y: { min: 5, max: 9, tickStep: 1 },
     },
     equation: [
-      { type: 'fixed', value: 'x' },
+      { type: 'fixed', value: '2' },
       { type: 'fixed', value: '+' },
       { type: 'slot', slotId: 'step' },
     ],
@@ -289,18 +324,19 @@ export const SECTIONS: SectionDefinition[] = [
         id: 'path-crossroads',
         label: 'Reveal the center crossroads',
         shape: 'star',
-        edge: 'top',
-        min: 3.9,
-        max: 4.1,
+        edge: 'right',
+        min: 6.6,
+        max: 7.4,
         unlocks: ['crossroads'],
         color: '#e18ea8',
+        canonicalExpression: '7',
       },
     ],
   },
   {
     id: 'canopy',
     title: 'Canopy',
-    blurb: 'The upper branch turns x into a higher line and finally grants minus.',
+    blurb: 'The upper branch steepens into a higher line and finally grants minus.',
     accent: '#7eb17d',
     world: { x: 1126, y: -532 },
     axes: {
@@ -323,21 +359,23 @@ export const SECTIONS: SectionDefinition[] = [
     },
     rewardTileId: '-',
     equation: [
-      { type: 'slot', slotId: 'lead' },
+      { type: 'fixed', value: '2' },
+      { type: 'fixed', value: 'x' },
       { type: 'fixed', value: '+' },
-      { type: 'fixed', value: '5' },
+      { type: 'slot', slotId: 'lift' },
     ],
-    slots: [{ id: 'lead', allowedTiles: ['x'], label: 'lead term' }],
+    slots: [{ id: 'lift', allowedTiles: ['5'], label: 'lift term' }],
     goals: [
       {
         id: 'path-minus',
         label: 'Win the minus tile',
         shape: 'x',
         edge: 'top',
-        min: 3.9,
-        max: 4.1,
+        min: 1.9,
+        max: 2.1,
         unlocks: [],
         color: '#5bc8ff',
+        canonicalExpression: '2x + 5',
       },
     ],
     entryPath: [
@@ -376,9 +414,9 @@ export const SECTIONS: SectionDefinition[] = [
       { type: 'slot', slotId: 'fourth' },
     ],
     slots: [
-      { id: 'first', allowedTiles: ['x', '2', '1'], label: 'first token' },
+      { id: 'first', allowedTiles: ['2', '1', '5'], label: 'first token' },
       { id: 'second', allowedTiles: ['+', '-', '0'], label: 'second token' },
-      { id: 'third', allowedTiles: ['2', 'x', '0'], label: 'third token' },
+      { id: 'third', allowedTiles: ['2', '5', 'x', '+'], label: 'third token' },
       { id: 'fourth', allowedTiles: ['+'], label: 'cleanup token' },
     ],
     goals: [
@@ -386,11 +424,12 @@ export const SECTIONS: SectionDefinition[] = [
         id: 'path-eastreach',
         label: 'Open the east branch',
         shape: 'heart',
-        edge: 'top',
-        min: 7.6,
-        max: 8.4,
+        edge: 'right',
+        min: 3.7,
+        max: 4.3,
         unlocks: ['eastreach'],
         color: '#e7904e',
+        canonicalExpression: '4',
       },
       {
         id: 'path-arch',
@@ -401,26 +440,29 @@ export const SECTIONS: SectionDefinition[] = [
         max: 4.4,
         unlocks: ['arch'],
         color: '#b07cf3',
+        canonicalExpression: '2 - x',
       },
       {
         id: 'path-southreach',
         label: 'Open the south branch',
         shape: 'x',
-        edge: 'left',
-        min: -1.35,
-        max: -0.65,
+        edge: 'top',
+        min: 8.7,
+        max: 9.3,
         unlocks: ['southreach'],
         color: '#58b9ff',
+        canonicalExpression: '1 + x',
       },
       {
         id: 'path-northreach',
         label: 'Open the north branch',
         shape: 'star',
         edge: 'right',
-        min: -0.2,
-        max: 0.2,
+        min: 4.7,
+        max: 5.3,
         unlocks: ['northreach'],
         color: '#f28eb1',
+        canonicalExpression: '5',
       },
     ],
   },
@@ -451,6 +493,7 @@ export const SECTIONS: SectionDefinition[] = [
         max: 1.08,
         unlocks: ['eastvault'],
         color: '#f3a06d',
+        canonicalExpression: 'x^2 + 2',
       },
     ],
   },
@@ -482,6 +525,7 @@ export const SECTIONS: SectionDefinition[] = [
         max: 2.1,
         unlocks: [],
         color: '#ef9f6f',
+        canonicalExpression: 'x^2 + 5',
       },
     ],
   },
@@ -511,6 +555,7 @@ export const SECTIONS: SectionDefinition[] = [
         max: 1.3,
         unlocks: ['mire'],
         color: '#9e7bef',
+        canonicalExpression: '5 - x',
       },
     ],
   },
@@ -541,6 +586,7 @@ export const SECTIONS: SectionDefinition[] = [
         max: 1.3,
         unlocks: ['hollow'],
         color: '#a870f3',
+        canonicalExpression: '5 - x^2',
       },
     ],
   },
@@ -571,6 +617,7 @@ export const SECTIONS: SectionDefinition[] = [
         max: 4,
         unlocks: [],
         color: '#8f86d6',
+        canonicalExpression: 'x^2 - 5',
       },
     ],
   },
@@ -600,6 +647,7 @@ export const SECTIONS: SectionDefinition[] = [
         max: -0.65,
         unlocks: ['southvault'],
         color: '#5bb2ff',
+        canonicalExpression: '-1',
       },
     ],
   },
@@ -630,6 +678,7 @@ export const SECTIONS: SectionDefinition[] = [
         max: 10,
         unlocks: [],
         color: '#67b4ef',
+        canonicalExpression: '10',
       },
     ],
   },
@@ -662,13 +711,14 @@ export const SECTIONS: SectionDefinition[] = [
         max: 1,
         unlocks: ['loft'],
         color: '#de907c',
+        canonicalExpression: '10x',
       },
     ],
   },
   {
     id: 'loft',
     title: 'Loft',
-    blurb: 'Return to a parabola, this time shifted far below the axis.',
+    blurb: 'Slide a two-digit line down toward the weave branch.',
     accent: '#cf9479',
     world: { x: 3080, y: -916 },
     axes: {
@@ -676,22 +726,23 @@ export const SECTIONS: SectionDefinition[] = [
       y: { min: -5, max: 11, tickStep: 1 },
     },
     equation: [
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: 'x' },
+      { type: 'fixed', value: '1' },
+      { type: 'fixed', value: '0' },
       { type: 'fixed', value: '-' },
       { type: 'slot', slotId: 'drop' },
     ],
-    slots: [{ id: 'drop', allowedTiles: ['5'], label: 'drop' }],
+    slots: [{ id: 'drop', allowedTiles: ['x'], label: 'drop' }],
     goals: [
       {
         id: 'path-weave',
         label: 'Open the weave',
         shape: 'x',
-        edge: 'top',
-        min: 4,
-        max: 4,
+        edge: 'right',
+        min: 5.7,
+        max: 6.3,
         unlocks: ['weave'],
         color: '#dd9b77',
+        canonicalExpression: '10 - x',
       },
     ],
   },
@@ -726,6 +777,7 @@ export const SECTIONS: SectionDefinition[] = [
         max: 1.3,
         unlocks: ['cellar'],
         color: '#d78c70',
+        canonicalExpression: '10 - x^2',
       },
     ],
   },
@@ -760,6 +812,7 @@ export const SECTIONS: SectionDefinition[] = [
         max: 4,
         unlocks: ['finale'],
         color: '#d69280',
+        canonicalExpression: 'x^2 - 10',
       },
     ],
   },
@@ -795,7 +848,10 @@ export const SECTIONS: SectionDefinition[] = [
         max: 3.1,
         unlocks: [],
         color: '#cf8b8e',
+        canonicalExpression: '2x^2 - 10',
       },
     ],
   },
 ]
+
+assertUniqueGoalSolutions(SECTIONS)
