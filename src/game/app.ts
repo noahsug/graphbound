@@ -824,10 +824,9 @@ class GraphboundApp {
       }
 
       const slotId = slotIds[slotIndex]
-      const slot = section.slots[slotIndex]
 
       for (const tileId of availableTiles) {
-        if (!slot.allowedTiles.includes(tileId)) {
+        if (!this.tileAllowedForSection(sectionId, tileId)) {
           continue
         }
         placements[slotId] = tileId
@@ -1301,6 +1300,20 @@ class GraphboundApp {
 
   private activeTileIds(): TileId[] {
     return [...this.unlockedTiles]
+  }
+
+  private tileAllowedForSection(sectionId: string, tileId: TileId): boolean {
+    const section = this.sectionById.get(sectionId)
+
+    if (!section) {
+      return false
+    }
+
+    if (section.coordinateMode === 'polar') {
+      return tileId !== 'x'
+    }
+
+    return tileId !== 'θ'
   }
 
   private setActiveSection(sectionId: string): void {
@@ -2023,13 +2036,11 @@ class GraphboundApp {
   private compatibleSlotsForSection(sectionId: string, tileId: TileId): string[] {
     const section = this.sectionById.get(sectionId)
 
-    if (!section) {
+    if (!section || !this.tileAllowedForSection(sectionId, tileId)) {
       return []
     }
 
-    return section.slots
-      .filter((slot) => slot.allowedTiles.includes(tileId))
-      .map((slot) => slot.id)
+    return section.slots.map((slot) => slot.id)
   }
 
   private compatibleSlots(tileId: TileId): string[] {
@@ -2701,7 +2712,7 @@ class GraphboundApp {
   private placeTileInSlot(tileId: TileId, slotId: string, animated: boolean): void {
     const slot = this.activeSection.slots.find((candidate) => candidate.id === slotId)
 
-    if (!slot || !slot.allowedTiles.includes(tileId)) {
+    if (!slot || !this.tileAllowedForSection(this.activeSectionId, tileId)) {
       return
     }
 
