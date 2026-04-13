@@ -232,7 +232,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Cove',
     blurb: 'Parentheses and division arrive together: scale a line down without changing its direction.',
     accent: '#8db6d9',
-    world: { x: 1120, y: 528 },
+    world: { x: 1280, y: 470 },
     axes: {
       x: { min: 0, max: 10, tickStep: 1 },
       y: { min: 0, max: 6, tickStep: 1 },
@@ -285,7 +285,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Basin',
     blurb: 'A second fraction turns multiplication into a gentler curve toward the gallery.',
     accent: '#7ba5bf',
-    world: { x: 1690, y: 536 },
+    world: { x: 1810, y: 610 },
     axes: {
       x: { min: 0, max: 10, tickStep: 1 },
       y: { min: 0, max: 6, tickStep: 1 },
@@ -322,7 +322,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Gallery',
     blurb: 'Absolute value introduces corners and symmetry without adding any new tiles yet.',
     accent: '#cc8eb4',
-    world: { x: 2250, y: 486 },
+    world: { x: 2340, y: 330 },
     axes: {
       x: { min: 0, max: 10, tickStep: 1 },
       y: { min: 0, max: 5, tickStep: 1 },
@@ -354,7 +354,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Canopy',
     blurb: 'A shifted absolute value shows how corners can be lifted into brand-new routes.',
     accent: '#7eb17d',
-    world: { x: 1126, y: -532 },
+    world: { x: 1080, y: -500 },
     axes: {
       x: { min: 0, max: 10, tickStep: 1 },
       y: { min: 0, max: 8, tickStep: 1 },
@@ -408,7 +408,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Crossroads',
     blurb: 'This middle board opens one branch at a time as your tile kit grows.',
     accent: '#8f86c9',
-    world: { x: 1990, y: -74 },
+    world: { x: 1830, y: -40 },
     axes: {
       x: { min: -2, max: 10, tickStep: 1 },
       y: { min: -2, max: 10, tickStep: 1 },
@@ -490,7 +490,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Eastreach',
     blurb: 'Superscripts turn the familiar line tile into the world’s first true power curve.',
     accent: '#d9aa78',
-    world: { x: 2672, y: -62 },
+    world: { x: 2490, y: -30 },
     axes: {
       x: { min: 0, max: 1.8, tickStep: 0.3 },
       y: { min: 0, max: 3, tickStep: 0.5 },
@@ -519,7 +519,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'East Vault',
     blurb: 'Another superscript curve plus a lift term rounds out the power notation.',
     accent: '#e29d78',
-    world: { x: 3248, y: -18 },
+    world: { x: 3010, y: 20 },
     axes: {
       x: { min: 0, max: 2.5, tickStep: 0.5 },
       y: { min: 0, max: 9, tickStep: 1 },
@@ -551,7 +551,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Arch',
     blurb: 'Sine appears as a soft wave, but this first version still stays inside one smooth arch.',
     accent: '#a685d8',
-    world: { x: 1840, y: -706 },
+    world: { x: 1280, y: -620 },
     axes: {
       x: { min: 0, max: 1.6, tickStep: 0.2 },
       y: { min: 5, max: 6.2, tickStep: 0.2 },
@@ -584,7 +584,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Mire',
     blurb: 'A shifted sine curve asks you to read wave phase instead of just height.',
     accent: '#9188d9',
-    world: { x: 1280, y: -908 },
+    world: { x: 760, y: -820 },
     axes: {
       x: { min: 0, max: 2.4, tickStep: 0.4 },
       y: { min: 2, max: 3, tickStep: 0.2 },
@@ -619,7 +619,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Hollow',
     blurb: 'Logs feel different immediately: they grow slowly and only exist on one side of the plane.',
     accent: '#7f7cc0',
-    world: { x: 648, y: -628 },
+    world: { x: 240, y: -520 },
     axes: {
       x: { min: 0, max: 7, tickStep: 1 },
       y: { min: 0, max: 3.2, tickStep: 0.5 },
@@ -653,7 +653,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Southreach',
     blurb: 'A subscript slot lets the log base itself become part of the puzzle.',
     accent: '#6ea7de',
-    world: { x: 2022, y: 612 },
+    world: { x: 1580, y: 620 },
     axes: {
       x: { min: 0, max: 20, tickStep: 5 },
       y: { min: 0, max: 3, tickStep: 0.5 },
@@ -687,7 +687,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'South Vault',
     blurb: 'Mix the absolute-value corner with a fraction to carve out a gentler final branch.',
     accent: '#63a8dd',
-    world: { x: 2588, y: 812 },
+    world: { x: 1000, y: 840 },
     axes: {
       x: { min: 0, max: 10, tickStep: 1 },
       y: { min: 0, max: 3, tickStep: 0.5 },
@@ -722,7 +722,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Northreach',
     blurb: 'A mixed power-and-fraction puzzle awards the theta tile for the polar branch.',
     accent: '#d28e7d',
-    world: { x: 2468, y: -664 },
+    world: { x: 2360, y: -520 },
     axes: {
       x: { min: 0, max: 5, tickStep: 1 },
       y: { min: 0, max: 2.2, tickStep: 0.5 },
@@ -758,7 +758,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Loft',
     blurb: 'Polar space starts simply: the radius grows directly with theta.',
     accent: '#cf9479',
-    world: { x: 3080, y: -916 },
+    world: { x: 2920, y: -760 },
     coordinateMode: 'polar',
     equationPrefix: 'r',
     parameterDomain: { min: 0, max: 3.1416, tickStep: 0.7854 },
@@ -787,7 +787,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Weave',
     blurb: 'A second polar spiral shows how theta can scale the whole path, not just place it.',
     accent: '#d68c6e',
-    world: { x: 3642, y: -664 },
+    world: { x: 3480, y: -520 },
     coordinateMode: 'polar',
     equationPrefix: 'r',
     parameterDomain: { min: 0, max: 1.5708, tickStep: 0.3927 },
@@ -822,7 +822,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Cellar',
     blurb: 'One last cartesian revisit mixes a squared term inside parentheses and a final division.',
     accent: '#d58b77',
-    world: { x: 4210, y: -288 },
+    world: { x: 3210, y: 30 },
     axes: {
       x: { min: 0, max: 5, tickStep: 1 },
       y: { min: 0, max: 4.2, tickStep: 0.5 },
@@ -857,7 +857,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Finale',
     blurb: 'The finale folds logarithms, parentheses, and exponents into one last elegant target.',
     accent: '#c78882',
-    world: { x: 4788, y: -52 },
+    world: { x: 2640, y: 400 },
     axes: {
       x: { min: 0, max: 4.6, tickStep: 1 },
       y: { min: 0, max: 2.2, tickStep: 0.5 },
