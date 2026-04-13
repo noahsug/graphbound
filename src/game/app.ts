@@ -593,6 +593,8 @@ class GraphboundApp {
       }
     | null = null
   private selectedTileId: TileId | null = null
+  private hoveredGoalKey: string | null = null
+  private pinnedGoalKey: string | null = null
   private activeSectionId = this.sections[0].id
   private camera: Point = { ...this.sections[0].world }
   private zoomLevel = START_ZOOM_LEVEL
@@ -663,6 +665,7 @@ class GraphboundApp {
     this.canvas.addEventListener('pointermove', this.handlePointerMove)
     this.canvas.addEventListener('pointerup', this.handlePointerUp)
     this.canvas.addEventListener('pointercancel', this.handlePointerCancel)
+    this.canvas.addEventListener('pointerleave', this.handlePointerLeave)
     this.canvas.addEventListener('wheel', this.handleWheel, { passive: false })
     window.addEventListener('keydown', this.handleKeyDown)
     window.addEventListener('keyup', this.handleKeyUp)
@@ -1826,6 +1829,24 @@ class GraphboundApp {
     return resolvedGoal?.color ?? this.sectionById.get(sectionId)?.accent ?? GOAL
   }
 
+  private goalKey(sectionId: string, goalId: string): string {
+    return `${sectionId}:${goalId}`
+  }
+
+  private inspectedGoalKey(): string | null {
+    return this.hoveredGoalKey ?? this.pinnedGoalKey
+  }
+
+  private inspectedGoalForSection(sectionId: string): GoalDefinition | null {
+    const key = this.inspectedGoalKey()
+    if (!key || !key.startsWith(`${sectionId}:`)) {
+      return null
+    }
+
+    const goalId = key.slice(sectionId.length + 1)
+    return this.sectionById.get(sectionId)?.goals.find((goal) => goal.id === goalId) ?? null
+  }
+
   private placementExpression(sectionId: string): string {
     const section = this.sectionById.get(sectionId)
     const runtime = this.sectionRuntimes.get(sectionId)
@@ -1860,7 +1881,7 @@ class GraphboundApp {
     return hit?.point ?? null
   }
 
-  private defaultGoalAnchor(sectionId: string, goal: GoalDefinition): Point {
+  private defaultGoalPoint(sectionId: string, goal: GoalDefinition): PlotPoint {
     const axes = this.sectionAxes(sectionId)
     const axis = goal.edge === 'top' || goal.edge === 'bottom' ? axes.x : axes.y
     const coordinate =
@@ -1871,28 +1892,24 @@ class GraphboundApp {
           : (goal.min + goal.max) / 2
 
     if (goal.edge === 'top') {
-      return {
-        x: this.graphValueToScreenX(sectionId, coordinate),
-        y: this.graphRect(sectionId).y,
-      }
+      return { x: coordinate, y: axes.y.max }
     }
     if (goal.edge === 'right') {
-      return {
-        x: this.graphRect(sectionId).x + this.graphRect(sectionId).width,
-        y: this.graphValueToScreenY(sectionId, coordinate),
-      }
+      return { x: axes.x.max, y: coordinate }
     }
     if (goal.edge === 'left') {
-      return {
-        x: this.graphRect(sectionId).x,
-        y: this.graphValueToScreenY(sectionId, coordinate),
-      }
+      return { x: axes.x.min, y: coordinate }
     }
 
-    return {
-      x: this.graphValueToScreenX(sectionId, coordinate),
-      y: this.graphRect(sectionId).y + this.graphRect(sectionId).height,
-    }
+    return { x: coordinate, y: axes.y.min }
+  }
+
+  private goalTargetPoint(sectionId: string, goal: GoalDefinition): PlotPoint {
+    return this.goalHit(sectionId, goal) ?? this.defaultGoalPoint(sectionId, goal)
+  }
+
+  private defaultGoalAnchor(sectionId: string, goal: GoalDefinition): Point {
+    return this.graphPointToScreen(sectionId, this.defaultGoalPoint(sectionId, goal))
   }
 
   private goalAnchor(sectionId: string, goal: GoalDefinition): Point {
@@ -1945,6 +1962,106 @@ class GraphboundApp {
       width: radius * 2,
       height: radius * 2,
     }
+  }
+
+  private goalAtPoint(point: Point): { sectionId: string; goal: GoalDefinition } | null {
+    const orderedSections = [...this.sections].sort((left, right) => {
+      if (left.id === this.activeSectionId) {
+        return 1
+      }
+      if (right.id === this.activeSectionId) {
+        return -1
+      }
+      return 0
+    })
+
+    for (let sectionIndex = orderedSections.length - 1; sectionIndex >= 0; sectionIndex -= 1) {
+      const section = orderedSections[sectionIndex]
+      for (let goalIndex = section.goals.length - 1; goalIndex >= 0; goalIndex -= 1) {
+        const goal = section.goals[goalIndex]
+        if (pointInRect(point, this.goalShapeRect(section.id, goal))) {
+          return { sectionId: section.id, goal }
+        }
+      }
+    }
+
+    return null
+  }
+
+  private updateHoveredGoal(point: Point | null): boolean {
+    const nextKey = point
+      ? (() => {
+          const match = this.goalAtPoint(point)
+          return match ? this.goalKey(match.sectionId, match.goal.id) : null
+        })()
+      : null
+
+    if (nextKey === this.hoveredGoalKey) {
+      return false
+    }
+
+    this.hoveredGoalKey = nextKey
+    return true
+  }
+
+  private formatGoalAxisLabel(value: number): string {
+    const rounded = Math.abs(value) < 0.05 ? 0 : Number(value.toFixed(1))
+    return Number.isInteger(rounded) ? `${rounded}` : rounded.toFixed(1)
+  }
+
+  private drawGoalAxisGuides(
+    sectionId: string,
+    goal: GoalDefinition,
+    xAxisY: number,
+    yAxisX: number,
+    scale: number,
+  ): void {
+    const point = this.goalTargetPoint(sectionId, goal)
+    const color = this.goalColor(sectionId, goal)
+    const labelColor = mixColors(color, INK, 0.22, 0.96)
+    const x = this.graphValueToScreenX(sectionId, point.x)
+    const y = this.graphValueToScreenY(sectionId, point.y)
+    const majorTick = 16 * scale
+    const minorTick = 10 * scale
+    const xLabel = this.formatGoalAxisLabel(point.x)
+    const yLabel = this.formatGoalAxisLabel(point.y)
+
+    this.roughCanvas.line(
+      x,
+      xAxisY - majorTick / 2,
+      x,
+      xAxisY + majorTick / 2,
+      seeded(`goal-guide:${sectionId}:${goal.id}:x`, {
+        stroke: color,
+        strokeWidth: Math.max(1.8, 2.2 * scale),
+        roughness: 0.65,
+        bowing: 0.4,
+      }),
+    )
+
+    this.roughCanvas.line(
+      yAxisX - minorTick / 2,
+      y,
+      yAxisX + minorTick / 2,
+      y,
+      seeded(`goal-guide:${sectionId}:${goal.id}:y`, {
+        stroke: color,
+        strokeWidth: Math.max(1.8, 2.2 * scale),
+        roughness: 0.65,
+        bowing: 0.4,
+      }),
+    )
+
+    this.context.save()
+    this.context.fillStyle = labelColor
+    this.context.font = `${Math.round(14 * scale)}px 'Short Stack', cursive`
+    this.context.textBaseline = 'top'
+    this.context.textAlign = 'center'
+    this.context.fillText(xLabel, x, xAxisY + majorTick * 0.7)
+    this.context.textBaseline = 'middle'
+    this.context.textAlign = 'right'
+    this.context.fillText(yLabel, yAxisX - minorTick * 0.9, y)
+    this.context.restore()
   }
 
   private goalRoutePoints(sectionId: string, goal: GoalDefinition): Point[] {
@@ -2668,6 +2785,15 @@ class GraphboundApp {
       }
     }
 
+    const goalMatch = this.goalAtPoint(point)
+    if (goalMatch) {
+      const key = this.goalKey(goalMatch.sectionId, goalMatch.goal.id)
+      this.pinnedGoalKey = this.pinnedGoalKey === key ? null : key
+      this.hoveredGoalKey = key
+      this.render()
+      return
+    }
+
     for (const section of [...this.unlockedSections].reverse()) {
       const rect = this.dogRect(section)
       if (!rect || !pointInRect(point, rect)) {
@@ -2708,6 +2834,9 @@ class GraphboundApp {
     }
 
     if (!this.drag || this.drag.pointerId !== event.pointerId) {
+      if (this.updateHoveredGoal(point)) {
+        this.render()
+      }
       return
     }
 
@@ -2741,6 +2870,12 @@ class GraphboundApp {
     this.render()
   }
 
+  private handlePointerLeave = (): void => {
+    if (this.updateHoveredGoal(null)) {
+      this.render()
+    }
+  }
+
   private handlePointerUp = (event: PointerEvent): void => {
     const point = this.getPointerPoint(event)
 
@@ -2756,6 +2891,9 @@ class GraphboundApp {
     }
 
     if (!this.drag || this.drag.pointerId !== event.pointerId) {
+      if (this.updateHoveredGoal(point)) {
+        this.render()
+      }
       return
     }
 
@@ -2773,6 +2911,7 @@ class GraphboundApp {
       if (!wasDragging && startedSectionId) {
         this.focusSection(startedSectionId, true, true)
       } else {
+        this.updateHoveredGoal(point)
         this.render()
       }
       return
@@ -2803,6 +2942,7 @@ class GraphboundApp {
     }
 
     this.drag = null
+    this.updateHoveredGoal(point)
     this.render()
   }
 
@@ -2823,6 +2963,7 @@ class GraphboundApp {
     }
 
     this.drag = null
+    this.updateHoveredGoal(null)
     this.render()
   }
 
@@ -4262,6 +4403,11 @@ class GraphboundApp {
       )
     }
 
+    const inspectedGoal = this.inspectedGoalForSection(sectionId)
+    if (inspectedGoal) {
+      this.drawGoalAxisGuides(sectionId, inspectedGoal, xAxisY, yAxisX, scale)
+    }
+
     if (runtime.plotResult && runtime.plotResult.points.length > 1) {
       const progress = runtime.animating ? runtime.plotProgress : 1
       const plotPoints = runtime.plotResult.points.map((point) => this.graphPointToScreen(sectionId, point))
@@ -4478,6 +4624,7 @@ class GraphboundApp {
         y: Number(this.camera.y.toFixed(1)),
       },
       zoom: Number(this.zoomLevel.toFixed(2)),
+      inspectedGoal: this.inspectedGoalKey(),
       unlockedTiles: [...this.unlockedTiles],
       trayTiles: this.trayTileRects().map(({ tileId }) => tileId),
       selectedTile: this.selectedTileId,
