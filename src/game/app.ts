@@ -1707,9 +1707,9 @@ class GraphboundApp {
       return {
         width:
           part.type === 'slot'
-            ? tokenSize * 0.54
-            : Math.max(12 * scale, Math.min(tokenSize * 0.34, value.length * 12 * scale)),
-        height: tokenSize * 0.62,
+            ? tokenSize * 0.82
+            : Math.max(18 * scale, Math.min(tokenSize * 0.58, value.length * 18 * scale)),
+        height: tokenSize,
         yOffset: -tokenSize * 0.34,
       }
     }
@@ -1718,9 +1718,9 @@ class GraphboundApp {
       return {
         width:
           part.type === 'slot'
-            ? tokenSize * 0.56
-            : Math.max(12 * scale, Math.min(tokenSize * 0.42, value.length * 12 * scale)),
-        height: tokenSize * 0.62,
+            ? tokenSize * 0.82
+            : Math.max(18 * scale, Math.min(tokenSize * 0.58, value.length * 18 * scale)),
+        height: tokenSize,
         yOffset: tokenSize * 0.26,
       }
     }
@@ -4713,9 +4713,7 @@ class GraphboundApp {
 
     for (const token of tokenLayouts) {
       if (token.part.type === 'fixed') {
-        const style = token.part.displayStyle ?? 'normal'
-        const fontSize =
-          style === 'normal' ? Math.round(19 * scale) : Math.round(Math.max(10, token.rect.height * 0.92))
+        const fontSize = Math.round(19 * scale)
         this.context.font = `${fontSize}px 'Short Stack', cursive`
         this.context.fillText(
           token.part.value,
