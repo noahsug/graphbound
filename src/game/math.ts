@@ -505,7 +505,7 @@ function visiblePolarPoints(
     })
   }
 
-  return points.sort((a, b) => (Math.abs(a.x - b.x) <= EDGE_EPSILON ? a.y - b.y : a.x - b.x))
+  return points
 }
 
 function collectBoundaryHits(points: PlotPoint[], axes: GraphAxes): BoundaryHit[] {
