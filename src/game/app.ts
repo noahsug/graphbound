@@ -688,6 +688,7 @@ class GraphboundApp {
       animatePlaceTile: (tileId: TileId, slotId: string) => this.debugAnimatePlaceTile(tileId, slotId),
       startAtLevel: (levelNumber: number) => this.debugStartAtLevel(levelNumber),
       getState: () => JSON.parse(this.renderGameToText()),
+      getLayoutIssues: () => this.layoutOverlapIssues(),
     }
   }
 
@@ -1810,6 +1811,124 @@ class GraphboundApp {
     return false
   }
 
+  private equationElementCollision(sectionId: string, rect: Rect): boolean {
+    if (this.equationConnectorCollision(sectionId, rect)) {
+      return true
+    }
+
+    const padding = 10 * this.layout.worldScale
+    const expanded = {
+      x: rect.x - padding,
+      y: rect.y - padding,
+      width: rect.width + padding * 2,
+      height: rect.height + padding * 2,
+    }
+
+    for (const section of this.sections) {
+      if (section.id !== sectionId && rectsIntersect(expanded, this.graphRect(section.id), 0)) {
+        return true
+      }
+
+      for (const goal of section.goals) {
+        if (rectsIntersect(expanded, this.goalShapeRect(section.id, goal), 0)) {
+          return true
+        }
+      }
+    }
+
+    return false
+  }
+
+  private rectToWorld(rect: Rect): Rect {
+    const topLeft = this.screenToWorld({ x: rect.x, y: rect.y })
+    const bottomRight = this.screenToWorld({
+      x: rect.x + rect.width,
+      y: rect.y + rect.height,
+    })
+
+    return {
+      x: topLeft.x,
+      y: topLeft.y,
+      width: bottomRight.x - topLeft.x,
+      height: bottomRight.y - topLeft.y,
+    }
+  }
+
+  private equationWorldRect(sectionId: string): Rect | null {
+    const tokenLayouts = this.tokenLayouts(sectionId)
+
+    if (tokenLayouts.length === 0) {
+      return null
+    }
+
+    const scale = this.boardScale(sectionId)
+    const prefixWidth = this.equationPrefixWidth(sectionId, scale)
+    const equationY = this.equationCenterY(sectionId)
+    const tokenSize = this.sectionVisual(sectionId).slotSize * scale
+    const first = tokenLayouts[0]
+    const last = tokenLayouts[tokenLayouts.length - 1]
+    const rect = {
+      x: first.rect.x - prefixWidth,
+      y: equationY - tokenSize * 0.7,
+      width: last.rect.x + last.rect.width - (first.rect.x - prefixWidth),
+      height: tokenSize * 1.4,
+    }
+
+    return this.rectToWorld(rect)
+  }
+
+  private layoutOverlapIssues(): Array<{ kind: string; a: string; b: string }> {
+    const items: Array<{ kind: 'graph' | 'equation' | 'goal'; id: string; rect: Rect }> = []
+
+    for (const section of this.sections) {
+      items.push({
+        kind: 'graph',
+        id: section.id,
+        rect: this.graphWorldRect(section.id),
+      })
+
+      const equationRect = this.equationWorldRect(section.id)
+      if (equationRect) {
+        items.push({
+          kind: 'equation',
+          id: section.id,
+          rect: equationRect,
+        })
+      }
+
+      for (const goal of section.goals) {
+        items.push({
+          kind: 'goal',
+          id: `${section.id}:${goal.id}`,
+          rect: this.rectToWorld(this.goalShapeRect(section.id, goal)),
+        })
+      }
+    }
+
+    const issues: Array<{ kind: string; a: string; b: string }> = []
+
+    for (let index = 0; index < items.length; index += 1) {
+      for (let otherIndex = index + 1; otherIndex < items.length; otherIndex += 1) {
+        const a = items[index]
+        const b = items[otherIndex]
+
+        if (a.id === b.id) {
+          continue
+        }
+
+        if (rectsIntersect(a.rect, b.rect, 6 / this.layout.worldScale)) {
+          issues.push({
+            kind: `${a.kind}-${b.kind}`,
+            a: a.id,
+            b: b.id,
+          })
+        }
+      }
+    }
+
+    return issues
+  }
+
   private tokenLayouts(sectionId: string): TokenLayout[] {
     const section = this.sectionById.get(sectionId)
 
@@ -1845,7 +1964,7 @@ class GraphboundApp {
         height: tokenSize * 1.4,
       }
 
-      if (!this.equationConnectorCollision(sectionId, rowRect)) {
+      if (!this.equationElementCollision(sectionId, rowRect)) {
         rowStart = candidate
         break
       }
@@ -2042,12 +2161,25 @@ class GraphboundApp {
   }
 
   private goalShapeCenter(sectionId: string, goal: GoalDefinition): Point {
-    return this.goalAnchor(sectionId, goal)
+    const anchor = this.goalAnchor(sectionId, goal)
+    const offset = 24 * this.layout.worldScale
+
+    if (goal.edge === 'top') {
+      return { x: anchor.x, y: anchor.y - offset }
+    }
+    if (goal.edge === 'right') {
+      return { x: anchor.x + offset, y: anchor.y }
+    }
+    if (goal.edge === 'left') {
+      return { x: anchor.x - offset, y: anchor.y }
+    }
+
+    return { x: anchor.x, y: anchor.y + offset }
   }
 
   private goalShapeRect(sectionId: string, goal: GoalDefinition): Rect {
     const center = this.goalShapeCenter(sectionId, goal)
-    const radius = 18 * this.layout.worldScale
+    const radius = 10 * this.layout.worldScale
 
     return {
       x: center.x - radius,
@@ -4784,6 +4916,7 @@ declare global {
       animatePlaceTile: (tileId: TileId, slotId: string) => void
       startAtLevel: (levelNumber: number) => void
       getState: () => unknown
+      getLayoutIssues: () => Array<{ kind: string; a: string; b: string }>
     }
   }
 }
