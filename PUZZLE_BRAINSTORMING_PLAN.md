@@ -14,6 +14,7 @@
 3. Prefer “same graph, new meaning” over always inventing a new mechanic.
 4. Use revisits to teach mastery: an old graph that was impossible before should become easy with one new tile.
 5. Save notation-heavy ideas like logs, trig, absolute value, and left-side equations until the player already trusts the drag-and-graph loop.
+6. Let multi-target boards recur often enough that the player starts expecting “I should come back here later,” not just “I solved this once so I’m done.”
 
 ## Current Advanced Mechanics Coverage
 
@@ -31,6 +32,7 @@ Implemented in the current world:
 - Piecewise / split-function boards: `x + 2 for x < 0 ; 2 - x for x > 0`, `|x| for x < 0 ; x^2 / 5 for x > 0`
 - Factored parentheses: `(x - 5)(x + 1)`, `(x - 2)(x + 5)`
 - Left-side / zero-form notation: `y - sin(x + 2) - 2 = 0`, `5y - x^2 - 5 = 0`
+- Multi-target revisits are now common instead of rare: Orchard, Basin, Gallery, Crossroads, Arch, Mire, Hollow, Glade, Southreach, Chorus, Echo, Forge, Halo, and Finale all ask the player to revisit one graph for multiple distinct destinations
 
 Still worth adding later:
 - Division with moving numerator and denominator on both sides: `y = (_ _) / (_ _)`
