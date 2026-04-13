@@ -882,6 +882,9 @@ class GraphboundApp {
         if (!this.tileAllowedForSection(sectionId, tileId)) {
           continue
         }
+        if (!this.slotAllowsTile(sectionId, slotId, tileId)) {
+          continue
+        }
         if (Object.values(placements).some((placedTileId) => placedTileId === tileId)) {
           continue
         }
@@ -1403,6 +1406,27 @@ class GraphboundApp {
     }
 
     return tileId !== 'θ'
+  }
+
+  private tileIsOperator(tileId: TileId): boolean {
+    return TILE_DEFINITIONS[tileId].role === 'operator'
+  }
+
+  private slotAllowsTile(sectionId: string, slotId: string, tileId: TileId): boolean {
+    if (!this.tileIsOperator(tileId)) {
+      return true
+    }
+
+    const parts = this.equationDisplayParts(sectionId)
+    const slotIndex = parts.findIndex(
+      (part) => part.type === 'slot' && part.slotId === slotId,
+    )
+
+    if (slotIndex === -1) {
+      return false
+    }
+
+    return slotIndex < parts.length - 1
   }
 
   private setActiveSection(sectionId: string): void {
@@ -2204,7 +2228,9 @@ class GraphboundApp {
       return []
     }
 
-    return section.slots.map((slot) => slot.id)
+    return section.slots
+      .map((slot) => slot.id)
+      .filter((slotId) => this.slotAllowsTile(sectionId, slotId, tileId))
   }
 
   private compatibleSlots(tileId: TileId): string[] {
@@ -2905,6 +2931,7 @@ class GraphboundApp {
     if (
       !slot ||
       !this.tileAllowedForSection(this.activeSectionId, tileId) ||
+      !this.slotAllowsTile(this.activeSectionId, slotId, tileId) ||
       this.sectionAlreadyUsesTile(this.activeSectionId, tileId)
     ) {
       return
