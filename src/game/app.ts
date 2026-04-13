@@ -56,6 +56,9 @@ const MAX_ZOOM_LEVEL = START_ZOOM_LEVEL
 const KEY_ZOOM_FACTOR = 1.14
 const WHEEL_ZOOM_SENSITIVITY = 0.0014
 const MIN_PINCH_DISTANCE = 12
+const GOAL_GLOW_ZOOM_THRESHOLD = 0.42
+const GOAL_GLOW_MIN_ALPHA = 0.12
+const GOAL_GLOW_MAX_ALPHA = 0.32
 
 type RoughCanvas = ReturnType<typeof rough.canvas>
 
@@ -4224,6 +4227,39 @@ class GraphboundApp {
     this.context.restore()
   }
 
+  private goalGlowAlpha(): number {
+    if (this.zoomLevel > GOAL_GLOW_ZOOM_THRESHOLD) {
+      return 0
+    }
+
+    const progress = 1 - clamp(this.zoomLevel / GOAL_GLOW_ZOOM_THRESHOLD, 0, 1)
+    return lerp(GOAL_GLOW_MIN_ALPHA, GOAL_GLOW_MAX_ALPHA, progress)
+  }
+
+  private drawGoalGlow(sectionId: string, goal: GoalDefinition, color: string): void {
+    const alpha = this.goalGlowAlpha()
+
+    if (alpha <= 0.001) {
+      return
+    }
+
+    const center = this.goalShapeCenter(sectionId, goal)
+    const baseSize = Math.max(18 * this.layout.worldScale, 8)
+    const radius = baseSize * 1.45
+
+    this.context.save()
+    this.context.globalAlpha = alpha
+    this.context.strokeStyle = mixColors(color, CHALKBOARD_MID, 0.18, alpha * 0.95)
+    this.context.fillStyle = mixColors(color, CHALKBOARD_MID, 0.1, alpha * 0.22)
+    this.context.shadowColor = mixColors(color, '#ffffff', 0.06, alpha)
+    this.context.shadowBlur = radius * 1.9
+    this.context.beginPath()
+    this.context.arc(center.x, center.y, radius, 0, Math.PI * 2)
+    this.context.fill()
+    this.context.stroke()
+    this.context.restore()
+  }
+
   private drawEquationSlotPlaceholder(
     rect: Rect,
     active: boolean,
@@ -4501,13 +4537,18 @@ class GraphboundApp {
         const solved = this.completedGoals.has(`${section.id}:${goal.id}`)
         const isAnimatingGoal = runtime?.animatingGoalId === goal.id
         const fillProgress = solved ? 1 : isAnimatingGoal ? (runtime?.targetFillProgress ?? 0) : 0
+        const color = unlocked ? this.goalColor(section.id, goal) : LOCKED_GOAL
+
+        if (unlocked && !solved && fillProgress < 0.999) {
+          this.drawGoalGlow(section.id, goal, color)
+        }
 
         this.drawGoalShape(
           section.id,
           goal,
           1,
           fillProgress,
-          unlocked ? this.goalColor(section.id, goal) : LOCKED_GOAL,
+          color,
         )
       }
     }
