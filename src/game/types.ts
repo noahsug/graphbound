@@ -12,7 +12,16 @@ export interface Rect {
 
 export type TileId = 'x' | 'θ' | '2' | '5' | '+' | '-' | '1' | '0'
 export type GoalEdge = 'top' | 'right' | 'bottom' | 'left'
-export type GoalShapeKind = 'heart' | 'circle' | 'x' | 'star'
+export type GoalShapeKind =
+  | 'heart'
+  | 'circle'
+  | 'x'
+  | 'star'
+  | 'triangle'
+  | 'square'
+  | 'diamond'
+  | 'hexagon'
+  | 'clover'
 export type EquationTokenStyle = 'normal' | 'superscript' | 'subscript'
 export type CoordinateMode = 'cartesian' | 'polar'
 

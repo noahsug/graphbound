@@ -4360,6 +4360,24 @@ class GraphboundApp {
     this.context.save()
     this.context.globalAlpha = alpha
 
+    const polygonShape = (
+      key: string,
+      points: Point[],
+      roughness = 1.12,
+      bowing = 0.95,
+    ): void => {
+      this.roughCanvas.polygon(
+        points.map((point) => [point.x, point.y]),
+        seeded(key, {
+          stroke: color,
+          strokeWidth: Math.max(2.2, this.layout.worldScale * 2.15),
+          roughness,
+          bowing,
+          ...fillOptions,
+        }),
+      )
+    }
+
     if (goal.shape === 'circle') {
       this.roughCanvas.circle(
         center.x,
@@ -4373,6 +4391,76 @@ class GraphboundApp {
           ...fillOptions,
         }),
       )
+      this.context.restore()
+      return
+    }
+
+    if (goal.shape === 'triangle') {
+      polygonShape(`goal-shape:${sectionId}:${goal.id}`, [
+        { x: center.x, y: center.y - size * 0.95 },
+        { x: center.x + size * 0.92, y: center.y + size * 0.76 },
+        { x: center.x - size * 0.92, y: center.y + size * 0.76 },
+      ])
+      this.context.restore()
+      return
+    }
+
+    if (goal.shape === 'square') {
+      polygonShape(`goal-shape:${sectionId}:${goal.id}`, [
+        { x: center.x - size * 0.85, y: center.y - size * 0.85 },
+        { x: center.x + size * 0.85, y: center.y - size * 0.85 },
+        { x: center.x + size * 0.85, y: center.y + size * 0.85 },
+        { x: center.x - size * 0.85, y: center.y + size * 0.85 },
+      ])
+      this.context.restore()
+      return
+    }
+
+    if (goal.shape === 'diamond') {
+      polygonShape(`goal-shape:${sectionId}:${goal.id}`, [
+        { x: center.x, y: center.y - size * 1.04 },
+        { x: center.x + size * 0.86, y: center.y },
+        { x: center.x, y: center.y + size * 1.04 },
+        { x: center.x - size * 0.86, y: center.y },
+      ])
+      this.context.restore()
+      return
+    }
+
+    if (goal.shape === 'hexagon') {
+      const points: Point[] = Array.from({ length: 6 }, (_, index) => {
+        const angle = Math.PI / 6 + (index * Math.PI) / 3
+        return {
+          x: center.x + Math.cos(angle) * size * 0.92,
+          y: center.y + Math.sin(angle) * size * 0.92,
+        }
+      })
+      polygonShape(`goal-shape:${sectionId}:${goal.id}`, points)
+      this.context.restore()
+      return
+    }
+
+    if (goal.shape === 'clover') {
+      const petals: Point[] = [
+        { x: center.x, y: center.y - size * 0.4 },
+        { x: center.x + size * 0.4, y: center.y },
+        { x: center.x, y: center.y + size * 0.4 },
+        { x: center.x - size * 0.4, y: center.y },
+      ]
+      for (const [index, petal] of petals.entries()) {
+        this.roughCanvas.circle(
+          petal.x,
+          petal.y,
+          size * 0.95,
+          seeded(`goal-shape:${sectionId}:${goal.id}:petal:${index}`, {
+            stroke: color,
+            strokeWidth: Math.max(2.2, this.layout.worldScale * 2.15),
+            roughness: 1.08,
+            bowing: 1,
+            ...fillOptions,
+          }),
+        )
+      }
       this.context.restore()
       return
     }
@@ -4433,16 +4521,7 @@ class GraphboundApp {
           y: center.y + Math.sin(angle) * radius,
         }
       })
-      this.roughCanvas.polygon(
-        points.map((point) => [point.x, point.y]),
-        seeded(`goal-shape:${sectionId}:${goal.id}`, {
-          stroke: color,
-          strokeWidth: Math.max(2.2, this.layout.worldScale * 2.15),
-          roughness: 1.15,
-          bowing: 0.95,
-          ...fillOptions,
-        }),
-      )
+      polygonShape(`goal-shape:${sectionId}:${goal.id}`, points, 1.15, 0.95)
       this.context.restore()
       return
     }
@@ -4460,16 +4539,7 @@ class GraphboundApp {
         y: center.y - (y / 18) * size,
       }
     })
-    this.roughCanvas.polygon(
-      heartPoints.map((point) => [point.x, point.y]),
-      seeded(`goal-shape:${sectionId}:${goal.id}`, {
-        stroke: color,
-        strokeWidth: Math.max(2.2, this.layout.worldScale * 2.15),
-        roughness: 1.1,
-        bowing: 1,
-        ...fillOptions,
-      }),
-    )
+    polygonShape(`goal-shape:${sectionId}:${goal.id}`, heartPoints, 1.1, 1)
 
     this.context.restore()
   }

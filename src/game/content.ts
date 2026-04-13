@@ -147,7 +147,7 @@ export const SECTIONS: SectionDefinition[] = [
       {
         id: 'path-orchard',
         label: 'Open the orchard',
-        shape: 'circle',
+        shape: 'triangle',
         edge: 'top',
         min: 7.6,
         max: 8.4,
@@ -265,7 +265,7 @@ export const SECTIONS: SectionDefinition[] = [
       {
         id: 'path-basin',
         label: 'Open the basin',
-        shape: 'circle',
+        shape: 'square',
         edge: 'right',
         min: 5.8,
         max: 6,
@@ -339,7 +339,7 @@ export const SECTIONS: SectionDefinition[] = [
       {
         id: 'path-crossroads',
         label: 'Reveal the center crossroads',
-        shape: 'star',
+        shape: 'diamond',
         edge: 'right',
         min: 4.8,
         max: 5,
@@ -442,7 +442,7 @@ export const SECTIONS: SectionDefinition[] = [
       {
         id: 'path-eastreach',
         label: 'Open the east branch',
-        shape: 'heart',
+        shape: 'hexagon',
         edge: 'right',
         min: 3.7,
         max: 4.3,
@@ -453,7 +453,7 @@ export const SECTIONS: SectionDefinition[] = [
       {
         id: 'path-arch',
         label: 'Open the west branch',
-        shape: 'circle',
+        shape: 'triangle',
         edge: 'left',
         min: 3.8,
         max: 4.2,
@@ -569,7 +569,7 @@ export const SECTIONS: SectionDefinition[] = [
       {
         id: 'path-mire',
         label: 'Open the mire',
-        shape: 'heart',
+        shape: 'clover',
         edge: 'right',
         min: 5.95,
         max: 6.05,
@@ -652,7 +652,7 @@ export const SECTIONS: SectionDefinition[] = [
       {
         id: 'path-hollow-finish',
         label: 'Finish the hollow',
-        shape: 'circle',
+        shape: 'hexagon',
         edge: 'right',
         min: 2.95,
         max: 3.05,
