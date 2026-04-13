@@ -78,7 +78,7 @@ function safeExpression(expression: string): string {
   return expression
 }
 
-function classifyToken(token: string): 'number' | 'variable' | 'operator' | 'unknown' {
+function classifyToken(token: string): 'number' | 'variable' | 'quadratic' | 'operator' | 'unknown' {
   if (/^[0-9]+$/.test(token)) {
     return 'number'
   }
@@ -91,7 +91,18 @@ function classifyToken(token: string): 'number' | 'variable' | 'operator' | 'unk
     return 'variable'
   }
 
+  if (token === 'x²') {
+    return 'quadratic'
+  }
+
   return 'unknown'
+}
+
+function formatExpressionForDisplay(expression: string): string {
+  return expression
+    .replace(/\bx \* x\b/g, 'x²')
+    .replace(/\b([0-9]+) \* x²\b/g, '$1x²')
+    .replace(/\b([0-9]+) \* x\b/g, '$1x')
 }
 
 function buildExpressionString(
@@ -162,6 +173,11 @@ function buildExpressionString(
 
     if (kind === 'variable') {
       factors.push(token)
+      continue
+    }
+
+    if (kind === 'quadratic') {
+      factors.push('x * x')
       continue
     }
 
@@ -263,7 +279,7 @@ export function evaluateSectionPlot(
 
   return {
     expression,
-    screenLabel: `y = ${expression}`,
+    screenLabel: `y = ${formatExpressionForDisplay(expression)}`,
     points,
     hits,
     achievedGoalIds,

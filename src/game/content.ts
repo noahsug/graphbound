@@ -477,8 +477,7 @@ export const SECTIONS: SectionDefinition[] = [
       y: { min: 0, max: 3, tickStep: 0.5 },
     },
     equation: [
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: 'x' },
+      { type: 'fixed', value: 'x²' },
       { type: 'fixed', value: '+' },
       { type: 'slot', slotId: 'boost' },
     ],
@@ -509,8 +508,7 @@ export const SECTIONS: SectionDefinition[] = [
     },
     rewardTileId: '1',
     equation: [
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: 'x' },
+      { type: 'fixed', value: 'x²' },
       { type: 'fixed', value: '+' },
       { type: 'slot', slotId: 'height' },
     ],
@@ -572,8 +570,7 @@ export const SECTIONS: SectionDefinition[] = [
     equation: [
       { type: 'slot', slotId: 'crest' },
       { type: 'fixed', value: '-' },
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: 'x' },
+      { type: 'fixed', value: 'x²' },
     ],
     slots: [{ id: 'crest', allowedTiles: ['5'], label: 'crest' }],
     goals: [
@@ -601,8 +598,7 @@ export const SECTIONS: SectionDefinition[] = [
       y: { min: -5, max: 11, tickStep: 1 },
     },
     equation: [
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: 'x' },
+      { type: 'fixed', value: 'x²' },
       { type: 'fixed', value: '-' },
       { type: 'slot', slotId: 'dip' },
     ],
@@ -760,8 +756,7 @@ export const SECTIONS: SectionDefinition[] = [
       { type: 'slot', slotId: 'digitA' },
       { type: 'slot', slotId: 'digitB' },
       { type: 'fixed', value: '-' },
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: 'x' },
+      { type: 'fixed', value: 'x²' },
     ],
     slots: [
       { id: 'digitA', allowedTiles: ['1'], label: 'tens digit' },
@@ -792,8 +787,7 @@ export const SECTIONS: SectionDefinition[] = [
       y: { min: -2, max: 6, tickStep: 1 },
     },
     equation: [
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: 'x' },
+      { type: 'fixed', value: 'x²' },
       { type: 'fixed', value: '-' },
       { type: 'slot', slotId: 'digitA' },
       { type: 'slot', slotId: 'digitB' },
@@ -828,8 +822,7 @@ export const SECTIONS: SectionDefinition[] = [
     },
     equation: [
       { type: 'fixed', value: '2' },
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: 'x' },
+      { type: 'fixed', value: 'x²' },
       { type: 'fixed', value: '-' },
       { type: 'slot', slotId: 'digitA' },
       { type: 'slot', slotId: 'digitB' },
