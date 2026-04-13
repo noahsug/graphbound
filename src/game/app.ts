@@ -3430,8 +3430,20 @@ class GraphboundApp {
     return !obstacles.some((obstacle) => rectsIntersect(rect, obstacle, 18))
   }
 
+  private backgroundDoodleZoomProgress(): number {
+    return clamp((this.layout.worldScale - 0.22) / 0.78, 0, 1)
+  }
+
   private backgroundSketchStroke(alpha = 0.2): string {
-    return `rgba(45, 38, 32, ${alpha})`
+    const zoomProgress = this.backgroundDoodleZoomProgress()
+    const scaledAlpha = lerp(alpha * 0.14, alpha, zoomProgress)
+    return `rgba(45, 38, 32, ${scaledAlpha})`
+  }
+
+  private backgroundSketchWidth(size: number, factor: number): number {
+    const zoomProgress = this.backgroundDoodleZoomProgress()
+    const minWidth = lerp(0.14, 1, zoomProgress)
+    return Math.max(minWidth, size * factor)
   }
 
   private drawBackgroundLoop(center: Point, size: number, seedKey: string): void {
@@ -3441,7 +3453,7 @@ class GraphboundApp {
       size,
       seeded(`${seedKey}:loop`, {
         stroke: this.backgroundSketchStroke(0.17),
-        strokeWidth: Math.max(1, size * 0.045),
+        strokeWidth: this.backgroundSketchWidth(size, 0.045),
         roughness: 1.35,
         bowing: 1.2,
       }),
@@ -3462,7 +3474,7 @@ class GraphboundApp {
       points.map((point) => [point.x, point.y]),
       seeded(`${seedKey}:star`, {
         stroke: this.backgroundSketchStroke(0.16),
-        strokeWidth: Math.max(1, size * 0.04),
+        strokeWidth: this.backgroundSketchWidth(size, 0.04),
         roughness: 1.45,
         bowing: 1,
       }),
@@ -3477,7 +3489,7 @@ class GraphboundApp {
     ]
     this.drawRoughPolyline(points, `${seedKey}:arrow:shaft`, {
       stroke: this.backgroundSketchStroke(0.16),
-      strokeWidth: Math.max(1, size * 0.05),
+      strokeWidth: this.backgroundSketchWidth(size, 0.05),
       roughness: 1.45,
       bowing: 1.2,
     })
@@ -3489,7 +3501,7 @@ class GraphboundApp {
       `${seedKey}:arrow:tip-a`,
       {
         stroke: this.backgroundSketchStroke(0.16),
-        strokeWidth: Math.max(1, size * 0.05),
+        strokeWidth: this.backgroundSketchWidth(size, 0.05),
         roughness: 1.45,
         bowing: 1.15,
       },
@@ -3502,7 +3514,7 @@ class GraphboundApp {
       `${seedKey}:arrow:tip-b`,
       {
         stroke: this.backgroundSketchStroke(0.16),
-        strokeWidth: Math.max(1, size * 0.05),
+        strokeWidth: this.backgroundSketchWidth(size, 0.05),
         roughness: 1.45,
         bowing: 1.15,
       },
@@ -3516,7 +3528,7 @@ class GraphboundApp {
       size,
       seeded(`${seedKey}:face`, {
         stroke: this.backgroundSketchStroke(0.16),
-        strokeWidth: Math.max(1, size * 0.05),
+        strokeWidth: this.backgroundSketchWidth(size, 0.05),
         roughness: 1.3,
         bowing: 1.1,
       }),
@@ -3529,7 +3541,7 @@ class GraphboundApp {
     this.context.arc(center.x + size * 0.16, center.y - size * 0.1, size * 0.03, 0, Math.PI * 2)
     this.context.fill()
     this.context.strokeStyle = this.backgroundSketchStroke(0.16)
-    this.context.lineWidth = Math.max(1, size * 0.045)
+    this.context.lineWidth = this.backgroundSketchWidth(size, 0.045)
     this.context.lineCap = 'round'
     this.context.beginPath()
     this.context.arc(center.x, center.y + size * 0.02, size * 0.23, 0.2, Math.PI - 0.2)
@@ -3550,7 +3562,7 @@ class GraphboundApp {
 
     this.drawRoughPolyline(points, `${seedKey}:spiral`, {
       stroke: this.backgroundSketchStroke(0.15),
-      strokeWidth: Math.max(1, size * 0.04),
+      strokeWidth: this.backgroundSketchWidth(size, 0.04),
       roughness: 1.55,
       bowing: 1.4,
     })
@@ -3564,7 +3576,7 @@ class GraphboundApp {
 
     this.drawRoughPolyline(points, `${seedKey}:squiggle`, {
       stroke: this.backgroundSketchStroke(0.14),
-      strokeWidth: Math.max(1, size * 0.04),
+      strokeWidth: this.backgroundSketchWidth(size, 0.04),
       roughness: 1.65,
       bowing: 1.7,
     })
@@ -3580,7 +3592,7 @@ class GraphboundApp {
       `${seedKey}:tick`,
       {
         stroke: this.backgroundSketchStroke(0.12),
-        strokeWidth: Math.max(1, size * 0.05),
+        strokeWidth: this.backgroundSketchWidth(size, 0.05),
         roughness: 1.45,
         bowing: 1.2,
       },
@@ -3596,7 +3608,7 @@ class GraphboundApp {
       `${seedKey}:cross-a`,
       {
         stroke: this.backgroundSketchStroke(0.11),
-        strokeWidth: Math.max(1, size * 0.04),
+        strokeWidth: this.backgroundSketchWidth(size, 0.04),
         roughness: 1.4,
         bowing: 1.1,
       },
@@ -3609,7 +3621,7 @@ class GraphboundApp {
       `${seedKey}:cross-b`,
       {
         stroke: this.backgroundSketchStroke(0.11),
-        strokeWidth: Math.max(1, size * 0.04),
+        strokeWidth: this.backgroundSketchWidth(size, 0.04),
         roughness: 1.4,
         bowing: 1.1,
       },
@@ -3625,7 +3637,7 @@ class GraphboundApp {
       `${seedKey}:underline`,
       {
         stroke: this.backgroundSketchStroke(0.11),
-        strokeWidth: Math.max(1, size * 0.035),
+        strokeWidth: this.backgroundSketchWidth(size, 0.035),
         roughness: 1.55,
         bowing: 1.35,
       },
@@ -3642,7 +3654,7 @@ class GraphboundApp {
         size * 0.22,
         seeded(`${seedKey}:flower:petal:${petal}`, {
           stroke: this.backgroundSketchStroke(0.15),
-          strokeWidth: Math.max(1, size * 0.036),
+          strokeWidth: this.backgroundSketchWidth(size, 0.036),
           roughness: 1.35,
           bowing: 1.1,
         }),
@@ -3655,7 +3667,7 @@ class GraphboundApp {
       size * 0.18,
       seeded(`${seedKey}:flower:center`, {
         stroke: this.backgroundSketchStroke(0.16),
-        strokeWidth: Math.max(1, size * 0.04),
+        strokeWidth: this.backgroundSketchWidth(size, 0.04),
         roughness: 1.25,
         bowing: 1,
       }),
@@ -3670,7 +3682,7 @@ class GraphboundApp {
       `${seedKey}:flower:stem`,
       {
         stroke: this.backgroundSketchStroke(0.14),
-        strokeWidth: Math.max(1, size * 0.035),
+        strokeWidth: this.backgroundSketchWidth(size, 0.035),
         roughness: 1.5,
         bowing: 1.3,
       },
@@ -3694,7 +3706,7 @@ class GraphboundApp {
       points.map((point) => [point.x, point.y]),
       seeded(`${seedKey}:cloud`, {
         stroke: this.backgroundSketchStroke(0.14),
-        strokeWidth: Math.max(1, size * 0.036),
+        strokeWidth: this.backgroundSketchWidth(size, 0.036),
         roughness: 1.35,
         bowing: 1.15,
         curveTightness: 0.2,
@@ -3712,7 +3724,7 @@ class GraphboundApp {
       ],
       seeded(`${seedKey}:kite:body`, {
         stroke: this.backgroundSketchStroke(0.14),
-        strokeWidth: Math.max(1, size * 0.038),
+        strokeWidth: this.backgroundSketchWidth(size, 0.038),
         roughness: 1.35,
         bowing: 1,
       }),
@@ -3728,7 +3740,7 @@ class GraphboundApp {
       `${seedKey}:kite:string`,
       {
         stroke: this.backgroundSketchStroke(0.13),
-        strokeWidth: Math.max(1, size * 0.03),
+        strokeWidth: this.backgroundSketchWidth(size, 0.03),
         roughness: 1.6,
         bowing: 1.35,
       },
@@ -3747,7 +3759,7 @@ class GraphboundApp {
       points.map((point) => [point.x, point.y]),
       seeded(`${seedKey}:leaf`, {
         stroke: this.backgroundSketchStroke(0.14),
-        strokeWidth: Math.max(1, size * 0.034),
+        strokeWidth: this.backgroundSketchWidth(size, 0.034),
         roughness: 1.3,
         bowing: 1.15,
       }),
@@ -3761,7 +3773,7 @@ class GraphboundApp {
       `${seedKey}:leaf:vein`,
       {
         stroke: this.backgroundSketchStroke(0.12),
-        strokeWidth: Math.max(1, size * 0.028),
+        strokeWidth: this.backgroundSketchWidth(size, 0.028),
         roughness: 1.45,
         bowing: 1.2,
       },
@@ -3779,7 +3791,7 @@ class GraphboundApp {
       `${seedKey}:boat:hull`,
       {
         stroke: this.backgroundSketchStroke(0.14),
-        strokeWidth: Math.max(1, size * 0.04),
+        strokeWidth: this.backgroundSketchWidth(size, 0.04),
         roughness: 1.4,
         bowing: 1.1,
       },
@@ -3793,7 +3805,7 @@ class GraphboundApp {
       `${seedKey}:boat:mast`,
       {
         stroke: this.backgroundSketchStroke(0.13),
-        strokeWidth: Math.max(1, size * 0.034),
+        strokeWidth: this.backgroundSketchWidth(size, 0.034),
         roughness: 1.45,
         bowing: 1.2,
       },

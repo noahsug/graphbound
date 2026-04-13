@@ -248,3 +248,6 @@ Original prompt: Create a GitHub repo for this web game project, write a detaile
 - Added a lightweight startup loading screen with a spinner so the app waits behind a clean boot state while the hand-drawn web fonts load, instead of showing the wrong fallback cursive font on first paint.
 - The boot path now waits for the key fonts with a short timeout fallback and keeps the loader visible for a minimum moment, then fades it out after the canvas app is ready.
 - Verified the loading screen with `npm run build`, direct browser first-paint captures at `output/web-game/loading-screen/loader.png` and `output/web-game/loading-screen/loaded.png`, and the required Playwright client at `output/web-game/loading-screen-client/shot-0.png`.
+- Tuned the background doodle renderer so tiny marks get thinner and lighter as the camera zooms far out, which prevents the random paper doodles from collapsing into dark specks at low zoom.
+- Kept the close-up look unchanged by leaving the full stroke weight and alpha in place near the default zoom, then only fading/thinning doodles once the camera pulls back.
+- Verified the doodle zoom fix with `npm run build`, comparison captures at `output/web-game/doodle-zoom-fix/zoomed-in.png` and `output/web-game/doodle-zoom-fix/zoomed-out.png`, plus the required Playwright client at `output/web-game/doodle-zoom-fix-client/shot-0.png`.
