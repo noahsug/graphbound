@@ -879,10 +879,7 @@ class GraphboundApp {
       const slotId = slotIds[slotIndex]
 
       for (const tileId of availableTiles) {
-        if (!this.tileAllowedForSection(sectionId, tileId)) {
-          continue
-        }
-        if (!this.slotAllowsTile(sectionId, slotId, tileId)) {
+        if (!this.tileAllowedInSlot(sectionId, slotId, tileId, [], placements)) {
           continue
         }
         if (Object.values(placements).some((placedTileId) => placedTileId === tileId)) {
@@ -1392,6 +1389,28 @@ class GraphboundApp {
     }
 
     return Object.values(runtime.placements).some((placedTileId) => placedTileId === tileId)
+  }
+
+  private tileAllowedInSlot(
+    sectionId: string,
+    slotId: string,
+    tileId: TileId,
+    ignoredSlotIds: string[] = [],
+    placementsOverride?: Record<string, TileId | null>,
+  ): boolean {
+    if (!this.tileAllowedForSection(sectionId, tileId) || !this.slotAllowsTile(sectionId, slotId, tileId)) {
+      return false
+    }
+
+    const placements = placementsOverride ?? this.sectionRuntimes.get(sectionId)?.placements
+    if (!placements) {
+      return false
+    }
+
+    const ignored = new Set(ignoredSlotIds)
+    return !Object.entries(placements).some(
+      ([placedSlotId, placedTileId]) => placedTileId === tileId && !ignored.has(placedSlotId),
+    )
   }
 
   private tileAllowedForSection(sectionId: string, tileId: TileId): boolean {
@@ -2222,7 +2241,6 @@ class GraphboundApp {
 
     if (
       !section ||
-      !this.tileAllowedForSection(sectionId, tileId) ||
       this.sectionAlreadyUsesTile(sectionId, tileId)
     ) {
       return []
@@ -2230,7 +2248,7 @@ class GraphboundApp {
 
     return section.slots
       .map((slot) => slot.id)
-      .filter((slotId) => this.slotAllowsTile(sectionId, slotId, tileId))
+      .filter((slotId) => this.tileAllowedInSlot(sectionId, slotId, tileId))
   }
 
   private compatibleSlots(tileId: TileId): string[] {
@@ -2256,6 +2274,48 @@ class GraphboundApp {
       if (distanceToSlot < bestDistance) {
         bestDistance = distanceToSlot
         bestSlotId = slotId
+      }
+    }
+
+    return bestSlotId
+  }
+
+  private nearestOverlappingSwapSlot(
+    sourceSlotId: string,
+    tileId: TileId,
+    tileRect: Rect,
+  ): string | null {
+    const tileCenter = this.rectCenter(tileRect)
+    let bestSlotId: string | null = null
+    let bestDistance = Number.POSITIVE_INFINITY
+
+    for (const slot of this.activeSection.slots) {
+      const targetSlotId = slot.id
+      if (targetSlotId === sourceSlotId) {
+        continue
+      }
+
+      const targetTileId = this.activeRuntime.placements[targetSlotId]
+      if (!targetTileId) {
+        continue
+      }
+
+      if (
+        !this.tileAllowedInSlot(this.activeSectionId, targetSlotId, tileId, [sourceSlotId]) ||
+        !this.tileAllowedInSlot(this.activeSectionId, sourceSlotId, targetTileId, [targetSlotId])
+      ) {
+        continue
+      }
+
+      const rect = this.slotRect(targetSlotId)
+      if (!rect || !rectsIntersect(tileRect, rect)) {
+        continue
+      }
+
+      const distanceToSlot = distanceBetween(tileCenter, this.rectCenter(rect))
+      if (distanceToSlot < bestDistance) {
+        bestDistance = distanceToSlot
+        bestSlotId = targetSlotId
       }
     }
 
@@ -2930,14 +2990,36 @@ class GraphboundApp {
 
     if (
       !slot ||
-      !this.tileAllowedForSection(this.activeSectionId, tileId) ||
-      !this.slotAllowsTile(this.activeSectionId, slotId, tileId) ||
-      this.sectionAlreadyUsesTile(this.activeSectionId, tileId)
+      this.activeRuntime.placements[slotId] ||
+      !this.tileAllowedInSlot(this.activeSectionId, slotId, tileId)
     ) {
       return
     }
 
     this.activeRuntime.placements[slotId] = tileId
+    this.selectedTileId = null
+    this.updateSectionPlot(this.activeSectionId, animated)
+    this.render()
+  }
+
+  private swapDraggedTileWithSlot(
+    sourceSlotId: string,
+    targetSlotId: string,
+    draggedTileId: TileId,
+    animated: boolean,
+  ): void {
+    const targetTileId = this.activeRuntime.placements[targetSlotId]
+
+    if (
+      !targetTileId ||
+      !this.tileAllowedInSlot(this.activeSectionId, targetSlotId, draggedTileId, [sourceSlotId]) ||
+      !this.tileAllowedInSlot(this.activeSectionId, sourceSlotId, targetTileId, [targetSlotId])
+    ) {
+      return
+    }
+
+    this.activeRuntime.placements[sourceSlotId] = targetTileId
+    this.activeRuntime.placements[targetSlotId] = draggedTileId
     this.selectedTileId = null
     this.updateSectionPlot(this.activeSectionId, animated)
     this.render()
@@ -3371,10 +3453,16 @@ class GraphboundApp {
     if (this.drag.kind === 'tile') {
       const draggedRect = this.draggedTileRect(this.drag)
       const targetSlot = this.nearestOverlappingOpenSlot(this.drag.tileId, draggedRect)
+      const swapSlot =
+        !targetSlot && this.drag.sourceSlotId
+          ? this.nearestOverlappingSwapSlot(this.drag.sourceSlotId, this.drag.tileId, draggedRect)
+          : null
 
       if (this.drag.dragging) {
         if (targetSlot) {
           this.placeTileInSlot(this.drag.tileId, targetSlot, true)
+        } else if (swapSlot && this.drag.sourceSlotId) {
+          this.swapDraggedTileWithSlot(this.drag.sourceSlotId, swapSlot, this.drag.tileId, true)
         } else if (this.drag.sourceSlotId) {
           this.activeRuntime.placements[this.drag.sourceSlotId] = this.drag.tileId
           this.updateSectionPlot(this.activeSectionId, false)
