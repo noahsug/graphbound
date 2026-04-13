@@ -18,22 +18,25 @@
 ## Current Advanced Mechanics Coverage
 
 Implemented in the current world:
+- Negative-direction / left-side line family: `y = 2 - x`, `y = x - 5`, `x + y - 5 = 0`, plus the four-quadrant Crossroads revisit set
 - Parentheses: `y = (x + 2) / 2`, `y = (5x) / (x + 5)`, `y = (x^2 + 5) / 5`, `y = log_5(x^2 + 5)`
 - Division: early fraction boards, the absolute-value-over-2 revisit, and the later power-over-5 boards
 - Absolute value: `|x - 5|`, `|x - 5| + 2`, `|x - 5| / 2`
 - Sine: `sin(x) + 5`, `sin(x + 2) + 2`
+- Cosine: `cos(x) + 2`, `cos(x + 1) + 1`
 - Exponents: `x^2`, `x^2 + 5`, plus later mixed forms like `(x^2 + 5) / 5`
+- Exponential / natural-log family: `e^(x - 2)`, `ln(x + 1)`
 - Logarithms: `log_2(x + 1)`, `log_5(x + 5)`, `log_5(x^2 + 5)`
-- Polar with theta: `r = Θ`, `r = 2Θ`
+- Polar with theta: `r = Θ`, `r = 2Θ`, `r = 2sin(Θ)`, `r = 1 + cos(Θ)`
 - Left-side / zero-form notation: `y - sin(x + 2) - 2 = 0`, `5y - x^2 - 5 = 0`
 
 Still worth adding later:
 - Parentheses used for true factorization: `y = (x - 2)(x + 5)`
 - Division with moving numerator and denominator on both sides: `y = (_ _) / (_ _)`
 - Absolute values nested inside other wrappers: `y = |(x - 5) / 2|`
-- Polar trig curves: `r = 2sin(Θ)`, `r = 1 + cos(Θ)`
 - Exponent slots with non-2 exponents: `y = x^5`, `y = (x + 1)^2`
 - Logs whose base is genuinely strategic instead of forced: `y = log_2(x + 5)` versus `y = log_5(x + 5)`
+- Piecewise boards with authored conditions and more than one branch-shaped target requirement
 
 ## Recommended World Progression
 
