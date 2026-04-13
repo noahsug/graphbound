@@ -315,7 +315,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Gallery',
     blurb: 'This first left-side rewrite now has a second low exit, so the same algebraic shell can send you two very different directions.',
     accent: '#cc8eb4',
-    world: { x: 2340, y: 330 },
+    world: { x: 2480, y: 320 },
     axes: {
       x: { min: 0, max: 10, tickStep: 1 },
       y: { min: -1, max: 6, tickStep: 1 },
@@ -564,7 +564,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Splice',
     blurb: 'Piecewise rules arrive as a mirrored roof: one branch handles the left side and one handles the right.',
     accent: '#da9f79',
-    world: { x: 3500, y: 180 },
+    world: { x: 3640, y: 120 },
     axes: {
       x: { min: -4, max: 4, tickStep: 1 },
       y: { min: -2, max: 3, tickStep: 1 },
@@ -621,7 +621,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Weir',
     blurb: 'A second split-function board mixes a sharp absolute branch with a softer quadratic branch on the other side.',
     accent: '#ddaa87',
-    world: { x: 3940, y: 360 },
+    world: { x: 4160, y: 460 },
     axes: {
       x: { min: -4, max: 4, tickStep: 1 },
       y: { min: -1, max: 3, tickStep: 1 },
@@ -906,7 +906,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Southreach',
     blurb: 'The log-base choice now matters twice: one base reaches far right while the other pops upward much earlier.',
     accent: '#6ea7de',
-    world: { x: 1580, y: 620 },
+    world: { x: 1660, y: 900 },
     axes: {
       x: { min: -5, max: 15, tickStep: 5 },
       y: { min: -0.5, max: 2.5, tickStep: 0.5 },
@@ -1304,7 +1304,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Cellar',
     blurb: 'One last cartesian revisit mixes a squared term inside parentheses and a final division.',
     accent: '#d58b77',
-    world: { x: 3210, y: 30 },
+    world: { x: 3340, y: 240 },
     axes: {
       x: { min: 0, max: 5, tickStep: 1 },
       y: { min: 0, max: 4.2, tickStep: 0.5 },
@@ -1436,7 +1436,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Finale',
     blurb: 'The finale now asks for two different log lifts on the same skeleton, so the endgame feels like choosing a final flavor rather than solving one last slot.',
     accent: '#c78882',
-    world: { x: 2640, y: 400 },
+    world: { x: 2860, y: 520 },
     axes: {
       x: { min: 0, max: 4.6, tickStep: 1 },
       y: { min: 0, max: 2.0, tickStep: 0.5 },
