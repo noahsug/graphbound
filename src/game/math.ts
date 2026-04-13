@@ -88,6 +88,10 @@ function equationPrefix(section: SectionDefinition): 'y' | 'r' {
   return section.equationPrefix ?? (section.coordinateMode === 'polar' ? 'r' : 'y')
 }
 
+function equationPartsForDisplay(section: SectionDefinition): EquationPart[] {
+  return section.displayEquation ?? section.equation
+}
+
 function resolveEquationTokens(
   parts: EquationPart[],
   placements: Record<string, TileId | null>,
@@ -163,9 +167,10 @@ export function formatEquationLabel(
   placements: Record<string, TileId | null>,
   includePlaceholders = true,
 ): string {
-  const tokens = resolveEquationTokens(section.equation, placements, includePlaceholders)
+  const displayParts = equationPartsForDisplay(section)
+  const tokens = resolveEquationTokens(displayParts, placements, includePlaceholders)
   const expression = tokens ? formatDisplayExpression(tokens) : '_'
-  return `${equationPrefix(section)} = ${expression}`
+  return section.displayEquation ? expression : `${equationPrefix(section)} = ${expression}`
 }
 
 function isNumberText(text: string): boolean {

@@ -599,6 +599,20 @@ export const SECTIONS: SectionDefinition[] = [
       { type: 'fixed', value: '+' },
       { type: 'fixed', value: '2' },
     ],
+    displayEquation: [
+      { type: 'fixed', value: 'y' },
+      { type: 'fixed', value: '-' },
+      { type: 'fixed', value: 'sin' },
+      { type: 'fixed', value: '(' },
+      { type: 'fixed', value: 'x' },
+      { type: 'fixed', value: '+' },
+      { type: 'slot', slotId: 'shift' },
+      { type: 'fixed', value: ')' },
+      { type: 'fixed', value: '-' },
+      { type: 'fixed', value: '2' },
+      { type: 'fixed', value: '=' },
+      { type: 'fixed', value: '0' },
+    ],
     slots: [{ id: 'shift', allowedTiles: ['2'], label: 'shift' }],
     goals: [
       {
@@ -737,6 +751,17 @@ export const SECTIONS: SectionDefinition[] = [
       { type: 'fixed', value: ')' },
       { type: 'fixed', value: '/' },
       { type: 'fixed', value: '5' },
+    ],
+    displayEquation: [
+      { type: 'fixed', value: '5' },
+      { type: 'fixed', value: 'y' },
+      { type: 'fixed', value: '-' },
+      { type: 'fixed', value: 'x' },
+      { type: 'fixed', value: '2', displayStyle: 'superscript' },
+      { type: 'fixed', value: '-' },
+      { type: 'slot', slotId: 'lift' },
+      { type: 'fixed', value: '=' },
+      { type: 'fixed', value: '0' },
     ],
     slots: [{ id: 'lift', allowedTiles: ['5'], label: 'lift' }],
     goals: [

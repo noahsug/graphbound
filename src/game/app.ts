@@ -1692,7 +1692,19 @@ class GraphboundApp {
       (this.sectionById.get(sectionId)?.coordinateMode === 'polar' ? 'r' : 'y')
   }
 
+  private equationDisplayParts(sectionId: string): EquationPart[] {
+    const section = this.sectionById.get(sectionId)
+    return section?.displayEquation ?? section?.equation ?? []
+  }
+
+  private usesCustomEquationDisplay(sectionId: string): boolean {
+    return Boolean(this.sectionById.get(sectionId)?.displayEquation)
+  }
+
   private equationPrefixWidth(sectionId: string, scale: number): number {
+    if (this.usesCustomEquationDisplay(sectionId)) {
+      return 0
+    }
     return this.equationPrefix(sectionId) === 'r' ? 28 * scale : 34 * scale
   }
 
@@ -1937,14 +1949,15 @@ class GraphboundApp {
       return []
     }
 
+    const equationParts = this.equationDisplayParts(sectionId)
     const rect = this.boardRect(sectionId)
     const visual = this.sectionVisual(sectionId)
     const scale = this.boardScale(sectionId)
     const tokenSize = visual.slotSize * scale
     const prefixWidth = this.equationPrefixWidth(sectionId, scale)
-    const tokenMetrics = section.equation.map((part) => this.equationPartMetrics(part, scale, tokenSize))
+    const tokenMetrics = equationParts.map((part) => this.equationPartMetrics(part, scale, tokenSize))
     const totalWidth = prefixWidth + tokenMetrics.reduce((sum, metrics, index) => {
-      const gapBefore = index === 0 ? 0 : this.equationGapBetween(section.equation[index - 1], section.equation[index], scale)
+      const gapBefore = index === 0 ? 0 : this.equationGapBetween(equationParts[index - 1], equationParts[index], scale)
       return sum + gapBefore + metrics.width
     }, 0)
     const equationY = this.equationCenterY(sectionId)
@@ -1973,10 +1986,10 @@ class GraphboundApp {
 
     let cursor = rowStart + prefixWidth
 
-    return section.equation.map((part, index) => {
+    return equationParts.map((part, index) => {
       const metrics = tokenMetrics[index]
       if (index > 0) {
-        cursor += this.equationGapBetween(section.equation[index - 1], part, scale)
+        cursor += this.equationGapBetween(equationParts[index - 1], part, scale)
       }
       const rectForToken = {
         x: cursor,
@@ -4726,7 +4739,9 @@ class GraphboundApp {
     this.context.fillStyle = INK
     this.context.font = `${Math.round(19 * scale)}px 'Short Stack', cursive`
     this.context.textBaseline = 'middle'
-    this.context.fillText(`${this.equationPrefix(sectionId)} =`, prefixX, equationY)
+    if (!this.usesCustomEquationDisplay(sectionId)) {
+      this.context.fillText(`${this.equationPrefix(sectionId)} =`, prefixX, equationY)
+    }
 
     for (const token of tokenLayouts) {
       if (token.part.type === 'fixed') {

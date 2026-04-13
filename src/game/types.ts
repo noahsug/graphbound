@@ -88,6 +88,7 @@ export interface SectionDefinition {
   rewardTileId?: TileId
   initialUnlocked?: boolean
   equation: EquationPart[]
+  displayEquation?: EquationPart[]
   slots: SlotDefinition[]
   goals: GoalDefinition[]
   entryPath?: Point[]

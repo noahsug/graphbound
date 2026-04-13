@@ -25,6 +25,7 @@ Implemented in the current world:
 - Exponents: `x^2`, `x^2 + 5`, plus later mixed forms like `(x^2 + 5) / 5`
 - Logarithms: `log_2(x + 1)`, `log_5(x + 5)`, `log_5(x^2 + 5)`
 - Polar with theta: `r = Θ`, `r = 2Θ`
+- Left-side / zero-form notation: `y - sin(x + 2) - 2 = 0`, `5y - x^2 - 5 = 0`
 
 Still worth adding later:
 - Parentheses used for true factorization: `y = (x - 2)(x + 5)`
@@ -263,6 +264,7 @@ Additional trig ideas:
 - `y = sin(2x)`
 - `y = 2sin(x + 1)`
 - `y = |sin(x)|`
+- `y - sin(x + 2) - 2 = 0`
 
 ### Stage 8: Piecewise And Conditional Rules
 
@@ -348,6 +350,13 @@ Level ideas:
 - `y = x^2 + 5`
 - `y = (x + 1)^2`
 - `y = x^5`
+- `5y - x^2 - 5 = 0`
+
+### Left-Side / Zero Form
+- `x + y = 0`
+- `y + x - 2 = 0`
+- `y - sin(x + 2) - 2 = 0`
+- `5y - x^2 - 5 = 0`
 
 ### Logarithms
 - `y = log_2(x + 1)`
