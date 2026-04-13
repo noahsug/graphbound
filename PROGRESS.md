@@ -254,3 +254,6 @@ Original prompt: Create a GitHub repo for this web game project, write a detaile
 - Applied the same low-zoom softening idea to locked grayscale target shapes, so they no longer read as dark specks when the camera is far out.
 - Left the close-up locked-target look unchanged and kept unlocked-but-unsolved colored targets prominent by not touching their glow treatment.
 - Verified the locked-goal zoom pass with `npm run build`, comparison captures at `output/web-game/locked-goal-zoom-fix/zoomed-in.png` and `output/web-game/locked-goal-zoom-fix/zoomed-out.png`, plus the required Playwright client at `output/web-game/locked-goal-zoom-fix-client/shot-0.png`.
+- Removed the extra screen-space offset between graph endpoints and target-shape centers, so target shapes now sit directly on the line endpoint instead of floating above or beside it.
+- This keeps the graph line ending in the middle of the target shape, matching the intended “hit the shape dead center” read across single-goal and multi-goal boards.
+- Verified the goal-centering pass with `npm run build`, focused captures at `output/web-game/goal-center-fix/level1-start.png`, `output/web-game/goal-center-fix/level8-start.png`, and the required Playwright client at `output/web-game/goal-center-fix-client/shot-0.png`.

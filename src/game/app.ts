@@ -2188,20 +2188,7 @@ class GraphboundApp {
   }
 
   private goalShapeCenter(sectionId: string, goal: GoalDefinition): Point {
-    const anchor = this.goalAnchor(sectionId, goal)
-    const offset = 24 * this.layout.worldScale
-
-    if (goal.edge === 'top') {
-      return { x: anchor.x, y: anchor.y - offset }
-    }
-    if (goal.edge === 'right') {
-      return { x: anchor.x + offset, y: anchor.y }
-    }
-    if (goal.edge === 'left') {
-      return { x: anchor.x - offset, y: anchor.y }
-    }
-
-    return { x: anchor.x, y: anchor.y + offset }
+    return this.goalAnchor(sectionId, goal)
   }
 
   private goalShapeRect(sectionId: string, goal: GoalDefinition): Rect {
