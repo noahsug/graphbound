@@ -2935,7 +2935,6 @@ class GraphboundApp {
       }
 
       if (runtime.animatingGoalId && runtime.targetFillProgress < 1) {
-        const wasFilling = runtime.targetFillProgress < 1
         runtime.targetFillProgress = clamp(
           runtime.targetFillProgress + deltaMs / TARGET_FILL_DURATION_MS,
           0,
@@ -2946,16 +2945,7 @@ class GraphboundApp {
         if (runtime.targetFillProgress < 1) {
           continue
         }
-
-        const newlyUnlockedSections = this.unlockSectionsForGoals(section.id, [runtime.animatingGoalId])
-        if (newlyUnlockedSections.length > 0) {
-          runtime.statusMessage = `unlock-${newlyUnlockedSections[0]}`
-          this.statusMessage = runtime.statusMessage
-        }
-
-        if (wasFilling) {
-          continue
-        }
+        continue
       }
 
       if (runtime.animatingGoalId && (runtime.fuseProgress < 1 || runtime.fuseCameraProgress < 1)) {
@@ -2986,6 +2976,14 @@ class GraphboundApp {
 
         if (runtime.fuseProgress < 1 || runtime.fuseCameraProgress < 1) {
           continue
+        }
+      }
+
+      if (runtime.animatingGoalId) {
+        const newlyUnlockedSections = this.unlockSectionsForGoals(section.id, [runtime.animatingGoalId])
+        if (newlyUnlockedSections.length > 0) {
+          runtime.statusMessage = `unlock-${newlyUnlockedSections[0]}`
+          this.statusMessage = runtime.statusMessage
         }
       }
 
