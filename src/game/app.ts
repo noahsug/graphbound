@@ -77,6 +77,7 @@ const TICK_STROKE_WIDTH = 1.55
 const GOAL_GUIDE_MAJOR_TICK_SIZE = 16
 const GOAL_GUIDE_MINOR_TICK_SIZE = 10
 const GOAL_GUIDE_LABEL_SIZE = 14
+const CAMERA_VISIBILITY_MARGIN_PX = 50
 
 type RoughCanvas = ReturnType<typeof rough.canvas>
 
@@ -1193,10 +1194,17 @@ class GraphboundApp {
 
   private cameraVisibilityRectForContent(rect: Rect): Rect {
     const scale = this.layout.worldScale
-    const leftSpace = this.layout.worldCenter.x / scale
-    const rightSpace = (this.layout.width - this.layout.worldCenter.x) / scale
-    const topSpace = this.layout.worldCenter.y / scale
-    const bottomSpace = (this.layout.height - this.layout.worldCenter.y) / scale
+    const visibilityMargin = CAMERA_VISIBILITY_MARGIN_PX / scale
+    const leftSpace = Math.max(0, this.layout.worldCenter.x / scale - visibilityMargin)
+    const rightSpace = Math.max(
+      0,
+      (this.layout.width - this.layout.worldCenter.x) / scale - visibilityMargin,
+    )
+    const topSpace = Math.max(0, this.layout.worldCenter.y / scale - visibilityMargin)
+    const bottomSpace = Math.max(
+      0,
+      (this.layout.height - this.layout.worldCenter.y) / scale - visibilityMargin,
+    )
 
     return {
       x: rect.x - rightSpace,
