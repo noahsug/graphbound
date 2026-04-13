@@ -28,15 +28,16 @@ Implemented in the current world:
 - Exponential / natural-log family: `e^(x - 2)`, `ln(x + 1)`
 - Logarithms: `log_2(x + 1)`, `log_5(x + 5)`, `log_5(x^2 + 5)`
 - Polar with theta: `r = Θ`, `r = 2Θ`, `r = 2sin(Θ)`, `r = 1 + cos(Θ)`
+- Piecewise / split-function boards: `x + 2 for x < 0 ; 2 - x for x > 0`, `|x| for x < 0 ; x^2 / 5 for x > 0`
+- Factored parentheses: `(x - 5)(x + 1)`, `(x - 2)(x + 5)`
 - Left-side / zero-form notation: `y - sin(x + 2) - 2 = 0`, `5y - x^2 - 5 = 0`
 
 Still worth adding later:
-- Parentheses used for true factorization: `y = (x - 2)(x + 5)`
 - Division with moving numerator and denominator on both sides: `y = (_ _) / (_ _)`
 - Absolute values nested inside other wrappers: `y = |(x - 5) / 2|`
 - Exponent slots with non-2 exponents: `y = x^5`, `y = (x + 1)^2`
 - Logs whose base is genuinely strategic instead of forced: `y = log_2(x + 5)` versus `y = log_5(x + 5)`
-- Piecewise boards with authored conditions and more than one branch-shaped target requirement
+- Piecewise boards with authored conditions plus multiple unlock targets on the same split-function graph
 
 ## Recommended World Progression
 

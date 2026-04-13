@@ -847,6 +847,9 @@ class GraphboundApp {
         if (!this.tileAllowedForSection(sectionId, tileId)) {
           continue
         }
+        if (Object.values(placements).some((placedTileId) => placedTileId === tileId)) {
+          continue
+        }
         placements[slotId] = tileId
         search(slotIndex + 1, placements)
         placements[slotId] = null
