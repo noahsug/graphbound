@@ -351,3 +351,6 @@ Original prompt: Create a GitHub repo for this web game project, write a detaile
 - Lengthened the abrupt short transition cluster by moving `Eastreach` farther away from `Crossroads`, while keeping the rest of the world silhouette intact.
 - Re-ran a whole-world connector audit against the current authored positions and standardized `30px` graph units; the shortest connection is now `Gallery -> Crossroads` at `138.07px`, so every graph-to-graph path clears the new `130px` minimum.
 - Verified the layout pass with `npm run build` and a live browser capture at `output/web-game/min-link-130-check/level4.png`, with matching state in `output/web-game/min-link-130-check/state.json`.
+- Fixed a phantom equation-tile rendering regression where placed tiles in one graph could visually appear inside another graph after scrolling if both sections reused the same slot ID.
+- The root cause was section-agnostic slot-rect lookup during equation rendering; `slottedTileRect(...)` was reading from the active section instead of the section currently being drawn.
+- Made slot-rect lookup section-aware and verified the fix with `npm run build` plus a zoomed-out/panned browser check at `output/web-game/phantom-slot-fix/zoomed-pan.png` and `output/web-game/phantom-slot-fix/focused-ridge.png`, with matching runtime state in `output/web-game/phantom-slot-fix/state.json`.

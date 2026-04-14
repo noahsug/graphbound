@@ -2272,16 +2272,16 @@ class GraphboundApp {
     })
   }
 
-  private slotRect(slotId: string): Rect | null {
-    const token = this.tokenLayouts(this.activeSectionId).find(
+  private slotRect(slotId: string, sectionId = this.activeSectionId): Rect | null {
+    const token = this.tokenLayouts(sectionId).find(
       (layout) => layout.part.type === 'slot' && layout.part.slotId === slotId,
     )
 
     return token?.rect ?? null
   }
 
-  private slottedTileRect(slotId: string): Rect | null {
-    const rect = this.slotRect(slotId)
+  private slottedTileRect(slotId: string, sectionId = this.activeSectionId): Rect | null {
+    const rect = this.slotRect(slotId, sectionId)
     if (!rect) {
       return null
     }
@@ -5226,7 +5226,7 @@ class GraphboundApp {
               : 'disabled'
 
       if (placedTileId) {
-        const placedRect = this.slottedTileRect(token.part.slotId) ?? token.rect
+        const placedRect = this.slottedTileRect(token.part.slotId, sectionId) ?? token.rect
         this.drawTile(
           placedRect,
           TILE_DEFINITIONS[placedTileId],
