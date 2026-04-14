@@ -167,7 +167,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Orchard',
     blurb: 'This board branches. 2x reveals the cove right away, and 5x reaches the canopy later once stronger tiles are in play.',
     accent: '#9c86d6',
-    world: { x: 1080, y: 0 },
+    world: { x: 1180, y: 0 },
     axes: {
       x: { min: 0, max: 10, tickStep: 1 },
       y: { min: 0, max: 14, tickStep: 1 },
@@ -225,7 +225,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Cove',
     blurb: 'The first descending line uses a single blank so the player can feel a graph head downward on purpose.',
     accent: '#8db6d9',
-    world: { x: 1280, y: 470 },
+    world: { x: 1490, y: 640 },
     axes: {
       x: { min: 0, max: 8, tickStep: 1 },
       y: { min: -8, max: 3, tickStep: 1 },
@@ -274,7 +274,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Basin',
     blurb: 'This branch now has two exits: the gentler fraction and the steeper fraction each pull toward a different target.',
     accent: '#7ba5bf',
-    world: { x: 1940, y: 600 },
+    world: { x: 2120, y: 700 },
     axes: {
       x: { min: 0, max: 10, tickStep: 1 },
       y: { min: -6, max: 6, tickStep: 1 },
@@ -315,7 +315,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Gallery',
     blurb: 'This first left-side rewrite now has a second low exit, so the same algebraic shell can send you two very different directions.',
     accent: '#cc8eb4',
-    world: { x: 2480, y: 320 },
+    world: { x: 2610, y: 320 },
     axes: {
       x: { min: 0, max: 10, tickStep: 1 },
       y: { min: -1, max: 6, tickStep: 1 },
@@ -367,7 +367,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Canopy',
     blurb: 'A shifted absolute value shows how corners can be lifted into brand-new routes.',
     accent: '#7eb17d',
-    world: { x: 1080, y: -500 },
+    world: { x: 1180, y: -720 },
     axes: {
       x: { min: -2, max: 8, tickStep: 1 },
       y: { min: -1, max: 7, tickStep: 1 },
@@ -503,7 +503,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Eastreach',
     blurb: 'Superscripts turn the familiar line tile into the world’s first true power curve.',
     accent: '#d9aa78',
-    world: { x: 2490, y: -30 },
+    world: { x: 2660, y: -30 },
     axes: {
       x: { min: 0, max: 1.8, tickStep: 0.3 },
       y: { min: 0, max: 3, tickStep: 0.5 },
@@ -951,7 +951,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'South Vault',
     blurb: 'Mix the absolute-value corner with a fraction to carve out a gentler final branch.',
     accent: '#63a8dd',
-    world: { x: 1000, y: 840 },
+    world: { x: 720, y: 920 },
     axes: {
       x: { min: 0, max: 10, tickStep: 1 },
       y: { min: 0, max: 3, tickStep: 0.5 },
@@ -986,7 +986,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Chorus',
     blurb: 'Cosine enters as a sibling to sine, and this board now invites a second revisit where the wave settles down onto the floor instead of riding high.',
     accent: '#6b9fd1',
-    world: { x: 520, y: 1160 },
+    world: { x: 400, y: 1260 },
     axes: {
       x: { min: 0, max: 3.2, tickStep: 0.5 },
       y: { min: 1, max: 3.2, tickStep: 0.5 },
@@ -1140,7 +1140,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Anvil',
     blurb: 'A second factored board swaps in earlier number tiles so the player has to read roots as editable design choices, not one-off notation.',
     accent: '#a7cdef',
-    world: { x: -660, y: 1880 },
+    world: { x: -780, y: 2010 },
     axes: {
       x: { min: -6, max: 4, tickStep: 1 },
       y: { min: -9, max: 4, tickStep: 1 },
@@ -1193,7 +1193,7 @@ export const SECTIONS: SectionDefinition[] = [
     title: 'Northreach',
     blurb: 'A mixed power-and-fraction puzzle awards the theta tile for the polar branch.',
     accent: '#d28e7d',
-    world: { x: 2360, y: -520 },
+    world: { x: 2520, y: -660 },
     axes: {
       x: { min: 0, max: 5, tickStep: 1 },
       y: { min: 0, max: 2.2, tickStep: 0.5 },
