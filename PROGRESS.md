@@ -358,3 +358,6 @@ Original prompt: Create a GitHub repo for this web game project, write a detaile
 - Fixed a cartesian plot-order bug that could leave some lines stored right-to-left, which made the animation reveal from the target back toward the graph on boards like Cove.
 - Updated goal-anchor resolution to prefer the true terminal plotted endpoint when it matches the goal, which keeps target shapes centered on where the line actually finishes instead of on a nearby sampled boundary hit.
 - Verified the endpoint/ordering fix with `npm run build` and a focused Cove solve sequence in `output/web-game/cove-endpoint-fix/start.png`, `output/web-game/cove-endpoint-fix/early.png`, `output/web-game/cove-endpoint-fix/mid.png`, `output/web-game/cove-endpoint-fix/done.png`, with matching runtime state in `output/web-game/cove-endpoint-fix/state.json`.
+- Changed graph tick rendering so every graph always draws a tick at every whole-number unit, regardless of the authored `tickStep`.
+- Kept the stronger major-tick emphasis at multiples of 5, so full-plane graphs like Crossroads still read cleanly while no longer dropping the in-between unit ticks.
+- Verified the tick-density fix with `npm run build` and a Crossroads capture at `output/web-game/unit-ticks-fix/crossroads.png`, with matching runtime state in `output/web-game/unit-ticks-fix/state.json`.

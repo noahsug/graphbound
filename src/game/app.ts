@@ -197,7 +197,7 @@ const GRAPH_UNIT_WORLD_X = 30
 const GRAPH_UNIT_WORLD_Y = 30
 
 function axisTicks(axis: AxisDefinition): number[] {
-  const step = Math.max(0.1, axis.tickStep ?? 1)
+  const step = 1
   const ticks: number[] = []
 
   for (let value = axis.min; value <= axis.max + step * 0.25; value += step) {
@@ -212,8 +212,8 @@ function axisTicks(axis: AxisDefinition): number[] {
 }
 
 function isMajorTick(value: number, axis: AxisDefinition): boolean {
-  const step = Math.max(0.1, axis.tickStep ?? 1)
-  const everyFive = value / (step * 5)
+  void axis
+  const everyFive = value / 5
   return Math.abs(everyFive - Math.round(everyFive)) <= 0.001
 }
 
