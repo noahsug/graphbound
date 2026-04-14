@@ -540,8 +540,8 @@ function visibleCartesianPoints(expression: string, axes: GraphAxes): PlotPoint[
     x: number,
     theta: number,
   ) => number
-  const points: PlotPoint[] = []
   const step = cartesianSampleStep(axes)
+  const rawSamples: PlotPoint[] = []
 
   for (let x = axes.x.min; x <= axes.x.max + step * 0.25; x += step) {
     const roundedX = Number(x.toFixed(4))
@@ -551,23 +551,120 @@ function visibleCartesianPoints(expression: string, axes: GraphAxes): PlotPoint[
       continue
     }
 
-    if (y < axes.y.min - EDGE_EPSILON || y > axes.y.max + EDGE_EPSILON) {
-      continue
-    }
-
-    points.push({
+    rawSamples.push({
       x: roundedX,
-      y: clamp(y, axes.y.min, axes.y.max),
+      y,
     })
   }
 
-  const ordered = points.sort((a, b) => (Math.abs(a.x - b.x) <= EDGE_EPSILON ? a.y - b.y : a.x - b.x))
-
-  if (ordered.length > 1 && ordered[0].x > ordered[ordered.length - 1].x) {
-    ordered.reverse()
+  if (rawSamples.length === 0) {
+    return []
   }
 
-  return ordered
+  const points: PlotPoint[] = []
+  const pushPoint = (point: PlotPoint) => {
+    const clamped = {
+      x: clamp(Number(point.x.toFixed(4)), axes.x.min, axes.x.max),
+      y: clamp(Number(point.y.toFixed(4)), axes.y.min, axes.y.max),
+    }
+    const last = points.at(-1)
+    if (
+      last &&
+      Math.abs(last.x - clamped.x) <= EDGE_EPSILON &&
+      Math.abs(last.y - clamped.y) <= EDGE_EPSILON
+    ) {
+      return
+    }
+    points.push(clamped)
+  }
+  const inside = (point: PlotPoint) =>
+    point.x >= axes.x.min - EDGE_EPSILON &&
+    point.x <= axes.x.max + EDGE_EPSILON &&
+    point.y >= axes.y.min - EDGE_EPSILON &&
+    point.y <= axes.y.max + EDGE_EPSILON
+
+  const clipSegmentToBounds = (
+    start: PlotPoint,
+    end: PlotPoint,
+  ): { start: PlotPoint; end: PlotPoint } | null => {
+    const dx = end.x - start.x
+    const dy = end.y - start.y
+    let t0 = 0
+    let t1 = 1
+    const checks: Array<[number, number]> = [
+      [-dx, start.x - axes.x.min],
+      [dx, axes.x.max - start.x],
+      [-dy, start.y - axes.y.min],
+      [dy, axes.y.max - start.y],
+    ]
+
+    for (const [p, q] of checks) {
+      if (Math.abs(p) <= EDGE_EPSILON) {
+        if (q < 0) {
+          return null
+        }
+        continue
+      }
+
+      const ratio = q / p
+      if (p < 0) {
+        if (ratio > t1) {
+          return null
+        }
+        t0 = Math.max(t0, ratio)
+      } else {
+        if (ratio < t0) {
+          return null
+        }
+        t1 = Math.min(t1, ratio)
+      }
+    }
+
+    return {
+      start: {
+        x: start.x + dx * t0,
+        y: start.y + dy * t0,
+      },
+      end: {
+        x: start.x + dx * t1,
+        y: start.y + dy * t1,
+      },
+    }
+  }
+
+  let previous = rawSamples[0]
+  let previousInside = inside(previous)
+
+  if (previousInside) {
+    pushPoint(previous)
+  }
+
+  for (let index = 1; index < rawSamples.length; index += 1) {
+    const current = rawSamples[index]
+    const currentInside = inside(current)
+    const clipped = clipSegmentToBounds(previous, current)
+
+    if (previousInside && currentInside) {
+      pushPoint(current)
+    } else if (previousInside && !currentInside) {
+      if (clipped) {
+        pushPoint(clipped.end)
+      }
+    } else if (!previousInside && currentInside) {
+      if (clipped) {
+        pushPoint(clipped.start)
+      }
+      pushPoint(current)
+    } else if (clipped) {
+      pushPoint(clipped.start)
+      pushPoint(clipped.end)
+    }
+
+    previous = current
+    previousInside = currentInside
+  }
+
+  return points
 }
 
 function visiblePolarPoints(
