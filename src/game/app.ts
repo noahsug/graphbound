@@ -2874,7 +2874,7 @@ class GraphboundApp {
     const route = this.goalRoutePoints(sectionId, goal)
     const targetId = goal.unlocks[0]
 
-    if (!targetId || !this.unlockedSections.has(targetId)) {
+    if (!targetId) {
       return route
     }
 
