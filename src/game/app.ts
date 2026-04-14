@@ -2447,7 +2447,20 @@ class GraphboundApp {
 
   private goalHit(sectionId: string, goal: GoalDefinition): PlotPoint | null {
     const runtime = this.sectionRuntimes.get(sectionId)
+    const terminalPoint = runtime?.plotResult?.points.at(-1)
     const hits = runtime?.plotResult?.hits ?? []
+
+    if (terminalPoint) {
+      for (const hit of hits) {
+        if (
+          Math.abs(hit.point.x - terminalPoint.x) <= GOAL_EPSILON &&
+          Math.abs(hit.point.y - terminalPoint.y) <= GOAL_EPSILON &&
+          this.goalMatchesHit(goal, hit)
+        ) {
+          return terminalPoint
+        }
+      }
+    }
 
     for (let index = hits.length - 1; index >= 0; index -= 1) {
       const hit = hits[index]

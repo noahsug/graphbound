@@ -561,7 +561,13 @@ function visibleCartesianPoints(expression: string, axes: GraphAxes): PlotPoint[
     })
   }
 
-  return points.sort((a, b) => (Math.abs(a.x - b.x) <= EDGE_EPSILON ? a.y - b.y : a.x - b.x))
+  const ordered = points.sort((a, b) => (Math.abs(a.x - b.x) <= EDGE_EPSILON ? a.y - b.y : a.x - b.x))
+
+  if (ordered.length > 1 && ordered[0].x > ordered[ordered.length - 1].x) {
+    ordered.reverse()
+  }
+
+  return ordered
 }
 
 function visiblePolarPoints(
