@@ -131,6 +131,8 @@ export interface SectionRuntime {
   fuseCameraProgress: number
   fuseCameraFrom: Point | null
   fuseCameraTo: Point | null
+  fuseCameraFromScale: number | null
+  fuseCameraToScale: number | null
   animating: boolean
   animatingGoalId: string | null
   statusMessage: string

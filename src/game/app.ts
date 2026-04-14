@@ -732,6 +732,8 @@ class GraphboundApp {
         fuseCameraProgress: 0,
         fuseCameraFrom: null,
         fuseCameraTo: null,
+        fuseCameraFromScale: null,
+        fuseCameraToScale: null,
         animating: false,
         animatingGoalId: null,
         statusMessage: section.blurb,
@@ -805,6 +807,8 @@ class GraphboundApp {
     runtime.fuseCameraProgress = 0
     runtime.fuseCameraFrom = null
     runtime.fuseCameraTo = null
+    runtime.fuseCameraFromScale = null
+    runtime.fuseCameraToScale = null
     runtime.animating = false
     runtime.animatingGoalId = null
     runtime.statusMessage = section.blurb
@@ -837,7 +841,7 @@ class GraphboundApp {
     }
 
     this.activeSectionId = this.sections[0].id
-    this.camera = this.sectionFocusPoint(this.sections[0].id)
+    this.camera = this.sectionComfortableFocus(this.sections[0].id).camera
     this.statusMessage = 'world-ready'
   }
 
@@ -991,7 +995,10 @@ class GraphboundApp {
     this.unlockedSections.add(targetSection.id)
     this.sectionRevealProgress.set(targetSection.id, 1)
     this.setActiveSection(targetSection.id)
-    this.camera = this.constrainedCamera(this.sectionFocusPoint(targetSection.id))
+    const focus = this.sectionComfortableFocus(targetSection.id)
+    this.layout.worldScale = focus.scale
+    this.zoomLevel = this.layout.worldScale / this.layout.baseWorldScale
+    this.camera = focus.camera
     this.statusMessage = `level-${targetIndex + 1}-ready`
   }
 
@@ -1293,6 +1300,60 @@ class GraphboundApp {
     }
   }
 
+  private focusViewportRect(): Rect {
+    const horizontalMargin = clamp(this.layout.width * 0.055, 28, 72)
+    const topMargin = clamp(this.layout.height * 0.055, 26, 62)
+    const trayRects = this.trayTileRects()
+    const trayTop =
+      trayRects.length > 0
+        ? Math.min(...trayRects.map(({ rect }) => rect.y))
+        : this.layout.trayY
+    const bottomMargin = clamp(this.layout.tileSize * 0.9, 26, 48)
+    const bottom = Math.max(topMargin + 160, trayTop - bottomMargin)
+
+    return {
+      x: horizontalMargin,
+      y: topMargin,
+      width: Math.max(240, this.layout.width - horizontalMargin * 2),
+      height: Math.max(160, bottom - topMargin),
+    }
+  }
+
+  private sectionComfortableFocus(sectionId: string): {
+    point: Point
+    scale: number
+    anchorScreen: Point
+    camera: Point
+  } {
+    const content = this.boardWorldRect(sectionId)
+    const viewport = this.focusViewportRect()
+    const fitPadding = clamp(Math.min(viewport.width, viewport.height) * 0.035, 14, 28)
+    const safeWidth = Math.max(120, viewport.width - fitPadding * 2)
+    const safeHeight = Math.max(120, viewport.height - fitPadding * 2)
+    const targetScale = this.clampWorldScale(
+      Math.min(
+        this.layout.baseWorldScale * START_ZOOM_LEVEL,
+        safeWidth / Math.max(1, content.width),
+        safeHeight / Math.max(1, content.height),
+      ),
+    )
+    const point = {
+      x: content.x + content.width / 2,
+      y: content.y + content.height / 2,
+    }
+    const anchorScreen = {
+      x: viewport.x + viewport.width / 2,
+      y: viewport.y + viewport.height / 2,
+    }
+
+    return {
+      point,
+      scale: targetScale,
+      anchorScreen,
+      camera: this.constrainedCameraForScaleAtScreen(point, targetScale, anchorScreen),
+    }
+  }
+
   private constrainedCamera(point: Point): Point {
     const contentRects = [
       ...[...this.unlockedSections].map((sectionId) => this.graphWorldRect(sectionId)),
@@ -1326,12 +1387,19 @@ class GraphboundApp {
     return bestPoint
   }
 
-  private constrainedCameraForScale(point: Point, scale: number): Point {
+  private constrainedCameraForScaleAtScreen(
+    point: Point,
+    scale: number,
+    screenPoint: Point,
+  ): Point {
     const previousScale = this.layout.worldScale
     const previousZoomLevel = this.zoomLevel
     this.layout.worldScale = this.clampWorldScale(scale)
     this.zoomLevel = this.layout.worldScale / this.layout.baseWorldScale
-    const constrained = this.constrainedCamera(point)
+    const constrained = this.constrainedCamera({
+      x: point.x - (screenPoint.x - this.layout.worldCenter.x) / this.layout.worldScale,
+      y: point.y - (screenPoint.y - this.layout.worldCenter.y) / this.layout.worldScale,
+    })
     this.layout.worldScale = previousScale
     this.zoomLevel = previousZoomLevel
     return constrained
@@ -1342,9 +1410,10 @@ class GraphboundApp {
     scale: number,
     animated: boolean,
     delayMs = 0,
+    anchorScreen = this.layout.worldCenter,
   ): void {
     const targetScale = this.clampWorldScale(scale)
-    const constrained = this.constrainedCameraForScale(point, targetScale)
+    const constrained = this.constrainedCameraForScaleAtScreen(point, targetScale, anchorScreen)
 
     if (!animated) {
       this.layout.worldScale = targetScale
@@ -1380,11 +1449,13 @@ class GraphboundApp {
     }
 
     if (centerCamera) {
+      const focus = this.sectionComfortableFocus(sectionId)
       this.moveCameraAndScaleTo(
-        this.sectionFocusPoint(sectionId),
-        this.layout.baseWorldScale * START_ZOOM_LEVEL,
+        focus.point,
+        focus.scale,
         animated,
         animated ? 0 : 0,
+        focus.anchorScreen,
       )
     } else {
       this.setActiveSection(sectionId)
@@ -2912,13 +2983,19 @@ class GraphboundApp {
     const runtime = this.sectionRuntimes.get(sectionId)
     const from = runtime?.fuseCameraFrom
     const to = runtime?.fuseCameraTo
+    const fromScale = runtime?.fuseCameraFromScale
+    const toScale = runtime?.fuseCameraToScale
 
-    if (!runtime || !from || !to) {
+    if (!runtime || !from || !to || fromScale === null || toScale === null) {
       return
     }
 
     this.cameraTween = null
     const eased = easeInOutCubic(clamp(progress, 0, 1))
+    const startScale = fromScale ?? this.layout.worldScale
+    const endScale = toScale ?? startScale
+    this.layout.worldScale = lerp(startScale, endScale, eased)
+    this.zoomLevel = this.layout.worldScale / this.layout.baseWorldScale
     this.camera = this.constrainedCamera({
       x: lerp(from.x, to.x, eased),
       y: lerp(from.y, to.y, eased),
@@ -2949,6 +3026,8 @@ class GraphboundApp {
     runtime.fuseCameraProgress = 0
     runtime.fuseCameraFrom = null
     runtime.fuseCameraTo = null
+    runtime.fuseCameraFromScale = null
+    runtime.fuseCameraToScale = null
 
     if (!result) {
       runtime.plotProgress = 0
@@ -2970,7 +3049,15 @@ class GraphboundApp {
       const goal = section.goals.find((candidate) => candidate.id === runtime.animatingGoalId)
       const targetSectionId = goal?.unlocks[0] ?? null
       runtime.fuseCameraFrom = { ...this.camera }
-      runtime.fuseCameraTo = targetSectionId ? this.sectionFocusPoint(targetSectionId) : { ...this.camera }
+      runtime.fuseCameraFromScale = this.layout.worldScale
+      if (targetSectionId) {
+        const focus = this.sectionComfortableFocus(targetSectionId)
+        runtime.fuseCameraTo = focus.camera
+        runtime.fuseCameraToScale = focus.scale
+      } else {
+        runtime.fuseCameraTo = { ...this.camera }
+        runtime.fuseCameraToScale = this.layout.worldScale
+      }
     }
 
     runtime.plotProgress = animated ? 0 : 1
@@ -3016,6 +3103,8 @@ class GraphboundApp {
     runtime.fuseCameraProgress = runtime.pendingGoalIds.length > 0 ? 1 : runtime.fuseCameraProgress
     runtime.fuseCameraFrom = null
     runtime.fuseCameraTo = null
+    runtime.fuseCameraFromScale = null
+    runtime.fuseCameraToScale = null
 
     if (runtime.solvedGoalIds.length === section.goals.length && !this.completedSections.has(sectionId)) {
       this.completedSections.add(sectionId)
