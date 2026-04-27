@@ -71,6 +71,7 @@ const EQUATION_PREFIX_WIDTH_R = 34
 const EQUATION_GAP = 10
 const EQUATION_PAREN_GAP = 4
 const EQUATION_SUPERSCRIPT_OVERLAP = -4
+const EQUATION_SCRIPT_SLOT_SCALE = 0.72
 const MAJOR_TICK_SIZE = 12
 const MINOR_TICK_SIZE = 6
 const TICK_STROKE_WIDTH = 1.55
@@ -1350,14 +1351,15 @@ class GraphboundApp {
       point,
       scale: targetScale,
       anchorScreen,
-      camera: this.constrainedCameraForScaleAtScreen(point, targetScale, anchorScreen),
+      camera: this.constrainedCameraForScaleAtScreen(point, targetScale, anchorScreen, [content]),
     }
   }
 
-  private constrainedCamera(point: Point): Point {
+  private constrainedCamera(point: Point, extraContentRects: Rect[] = []): Point {
     const contentRects = [
       ...[...this.unlockedSections].map((sectionId) => this.graphWorldRect(sectionId)),
       ...this.connectorWorldRects(),
+      ...extraContentRects,
     ]
     const visibleRects = contentRects.map((rect) => this.cameraVisibilityRectForContent(rect))
 
@@ -1391,6 +1393,7 @@ class GraphboundApp {
     point: Point,
     scale: number,
     screenPoint: Point,
+    extraContentRects: Rect[] = [],
   ): Point {
     const previousScale = this.layout.worldScale
     const previousZoomLevel = this.zoomLevel
@@ -1399,7 +1402,7 @@ class GraphboundApp {
     const constrained = this.constrainedCamera({
       x: point.x - (screenPoint.x - this.layout.worldCenter.x) / this.layout.worldScale,
       y: point.y - (screenPoint.y - this.layout.worldCenter.y) / this.layout.worldScale,
-    })
+    }, extraContentRects)
     this.layout.worldScale = previousScale
     this.zoomLevel = previousZoomLevel
     return constrained
@@ -1503,10 +1506,7 @@ class GraphboundApp {
     ignoredSlotIds: string[] = [],
     placementsOverride?: Record<string, TileId | null>,
   ): boolean {
-    if (
-      !this.tileAllowedForSection(sectionId, tileId) ||
-      !this.slotAllowsTile(sectionId, slotId, tileId, placementsOverride)
-    ) {
+    if (!this.tileAllowedForSection(sectionId, tileId)) {
       return false
     }
 
@@ -1516,6 +1516,16 @@ class GraphboundApp {
     }
 
     const ignored = new Set(ignoredSlotIds)
+    const candidatePlacements = { ...placements }
+    for (const ignoredSlotId of ignored) {
+      candidatePlacements[ignoredSlotId] = null
+    }
+    candidatePlacements[slotId] = tileId
+
+    if (!this.slotAllowsTile(sectionId, slotId, tileId, candidatePlacements)) {
+      return false
+    }
+
     return !Object.entries(placements).some(
       ([placedSlotId, placedTileId]) => placedTileId === tileId && !ignored.has(placedSlotId),
     )
@@ -1557,6 +1567,36 @@ class GraphboundApp {
     return tileId ? TILE_DEFINITIONS[tileId].label : null
   }
 
+  private parenthesesCanBeBalanced(
+    sectionId: string,
+    placementsOverride?: Record<string, TileId | null>,
+  ): boolean {
+    let possibleBalances = new Set<number>([0])
+
+    for (const part of this.equationDisplayParts(sectionId)) {
+      const value = this.equationPartValue(sectionId, part, placementsOverride)
+      const deltas = value === '(' ? [1] : value === ')' ? [-1] : value === null ? [-1, 0, 1] : [0]
+      const nextBalances = new Set<number>()
+
+      for (const balance of possibleBalances) {
+        for (const delta of deltas) {
+          const nextBalance = balance + delta
+          if (nextBalance >= 0) {
+            nextBalances.add(nextBalance)
+          }
+        }
+      }
+
+      if (nextBalances.size === 0) {
+        return false
+      }
+
+      possibleBalances = nextBalances
+    }
+
+    return possibleBalances.has(0)
+  }
+
   private slotAllowsTile(
     sectionId: string,
     slotId: string,
@@ -1569,6 +1609,10 @@ class GraphboundApp {
     )
 
     if (slotIndex === -1) {
+      return false
+    }
+
+    if (!this.parenthesesCanBeBalanced(sectionId, placementsOverride)) {
       return false
     }
 
@@ -2058,23 +2102,25 @@ class GraphboundApp {
     const fontSize = EQUATION_FONT_SIZE * this.layout.worldScale
 
     if (style === 'superscript') {
+      const scriptSlotSize = tokenSize * EQUATION_SCRIPT_SLOT_SCALE
       return {
         width:
           part.type === 'slot'
-            ? tokenSize * 0.82
+            ? scriptSlotSize
             : Math.max(fontSize * 0.9, Math.min(tokenSize * 0.72, value.length * fontSize * 0.9)),
-        height: tokenSize,
+        height: part.type === 'slot' ? scriptSlotSize : tokenSize,
         yOffset: -tokenSize * 0.34,
       }
     }
 
     if (style === 'subscript') {
+      const scriptSlotSize = tokenSize * EQUATION_SCRIPT_SLOT_SCALE
       return {
         width:
           part.type === 'slot'
-            ? tokenSize * 0.82
+            ? scriptSlotSize
             : Math.max(fontSize * 0.9, Math.min(tokenSize * 0.72, value.length * fontSize * 0.9)),
-        height: tokenSize,
+        height: part.type === 'slot' ? scriptSlotSize : tokenSize,
         yOffset: tokenSize * 0.26,
       }
     }
@@ -2980,6 +3026,10 @@ class GraphboundApp {
       return
     }
 
+    const section = this.sectionById.get(sectionId)
+    const goal = section?.goals.find((candidate) => candidate.id === goalId)
+    const targetSectionId = goal?.unlocks[0] ?? null
+    const extraContentRects = targetSectionId ? [this.boardWorldRect(targetSectionId)] : []
     const runtime = this.sectionRuntimes.get(sectionId)
     const from = runtime?.fuseCameraFrom
     const to = runtime?.fuseCameraTo
@@ -2999,7 +3049,7 @@ class GraphboundApp {
     this.camera = this.constrainedCamera({
       x: lerp(from.x, to.x, eased),
       y: lerp(from.y, to.y, eased),
-    })
+    }, extraContentRects)
   }
 
   private dogRect(sectionId: string): Rect | null {
