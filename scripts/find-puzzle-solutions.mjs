@@ -39,17 +39,19 @@ function normalizeCell(value) {
 }
 
 function printUsage() {
-  console.log(`Usage: node scripts/find-puzzle-solutions.mjs [--file PUZZLES.md] [--json]
+  console.log(`Usage: node scripts/find-puzzle-solutions.mjs [--file PUZZLES.md] [--json] [row-id ...]
 
 Reads the Graphbound puzzle table, simulates tile unlocks in table order, and
 prints every unique unlocked-tile equation that lands within ${TOLERANCE} graph
-units of each row's target coordinate.`)
+units of each row's target coordinate. Pass one or more row ids, such as 20a,
+to print only those rows after simulating the full unlock path up to them.`)
 }
 
 function parseArgs(args) {
   const options = {
     file: DEFAULT_PUZZLES_PATH,
     json: false,
+    rowIds: [],
   }
 
   for (let index = 0; index < args.length; index += 1) {
@@ -75,7 +77,11 @@ function parseArgs(args) {
       continue
     }
 
-    throw new Error(`Unknown argument: ${arg}`)
+    if (arg.startsWith('-')) {
+      throw new Error(`Unknown argument: ${arg}`)
+    }
+
+    options.rowIds.push(arg.toLowerCase())
   }
 
   return options
@@ -542,6 +548,225 @@ function parseExpression(tokens) {
   return new TokenParser(tokens).parseExpression()
 }
 
+class AstParser {
+  constructor(tokens) {
+    this.tokens = tokens
+    this.index = 0
+  }
+
+  parseExpression() {
+    const expression = this.parseAdditive()
+
+    if (this.current()) {
+      throw new Error(`Unexpected token: ${this.current().value}`)
+    }
+
+    return expression
+  }
+
+  current() {
+    return this.tokens[this.index]
+  }
+
+  consume() {
+    const token = this.current()
+    if (!token) {
+      throw new Error('Unexpected end of expression')
+    }
+    this.index += 1
+    return token
+  }
+
+  matchOperator(value) {
+    const token = this.current()
+    if (token?.type !== 'operator' || token.value !== value) {
+      return false
+    }
+    this.index += 1
+    return true
+  }
+
+  expectOperator(value) {
+    if (!this.matchOperator(value)) {
+      throw new Error(`Expected ${value}`)
+    }
+  }
+
+  matchIdentifier(value) {
+    const token = this.current()
+    if (token?.type !== 'identifier' || token.value !== value) {
+      return false
+    }
+    this.index += 1
+    return true
+  }
+
+  parseAdditive() {
+    let expression = this.parseMultiplicative()
+
+    while (true) {
+      if (this.matchOperator('+')) {
+        expression = makeAdd([expression, this.parseMultiplicative()])
+        continue
+      }
+
+      if (this.matchOperator('-')) {
+        expression = makeAdd([expression, makeNeg(this.parseMultiplicative())])
+        continue
+      }
+
+      return expression
+    }
+  }
+
+  parseMultiplicative() {
+    let expression = this.parsePower()
+
+    while (true) {
+      if (this.matchOperator('/')) {
+        expression = makeMul([expression, { type: 'inv', value: this.parsePower() }])
+        continue
+      }
+
+      if (this.matchOperator('*')) {
+        expression = makeMul([expression, this.parsePower()])
+        continue
+      }
+
+      if (isPrimaryStart(this.current())) {
+        expression = makeMul([expression, this.parsePower()])
+        continue
+      }
+
+      return expression
+    }
+  }
+
+  parsePower() {
+    let expression = this.parseUnary()
+
+    while (this.matchOperator('^')) {
+      expression = { type: 'pow', base: expression, exponent: this.parseUnary() }
+    }
+
+    return expression
+  }
+
+  parseUnary() {
+    if (this.matchOperator('+')) {
+      return this.parseUnary()
+    }
+
+    if (this.matchOperator('-')) {
+      return makeNeg(this.parseUnary())
+    }
+
+    return this.parsePrimary()
+  }
+
+  parsePrimary() {
+    const token = this.current()
+
+    if (!token) {
+      throw new Error('Missing primary expression')
+    }
+
+    if (this.matchOperator('(')) {
+      const expression = this.parseAdditive()
+      this.expectOperator(')')
+      return expression
+    }
+
+    if (this.matchOperator('|')) {
+      const expression = this.parseAdditive()
+      this.expectOperator('|')
+      return { type: 'fn', name: 'abs', arg: expression }
+    }
+
+    for (const name of ['sin', 'cos', 'ln', 'log']) {
+      if (this.matchIdentifier(name)) {
+        this.expectOperator('(')
+        const expression = this.parseAdditive()
+        this.expectOperator(')')
+        return { type: 'fn', name, arg: expression }
+      }
+    }
+
+    if (token.type === 'identifier') {
+      if (['x', 'y', 'r', 'theta'].includes(token.value)) {
+        this.consume()
+        return { type: 'var', name: token.value }
+      }
+
+      if (token.value === 'e' || token.value === 'pi') {
+        this.consume()
+        return { type: 'const', name: token.value }
+      }
+    }
+
+    if (token.type === 'number') {
+      let digits = this.consume().value
+
+      while (isIntegerToken(this.current()) && /^\d+$/.test(digits)) {
+        digits += this.consume().value
+      }
+
+      return { type: 'num', value: Number(digits) }
+    }
+
+    throw new Error(`Unsupported token: ${token.value}`)
+  }
+}
+
+function makeAdd(values) {
+  return { type: 'add', values }
+}
+
+function makeMul(values) {
+  return { type: 'mul', values }
+}
+
+function makeNeg(value) {
+  return { type: 'neg', value }
+}
+
+function parseExpressionAst(tokens) {
+  return new AstParser(tokens).parseExpression()
+}
+
+function canonicalExpressionKey(node) {
+  switch (node.type) {
+    case 'num':
+      return `num:${node.value}`
+    case 'var':
+      return `var:${node.name}`
+    case 'const':
+      return `const:${node.name}`
+    case 'neg':
+      return `neg(${canonicalExpressionKey(node.value)})`
+    case 'inv':
+      return `inv(${canonicalExpressionKey(node.value)})`
+    case 'fn':
+      return `fn:${node.name}(${canonicalExpressionKey(node.arg)})`
+    case 'pow':
+      return `pow(${canonicalExpressionKey(node.base)},${canonicalExpressionKey(node.exponent)})`
+    case 'add':
+      return `add(${flattenCanonicalParts(node, 'add').sort().join(',')})`
+    case 'mul':
+      return `mul(${flattenCanonicalParts(node, 'mul').sort().join(',')})`
+    default:
+      throw new Error(`Unsupported AST node: ${node.type}`)
+  }
+}
+
+function flattenCanonicalParts(node, type) {
+  if (node.type !== type) {
+    return [canonicalExpressionKey(node)]
+  }
+
+  return node.values.flatMap((value) => flattenCanonicalParts(value, type))
+}
+
 function isSingleVariable(tokens, variable) {
   return tokens.length === 1 && tokens[0].type === 'identifier' && tokens[0].value === variable
 }
@@ -566,6 +791,8 @@ function parseEquation(equation) {
   const rightTokens = tokens.slice(equalsIndex + 1)
   const left = parseExpression(leftTokens)
   const right = parseExpression(rightTokens)
+  const leftAst = parseExpressionAst(leftTokens)
+  const rightAst = parseExpressionAst(rightTokens)
   const relation = `((${left}) - (${right}))`
   const relationFn = makeEvaluator(relation)
   const rightFn = makeEvaluator(right)
@@ -583,6 +810,7 @@ function parseEquation(equation) {
 
   return {
     kind,
+    canonicalKey: `eq(${canonicalExpressionKey(leftAst)},${canonicalExpressionKey(rightAst)})`,
     relationFn,
     rightFn,
   }
@@ -852,11 +1080,11 @@ function matchesTarget(parsed, row) {
 
 function solveRow(row, availableTiles) {
   const count = blankCount(row.equation)
-  const solutions = []
+  const solutionsByKey = new Map()
   const seen = new Set()
 
   if (count > availableTiles.length) {
-    return solutions
+    return []
   }
 
   for (const tileIds of permutations(availableTiles, count)) {
@@ -875,17 +1103,30 @@ function solveRow(row, availableTiles) {
 
       if (matchesTarget(parsed, row)) {
         seen.add(equation)
-        solutions.push({
+        const variant = {
           equation,
           tiles: [...tileIds],
-        })
+        }
+        const existing = solutionsByKey.get(parsed.canonicalKey)
+
+        if (existing) {
+          existing.variants.push(variant)
+          existing.variantCount = existing.variants.length
+        } else {
+          solutionsByKey.set(parsed.canonicalKey, {
+            ...variant,
+            canonicalKey: parsed.canonicalKey,
+            variantCount: 1,
+            variants: [variant],
+          })
+        }
       }
     } catch {
       continue
     }
   }
 
-  return solutions
+  return [...solutionsByKey.values()]
 }
 
 function hasMatchedParentheses(equation) {
@@ -972,7 +1213,8 @@ function printText(results) {
       console.log(`  solutions (${result.solutions.length}):`)
 
       for (const solution of result.solutions) {
-        console.log(`    - ${solution.equation}    [${formatTileList(solution.tiles)}]`)
+        const variants = solution.variantCount > 1 ? `    (${solution.variantCount} variants)` : ''
+        console.log(`    - ${solution.equation}    [${formatTileList(solution.tiles)}]${variants}`)
       }
     }
 
@@ -986,7 +1228,7 @@ function main() {
   const options = parseArgs(process.argv.slice(2))
   const markdown = readFileSync(options.file, 'utf8')
   const rows = parsePuzzleRows(markdown)
-  const results = solveAll(rows)
+  const results = filterResults(solveAll(rows), options.rowIds)
 
   if (options.json) {
     console.log(JSON.stringify(results, null, 2))
@@ -994,6 +1236,23 @@ function main() {
   }
 
   printText(results)
+}
+
+function filterResults(results, rowIds) {
+  if (rowIds.length === 0) {
+    return results
+  }
+
+  const wanted = new Set(rowIds)
+  const filtered = results.filter((result) => wanted.has(result.id.toLowerCase()))
+
+  for (const rowId of wanted) {
+    if (!results.some((result) => result.id.toLowerCase() === rowId)) {
+      throw new Error(`Unknown puzzle row id: ${rowId}`)
+    }
+  }
+
+  return filtered
 }
 
 main()

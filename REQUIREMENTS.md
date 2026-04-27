@@ -20,6 +20,8 @@ These requirements should be testable with numbers, fixed pass/fail checks, or d
 - [ ] Tick marks are rendered at the same visual size on both axes.
 - [ ] Graph unit scale is consistent across the world.
 - [ ] A graph with x-range `0..20` renders twice as wide as a graph with x-range `0..10`.
+- [ ] Each axis range is between `5` and `20` graph units in total length.
+- [ ] Axis endpoints cannot be `1` or `-1`; for example, `-1..4` is invalid, but `-2..3` is valid.
 - [ ] The central four-target graph uses a full negative-to-positive range with one target in each quadrant.
 
 ### Equations
@@ -52,6 +54,7 @@ These requirements should be testable with numbers, fixed pass/fail checks, or d
 - [ ] Except for onboarding puzzles `1` and `2`, each puzzle solution unlocks exactly one thing: either one puzzle or one new tile, never both.
 - [ ] Puzzle `1` unlocks puzzle `2` and a new tile; puzzle `2` unlocks puzzle `3` and a new tile.
 - [ ] Intended solutions never use a leading `+` or empty parentheses `()`.
+- [ ] Each puzzle has no more than `2` unique solutions; commutative rearrangements such as `(2 + x)(5 + x)` and `(5 + x)(2 + x)` count as the same unique solution.
 - [ ] For any reachable non-canonical equation and any non-matching target on the same graph, the plotted result stays at least `1` graph unit away from that target at the target's input coordinate.
 - [ ] For cartesian targets, this means the non-matching curve's `y` value at the target's `x` coordinate differs from the target's `y` by at least `1`.
 - [ ] For polar targets, this means the non-matching curve's `r` value at the target's `theta` coordinate differs from the target's `r` by at least `1`.
