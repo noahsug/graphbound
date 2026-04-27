@@ -21,6 +21,7 @@ These requirements should be testable with numbers, fixed pass/fail checks, or d
 - [ ] Graph unit scale is consistent across the world.
 - [ ] A graph with x-range `0..20` renders twice as wide as a graph with x-range `0..10`.
 - [ ] Each axis range is between `5` and `20` graph units in total length.
+- [ ] Every x-axis and y-axis range includes `0`; for example, `260..280` is invalid.
 - [ ] Axis endpoints cannot be `1` or `-1`; for example, `-1..4` is invalid, but `-2..3` is valid.
 - [ ] The central four-target graph uses a full negative-to-positive range with one target in each quadrant.
 
@@ -51,10 +52,19 @@ These requirements should be testable with numbers, fixed pass/fail checks, or d
 
 ### Puzzle Authoring Safety
 
+- [ ] `puzzles.json` is the single source of truth for authored puzzle data. `PUZZLES.md` is generated from it with `npm run generate-puzzles`, and solution-finding tooling reads `puzzles.json` by default.
 - [ ] Except for onboarding puzzles `1` and `2`, each puzzle solution unlocks exactly one thing: either one puzzle or one new tile, never both.
 - [ ] Puzzle `1` unlocks puzzle `2` and a new tile; puzzle `2` unlocks puzzle `3` and a new tile.
 - [ ] Intended solutions never use a leading `+` or empty parentheses `()`.
-- [ ] Each puzzle has no more than `2` unique solutions; commutative rearrangements such as `(2 + x)(5 + x)` and `(5 + x)(2 + x)` count as the same unique solution.
+- [ ] Rows with the same puzzle number, such as `8a`, `8b`, `8c`, and `8d`, are multiple solutions for one puzzle. They must have exactly the same equation template and each row's intended solution must be unique.
+- [ ] Unique solution counts are calculated per puzzle number, not per lettered row. Use the first row's equation template for the puzzle, such as `8a`, and treat the other lettered rows as additional intended solutions/targets for that same puzzle.
+- [ ] Each puzzle may have at most `1` non-intended unique solution beyond its lettered intended solutions; commutative rearrangements such as `(2 + x)(5 + x)` and `(5 + x)(2 + x)` count as the same unique solution. For example, a puzzle with four intended rows must have either `4` or `5` unique solutions total. The Finale is the only exception: it may have up to `2` non-intended unique solutions, so its single intended solution permits `1` to `3` total unique solutions.
+- [ ] Each unlockable tile must be used in at least `3` intended solutions across the game. A tile counts as used only when it fills an empty tile slot in the intended solution; fixed equation text does not count.
+- [ ] If `N` is the total number of counted tokens in a puzzle equation, the number of empty tile slots must be at least `N / 3`. Count empty tile slots and fixed values as tokens, but do not count fixed `=`, `y`, `r`, parentheses, absolute-value bars, or `^`. Functions such as `sin` count as one fixed value.
+- [ ] `y` and `=` are unlockable tiles. The `y` tile can only be placed in puzzle templates that do not already include a fixed `y`, and the `=` tile can only be placed in puzzle templates that do not already include a fixed `=`.
+- [ ] Exactly one famous-constant tile is available: either `pi` or `e`, not both. That tile must be required by at least one puzzle whose intended solution is specific to that constant.
+- [ ] The Finale is the only puzzle whose equation template is made entirely of empty tile slots, including the `y` and `=` tokens, and it has exactly `7` empty tile slots.
+- [ ] At least one puzzle uses division by zero as a meaningful solve: the intended equation should evaluate to positive infinity at `x = 0`, and that infinity should reach a target shape placed at `(0, <top of graph>)`.
 - [ ] For any reachable non-canonical equation and any non-matching target on the same graph, the plotted result stays at least `1` graph unit away from that target at the target's input coordinate.
 - [ ] For cartesian targets, this means the non-matching curve's `y` value at the target's `x` coordinate differs from the target's `y` by at least `1`.
 - [ ] For polar targets, this means the non-matching curve's `r` value at the target's `theta` coordinate differs from the target's `r` by at least `1`.
@@ -93,6 +103,8 @@ These requirements should be testable with numbers, fixed pass/fail checks, or d
 - [ ] Slot allowlists are position-specific for free-token rows, especially rows with parentheses, division, or function tokens.
 - [ ] `x` cannot be placed into polar `r = ...` equations.
 - [ ] `theta` cannot be placed into cartesian `y = ...` equations.
+- [ ] `=` cannot be placed at the start or end of an equation, after `^`, or next to another operator in a way that creates an invalid equation.
+- [ ] `^` cannot be placed at the start or end of an equation, and cannot be followed by an operator such as `+`, `-`, `/`, `^`, or `=`.
 - [ ] The same tile cannot be placed more than once within the same graph.
 
 ### Camera, Zoom, And Navigation

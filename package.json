@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "generate-puzzles": "node scripts/generate-puzzles-md.mjs",
     "find-solutions": "node scripts/find-puzzle-solutions.mjs",
     "preview": "vite preview"
   },

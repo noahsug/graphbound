@@ -10,7 +10,22 @@ export interface Rect {
   height: number
 }
 
-export type TileId = 'x' | 'θ' | '2' | '5' | '+' | '-' | '1' | '0'
+export type TileId =
+  | 'x'
+  | 'y'
+  | 'θ'
+  | 'π'
+  | '2'
+  | '5'
+  | '+'
+  | '-'
+  | '/'
+  | '^'
+  | '='
+  | '0'
+  | '('
+  | ')'
+  | 'sin'
 export type GoalEdge = 'top' | 'right' | 'bottom' | 'left'
 export type GoalShapeKind =
   | 'heart'
@@ -77,7 +92,10 @@ export interface GoalDefinition {
   edge: GoalEdge
   min: number
   max: number
+  target?: Point
   unlocks: string[]
+  rewardTileId?: TileId
+  solutionTiles?: TileId[]
   color?: string
   canonicalExpression?: string
   route?: Point[]
@@ -117,6 +135,7 @@ export interface PlotResult {
   expression: string
   screenLabel: string
   points: PlotPoint[]
+  segments?: PlotPoint[][]
   hits: BoundaryHit[]
   achievedGoalIds: string[]
   hasVisiblePath: boolean

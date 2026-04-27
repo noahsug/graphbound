@@ -44,6 +44,7 @@ const DOG_PET_MS = 1200
 const PAN_DRAG_THRESHOLD = 7
 const TILE_DRAG_THRESHOLD = 10
 const GOAL_EPSILON = 0.12
+const GOAL_TARGET_TOLERANCE = 0.5
 const KEYBOARD_PAN_SPEED = 700
 const KEYBOARD_PAN_RESPONSE = 15
 const KEYBOARD_PAN_TURN_DAMPING = 24
@@ -875,6 +876,30 @@ class GraphboundApp {
     return sectionIndex < targetIndex ? section.goals.map((goal) => goal.id) : []
   }
 
+  private intendedBootstrapPlacement(
+    section: SectionDefinition,
+    preferredGoalIds: string[],
+  ): Record<string, TileId | null> | null {
+    for (const goalId of preferredGoalIds) {
+      const goal = section.goals.find((candidate) => candidate.id === goalId)
+      if (!goal?.solutionTiles || goal.solutionTiles.length !== section.slots.length) {
+        continue
+      }
+
+      const placements = this.createEmptyPlacements(section)
+      for (const [index, tileId] of goal.solutionTiles.entries()) {
+        placements[section.slots[index].id] = tileId
+      }
+
+      const result = evaluateSectionPlot(section, placements)
+      if (result?.hasVisiblePath) {
+        return placements
+      }
+    }
+
+    return null
+  }
+
   private findBootstrapPlacement(
     sectionId: string,
     preferredGoalIds: string[],
@@ -882,6 +907,11 @@ class GraphboundApp {
     const section = this.sectionById.get(sectionId)
     if (!section || section.slots.length === 0) {
       return null
+    }
+
+    const intendedPlacement = this.intendedBootstrapPlacement(section, preferredGoalIds)
+    if (intendedPlacement) {
+      return intendedPlacement
     }
 
     const slotIds = section.slots.map((slot) => slot.id)
@@ -940,12 +970,18 @@ class GraphboundApp {
     }
 
     const goalIds = this.bootstrapGoalIds(sectionId, targetIndex)
+    const newlyUnlockedTiles: TileId[] = []
     this.unlockedSections.add(sectionId)
     this.sectionRevealProgress.set(sectionId, 1)
 
     for (const goalId of goalIds) {
       this.completedGoals.add(`${sectionId}:${goalId}`)
       const goal = section.goals.find((candidate) => candidate.id === goalId)
+
+      if (goal?.rewardTileId && !this.unlockedTiles.has(goal.rewardTileId)) {
+        this.unlockedTiles.add(goal.rewardTileId)
+        newlyUnlockedTiles.push(goal.rewardTileId)
+      }
 
       for (const unlockId of goal?.unlocks ?? []) {
         this.unlockedSections.add(unlockId)
@@ -972,6 +1008,8 @@ class GraphboundApp {
       if (section.rewardTileId) {
         this.unlockedTiles.add(section.rewardTileId)
         runtime.statusMessage = `tile-${section.rewardTileId}-unlocked`
+      } else if (newlyUnlockedTiles.length > 0) {
+        runtime.statusMessage = `tile-${newlyUnlockedTiles.at(-1)}-unlocked`
       } else {
         runtime.statusMessage = `${sectionId}-completed`
       }
@@ -979,7 +1017,11 @@ class GraphboundApp {
     }
 
     runtime.statusMessage =
-      runtime.solvedGoalIds.length > 0 ? `revisit-${sectionId}` : section.blurb
+      newlyUnlockedTiles.length > 0
+        ? `tile-${newlyUnlockedTiles.at(-1)}-unlocked`
+        : runtime.solvedGoalIds.length > 0
+          ? `revisit-${sectionId}`
+          : section.blurb
   }
 
   private startAtLevel(levelIndex: number): void {
@@ -1538,15 +1580,35 @@ class GraphboundApp {
       return false
     }
 
+    const fixedValues = this.fixedEquationValues(section)
+
+    if (tileId === '=' && fixedValues.includes('=')) {
+      return false
+    }
+
+    if (tileId === 'y' && fixedValues.includes('y')) {
+      return false
+    }
+
     if (section.coordinateMode === 'polar') {
-      return tileId !== 'x'
+      return tileId !== 'x' && tileId !== 'y'
     }
 
     return tileId !== 'θ'
   }
 
+  private fixedEquationValues(section: SectionDefinition): string[] {
+    const values = section.displayEquation
+      ? section.displayEquation.filter((part) => part.type === 'fixed').map((part) => part.value)
+      : [this.equationPrefix(section.id), '=', ...section.equation
+          .filter((part) => part.type === 'fixed')
+          .map((part) => part.value)]
+
+    return values
+  }
+
   private tileIsOperator(tileId: TileId): boolean {
-    return TILE_DEFINITIONS[tileId].role === 'operator'
+    return ['+', '-', '/', '^', '='].includes(tileId)
   }
 
   private equationPartValue(
@@ -1603,6 +1665,13 @@ class GraphboundApp {
     tileId: TileId,
     placementsOverride?: Record<string, TileId | null>,
   ): boolean {
+    const section = this.sectionById.get(sectionId)
+    const slot = section?.slots.find((candidate) => candidate.id === slotId)
+
+    if (!slot?.allowedTiles.includes(tileId)) {
+      return false
+    }
+
     const parts = this.equationDisplayParts(sectionId)
     const slotIndex = parts.findIndex(
       (part) => part.type === 'slot' && part.slotId === slotId,
@@ -1613,6 +1682,10 @@ class GraphboundApp {
     }
 
     if (!this.parenthesesCanBeBalanced(sectionId, placementsOverride)) {
+      return false
+    }
+
+    if (!this.equationTokensCanBeValid(sectionId, placementsOverride)) {
       return false
     }
 
@@ -1635,6 +1708,61 @@ class GraphboundApp {
     }
 
     return true
+  }
+
+  private equationTokensCanBeValid(
+    sectionId: string,
+    placementsOverride?: Record<string, TileId | null>,
+  ): boolean {
+    const values = this.equationDisplayParts(sectionId).map((part) =>
+      this.equationPartValue(sectionId, part, placementsOverride),
+    )
+    const equalsIndexes = values
+      .map((value, index) => (value === '=' ? index : -1))
+      .filter((index) => index >= 0)
+
+    if (equalsIndexes.length > 1) {
+      return false
+    }
+
+    for (const equalsIndex of equalsIndexes) {
+      if (equalsIndex === 0 || equalsIndex === values.length - 1) {
+        return false
+      }
+    }
+
+    for (let index = 0; index < values.length; index += 1) {
+      const value = values[index]
+
+      if (!value || !this.valueIsEquationOperator(value)) {
+        continue
+      }
+
+      const previous = values[index - 1]
+      const next = values[index + 1]
+
+      if ((value === '^' || value === '=') && (index === 0 || index === values.length - 1)) {
+        return false
+      }
+
+      if ((value === '^' || value === '=') && (this.valueIsEquationOperator(previous) || this.valueIsEquationOperator(next))) {
+        return false
+      }
+
+      if (['+', '/', '^', '='].includes(value) && this.valueIsEquationOperator(previous)) {
+        return false
+      }
+
+      if (value === '+' && this.valueIsEquationOperator(next)) {
+        return false
+      }
+    }
+
+    return true
+  }
+
+  private valueIsEquationOperator(value: string | null | undefined): boolean {
+    return Boolean(value && ['+', '-', '/', '^', '='].includes(value))
   }
 
   private setActiveSection(sectionId: string): void {
@@ -2554,6 +2682,10 @@ class GraphboundApp {
   }
 
   private goalMatchesHit(goal: GoalDefinition, hit: BoundaryHit): boolean {
+    if (goal.target && distanceBetween(goal.target, hit.point) <= GOAL_TARGET_TOLERANCE) {
+      return true
+    }
+
     if (!hit.edges.includes(goal.edge)) {
       return false
     }
@@ -2566,6 +2698,10 @@ class GraphboundApp {
     const runtime = this.sectionRuntimes.get(sectionId)
     const terminalPoint = runtime?.plotResult?.points.at(-1)
     const hits = runtime?.plotResult?.hits ?? []
+
+    if (goal.target && runtime?.plotResult?.achievedGoalIds.includes(goal.id)) {
+      return goal.target
+    }
 
     if (terminalPoint) {
       for (const hit of hits) {
@@ -2590,6 +2726,10 @@ class GraphboundApp {
   }
 
   private defaultGoalPoint(sectionId: string, goal: GoalDefinition): PlotPoint {
+    if (goal.target) {
+      return goal.target
+    }
+
     const axes = this.sectionAxes(sectionId)
     const axis = goal.edge === 'top' || goal.edge === 'bottom' ? axes.x : axes.y
     const coordinate =
@@ -3142,6 +3282,18 @@ class GraphboundApp {
       this.completedGoals.add(`${sectionId}:${goalId}`)
     }
 
+    const newlyUnlockedSections = this.unlockSectionsForGoals(sectionId, newGoals)
+    const newlyUnlockedTiles: TileId[] = []
+    for (const goalId of newGoals) {
+      const goal = section.goals.find((candidate) => candidate.id === goalId)
+      if (!goal?.rewardTileId || this.unlockedTiles.has(goal.rewardTileId)) {
+        continue
+      }
+
+      this.unlockedTiles.add(goal.rewardTileId)
+      newlyUnlockedTiles.push(goal.rewardTileId)
+    }
+
     runtime.solvedGoalIds = section.goals
       .filter((goal) => this.completedGoals.has(`${sectionId}:${goal.id}`))
       .map((goal) => goal.id)
@@ -3162,9 +3314,17 @@ class GraphboundApp {
       if (section.rewardTileId) {
         this.unlockedTiles.add(section.rewardTileId)
         runtime.statusMessage = `tile-${section.rewardTileId}-unlocked`
+      } else if (newlyUnlockedTiles.length > 0) {
+        runtime.statusMessage = `tile-${newlyUnlockedTiles.at(-1)}-unlocked`
+      } else if (newlyUnlockedSections.length > 0) {
+        runtime.statusMessage = `unlock-${newlyUnlockedSections[0]}`
       } else {
         runtime.statusMessage = `${sectionId}-completed`
       }
+    } else if (newlyUnlockedTiles.length > 0) {
+      runtime.statusMessage = `tile-${newlyUnlockedTiles.at(-1)}-unlocked`
+    } else if (newlyUnlockedSections.length > 0) {
+      runtime.statusMessage = `unlock-${newlyUnlockedSections[0]}`
     }
 
     this.statusMessage = runtime.statusMessage
@@ -5309,26 +5469,37 @@ class GraphboundApp {
 
     if (runtime.plotResult && runtime.plotResult.points.length > 1) {
       const progress = runtime.animating ? runtime.plotProgress : 1
-      const plotPoints = runtime.plotResult.points.map((point) => this.graphPointToScreen(sectionId, point))
-      const visiblePoints = partialPolyline(plotPoints, progress)
+      const plotSegments =
+        runtime.plotResult.segments && runtime.plotResult.segments.length > 0
+          ? runtime.plotResult.segments
+          : [runtime.plotResult.points]
 
-      if (visiblePoints.length > 1) {
-        this.context.save()
-        this.context.strokeStyle = PLOT_GLOW
-        this.context.lineWidth = 5.4 * scale
-        this.context.lineCap = 'round'
-        this.context.lineJoin = 'round'
-        this.context.beginPath()
-        traceSmoothPath(this.context, visiblePoints)
-        this.context.stroke()
+      for (const segment of plotSegments) {
+        if (segment.length <= 1) {
+          continue
+        }
 
-        this.context.strokeStyle = INK
-        this.context.globalAlpha = 0.95
-        this.context.lineWidth = 3.6 * scale
-        this.context.beginPath()
-        traceSmoothPath(this.context, visiblePoints)
-        this.context.stroke()
-        this.context.restore()
+        const plotPoints = segment.map((point) => this.graphPointToScreen(sectionId, point))
+        const visiblePoints = partialPolyline(plotPoints, progress)
+
+        if (visiblePoints.length > 1) {
+          this.context.save()
+          this.context.strokeStyle = PLOT_GLOW
+          this.context.lineWidth = 5.4 * scale
+          this.context.lineCap = 'round'
+          this.context.lineJoin = 'round'
+          this.context.beginPath()
+          traceSmoothPath(this.context, visiblePoints)
+          this.context.stroke()
+
+          this.context.strokeStyle = INK
+          this.context.globalAlpha = 0.95
+          this.context.lineWidth = 3.6 * scale
+          this.context.beginPath()
+          traceSmoothPath(this.context, visiblePoints)
+          this.context.stroke()
+          this.context.restore()
+        }
       }
     }
 

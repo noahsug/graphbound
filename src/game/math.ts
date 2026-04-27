@@ -14,6 +14,11 @@ import type {
 } from './types'
 
 const EDGE_EPSILON = 0.08
+const TARGET_TOLERANCE = 0.5
+const IMPLICIT_GRID_STEPS = 120
+const IMPLICIT_POLAR_THETA_STEPS = 320
+const IMPLICIT_POLAR_RADIUS_STEPS = 140
+const ZERO_EPSILON = 1e-7
 const DEFAULT_POLAR_DOMAIN: AxisDefinition = {
   min: 0,
   max: Math.PI * 2,
@@ -25,8 +30,39 @@ interface ResolvedToken {
   style: EquationTokenStyle
 }
 
+type BuiltExpressionKind =
+  | 'explicit-cartesian'
+  | 'explicit-polar'
+  | 'implicit-cartesian'
+  | 'implicit-polar'
+
+interface BuiltExpression {
+  kind: BuiltExpressionKind
+  expression: string
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value))
+}
+
+function distanceBetween(left: PlotPoint, right: PlotPoint): number {
+  return Math.hypot(left.x - right.x, left.y - right.y)
+}
+
+function distanceToSegment(point: PlotPoint, start: PlotPoint, end: PlotPoint): number {
+  const dx = end.x - start.x
+  const dy = end.y - start.y
+  const lengthSquared = dx * dx + dy * dy
+
+  if (lengthSquared <= ZERO_EPSILON) {
+    return distanceBetween(point, start)
+  }
+
+  const t = clamp(((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared, 0, 1)
+  return distanceBetween(point, {
+    x: start.x + dx * t,
+    y: start.y + dy * t,
+  })
 }
 
 function uniqueEdges(edges: GoalEdge[]): GoalEdge[] {
@@ -187,8 +223,11 @@ function isPrimaryToken(token: ResolvedToken | undefined): boolean {
   return (
     isNumberText(token.text) ||
     token.text === 'x' ||
+    token.text === 'y' ||
+    token.text === 'r' ||
     token.text === 'θ' ||
     token.text === 'Θ' ||
+    token.text === 'theta' ||
     token.text === 'x²' ||
     token.text === '(' ||
     token.text === 'sin' ||
@@ -261,6 +300,89 @@ function buildPiecewiseExpression(tokens: ResolvedToken[]): string {
   }
 
   return expression
+}
+
+function tokenIsVariable(token: ResolvedToken | undefined, variable: 'y' | 'r'): boolean {
+  return Boolean(token?.style === 'normal' && token.text === variable)
+}
+
+function tokensUsePolarVariables(tokens: ResolvedToken[]): boolean {
+  return tokens.some(
+    (token) =>
+      token.style === 'normal' &&
+      (token.text === 'r' || token.text === 'θ' || token.text === 'Θ' || token.text === 'theta'),
+  )
+}
+
+function tokensUseOutputVariables(tokens: ResolvedToken[]): boolean {
+  return tokens.some(
+    (token) => token.style === 'normal' && (token.text === 'y' || token.text === 'r'),
+  )
+}
+
+function solvedVariableExpression(
+  tokens: ResolvedToken[],
+  variable: 'y' | 'r',
+  expression: string,
+): string | null {
+  if (tokens.length === 1 && tokenIsVariable(tokens[0], variable)) {
+    return expression
+  }
+
+  if (
+    tokens.length === 2 &&
+    tokens[0].style === 'normal' &&
+    isNumberText(tokens[0].text) &&
+    tokenIsVariable(tokens[1], variable)
+  ) {
+    return `((${expression}) / (${tokens[0].text}))`
+  }
+
+  return null
+}
+
+function buildFullEquationExpression(
+  section: SectionDefinition,
+  tokens: ResolvedToken[],
+): BuiltExpression {
+  const equalsIndexes = tokens
+    .map((token, index) => (token.style === 'normal' && token.text === '=' ? index : -1))
+    .filter((index) => index >= 0)
+
+  if (equalsIndexes.length !== 1 || equalsIndexes[0] === 0 || equalsIndexes[0] === tokens.length - 1) {
+    throw new Error('Full equations need one interior equals sign')
+  }
+
+  const equalsIndex = equalsIndexes[0]
+  const leftTokens = tokens.slice(0, equalsIndex)
+  const rightTokens = tokens.slice(equalsIndex + 1)
+  const right = new TokenParser(rightTokens).parseExpression()
+  const solvedY = solvedVariableExpression(leftTokens, 'y', right)
+
+  if (solvedY) {
+    return {
+      kind: 'explicit-cartesian',
+      expression: solvedY,
+    }
+  }
+
+  const solvedR = solvedVariableExpression(leftTokens, 'r', right)
+
+  if (solvedR) {
+    return {
+      kind: 'explicit-polar',
+      expression: solvedR,
+    }
+  }
+
+  const left = new TokenParser(leftTokens).parseExpression()
+  return {
+    kind:
+      section.coordinateMode === 'polar' || tokensUsePolarVariables(tokens)
+        ? 'implicit-polar'
+        : 'implicit-cartesian',
+    expression: `((${left}) - (${right}))`,
+  }
 }
 
 class TokenParser {
@@ -437,7 +559,22 @@ class TokenParser {
       return 'x'
     }
 
+    if (token.text === 'y') {
+      this.consume()
+      return 'y'
+    }
+
+    if (token.text === 'r') {
+      this.consume()
+      return 'r'
+    }
+
     if (token.text === 'θ' || token.text === 'Θ') {
+      this.consume()
+      return 'theta'
+    }
+
+    if (token.text === 'theta') {
       this.consume()
       return 'theta'
     }
@@ -492,7 +629,22 @@ class TokenParser {
       return 'x'
     }
 
+    if (token.text === 'y') {
+      this.consume()
+      return 'y'
+    }
+
+    if (token.text === 'r') {
+      this.consume()
+      return 'r'
+    }
+
     if (token.text === 'θ' || token.text === 'Θ') {
+      this.consume()
+      return 'theta'
+    }
+
+    if (token.text === 'theta') {
       this.consume()
       return 'theta'
     }
@@ -506,10 +658,10 @@ class TokenParser {
   }
 }
 
-function buildExpressionString(
+function buildExpression(
   section: SectionDefinition,
   placements: Record<string, TileId | null>,
-): string | null {
+): BuiltExpression | null {
   const tokens = resolveEquationTokens(section.equation, placements, false)
 
   if (!tokens || tokens.length === 0) {
@@ -517,11 +669,25 @@ function buildExpressionString(
   }
 
   try {
-    if (tokens.some((token) => token.style === 'normal' && (token.text === 'for' || token.text === ';'))) {
-      return buildPiecewiseExpression(tokens)
+    if (tokens.some((token) => token.style === 'normal' && token.text === '=')) {
+      return buildFullEquationExpression(section, tokens)
     }
 
-    return new TokenParser(tokens).parseExpression()
+    if (tokens.some((token) => token.style === 'normal' && (token.text === 'for' || token.text === ';'))) {
+      return {
+        kind: section.coordinateMode === 'polar' ? 'explicit-polar' : 'explicit-cartesian',
+        expression: buildPiecewiseExpression(tokens),
+      }
+    }
+
+    if (tokensUseOutputVariables(tokens)) {
+      return null
+    }
+
+    return {
+      kind: section.coordinateMode === 'polar' ? 'explicit-polar' : 'explicit-cartesian',
+      expression: new TokenParser(tokens).parseExpression(),
+    }
   } catch {
     return null
   }
@@ -545,9 +711,29 @@ function visibleCartesianPoints(expression: string, axes: GraphAxes): PlotPoint[
 
   for (let x = axes.x.min; x <= axes.x.max + step * 0.25; x += step) {
     const roundedX = Number(x.toFixed(4))
-    const y = evaluator(roundedX, roundedX)
+    let y: number
+
+    try {
+      y = evaluator(roundedX, roundedX)
+    } catch {
+      continue
+    }
 
     if (!Number.isFinite(y)) {
+      const edgeX =
+        Math.abs(roundedX - axes.x.min) <= EDGE_EPSILON
+          ? axes.x.min
+          : Math.abs(roundedX - axes.x.max) <= EDGE_EPSILON
+            ? axes.x.max
+            : null
+
+      if (edgeX !== null && (y === Infinity || y === -Infinity)) {
+        rawSamples.push({
+          x: edgeX,
+          y: y === Infinity ? axes.y.max : axes.y.min,
+        })
+      }
+
       continue
     }
 
@@ -681,7 +867,13 @@ function visiblePolarPoints(
 
   for (let theta = domain.min; theta <= domain.max + step * 0.25; theta += step) {
     const roundedTheta = Number(theta.toFixed(4))
-    const radius = evaluator(roundedTheta, roundedTheta)
+    let radius: number
+
+    try {
+      radius = evaluator(roundedTheta, roundedTheta)
+    } catch {
+      continue
+    }
 
     if (!Number.isFinite(radius)) {
       continue
@@ -708,6 +900,239 @@ function visiblePolarPoints(
   return points
 }
 
+type ImplicitEvaluator = (x: number, y: number, r: number, theta: number) => number
+
+function createImplicitEvaluator(expression: string): ImplicitEvaluator {
+  return new Function('x', 'y', 'r', 'theta', `return ${expression}`) as ImplicitEvaluator
+}
+
+function safeImplicitValue(
+  evaluator: ImplicitEvaluator,
+  x: number,
+  y: number,
+  r = Math.hypot(x, y),
+  theta = Math.atan2(y, x),
+): number | null {
+  try {
+    const value = evaluator(x, y, r, theta)
+    return Number.isFinite(value) ? value : null
+  } catch {
+    return null
+  }
+}
+
+function interpolatedZeroPoint(
+  start: PlotPoint,
+  startValue: number,
+  end: PlotPoint,
+  endValue: number,
+): PlotPoint | null {
+  const startNearZero = Math.abs(startValue) <= ZERO_EPSILON
+  const endNearZero = Math.abs(endValue) <= ZERO_EPSILON
+
+  if (!startNearZero && !endNearZero && Math.sign(startValue) === Math.sign(endValue)) {
+    return null
+  }
+
+  const denominator = startValue - endValue
+  const t =
+    Math.abs(denominator) <= ZERO_EPSILON
+      ? 0.5
+      : clamp(startValue / denominator, 0, 1)
+
+  return {
+    x: Number((start.x + (end.x - start.x) * t).toFixed(4)),
+    y: Number((start.y + (end.y - start.y) * t).toFixed(4)),
+  }
+}
+
+function pointKey(point: PlotPoint): string {
+  return `${point.x.toFixed(4)}:${point.y.toFixed(4)}`
+}
+
+function visibleImplicitCartesianSegments(expression: string, axes: GraphAxes): PlotPoint[][] {
+  const evaluator = createImplicitEvaluator(expression)
+  const columns = IMPLICIT_GRID_STEPS
+  const rows = IMPLICIT_GRID_STEPS
+  const xStep = (axes.x.max - axes.x.min) / columns
+  const yStep = (axes.y.max - axes.y.min) / rows
+  const values: Array<Array<number | null>> = []
+
+  for (let yIndex = 0; yIndex <= rows; yIndex += 1) {
+    const y = axes.y.min + yIndex * yStep
+    const row: Array<number | null> = []
+
+    for (let xIndex = 0; xIndex <= columns; xIndex += 1) {
+      const x = axes.x.min + xIndex * xStep
+      row.push(safeImplicitValue(evaluator, x, y))
+    }
+
+    values.push(row)
+  }
+
+  const segments: PlotPoint[][] = []
+
+  for (let yIndex = 0; yIndex < rows; yIndex += 1) {
+    for (let xIndex = 0; xIndex < columns; xIndex += 1) {
+      const x0 = axes.x.min + xIndex * xStep
+      const x1 = x0 + xStep
+      const y0 = axes.y.min + yIndex * yStep
+      const y1 = y0 + yStep
+      const corners = [
+        { point: { x: x0, y: y0 }, value: values[yIndex][xIndex] },
+        { point: { x: x1, y: y0 }, value: values[yIndex][xIndex + 1] },
+        { point: { x: x1, y: y1 }, value: values[yIndex + 1][xIndex + 1] },
+        { point: { x: x0, y: y1 }, value: values[yIndex + 1][xIndex] },
+      ]
+      const edgeIndexes: Array<[number, number]> = [
+        [0, 1],
+        [1, 2],
+        [2, 3],
+        [3, 0],
+      ]
+      const crossings: PlotPoint[] = []
+      const crossingKeys = new Set<string>()
+
+      for (const [startIndex, endIndex] of edgeIndexes) {
+        const start = corners[startIndex]
+        const end = corners[endIndex]
+
+        if (start.value === null || end.value === null) {
+          continue
+        }
+
+        const crossing = interpolatedZeroPoint(start.point, start.value, end.point, end.value)
+        if (!crossing) {
+          continue
+        }
+
+        const key = pointKey(crossing)
+        if (crossingKeys.has(key)) {
+          continue
+        }
+
+        crossingKeys.add(key)
+        crossings.push(crossing)
+      }
+
+      if (crossings.length === 2) {
+        segments.push(crossings)
+      } else if (crossings.length >= 4) {
+        segments.push([crossings[0], crossings[1]])
+        segments.push([crossings[2], crossings[3]])
+      }
+    }
+  }
+
+  return segments
+}
+
+function graphRadiusLimit(axes: GraphAxes): number {
+  return Math.max(
+    Math.hypot(axes.x.min, axes.y.min),
+    Math.hypot(axes.x.min, axes.y.max),
+    Math.hypot(axes.x.max, axes.y.min),
+    Math.hypot(axes.x.max, axes.y.max),
+    1,
+  )
+}
+
+function pointInsideAxes(point: PlotPoint, axes: GraphAxes): boolean {
+  return (
+    point.x >= axes.x.min - EDGE_EPSILON &&
+    point.x <= axes.x.max + EDGE_EPSILON &&
+    point.y >= axes.y.min - EDGE_EPSILON &&
+    point.y <= axes.y.max + EDGE_EPSILON
+  )
+}
+
+function visibleImplicitPolarSegments(
+  expression: string,
+  axes: GraphAxes,
+  domain: AxisDefinition,
+): PlotPoint[][] {
+  const evaluator = createImplicitEvaluator(expression)
+  const thetaStep = (domain.max - domain.min) / IMPLICIT_POLAR_THETA_STEPS
+  const radiusMax = graphRadiusLimit(axes)
+  const radiusStep = radiusMax / IMPLICIT_POLAR_RADIUS_STEPS
+  const segments: PlotPoint[][] = []
+  let currentSegment: PlotPoint[] = []
+
+  const pushPoint = (point: PlotPoint | null) => {
+    if (!point || !pointInsideAxes(point, axes)) {
+      if (currentSegment.length > 1) {
+        segments.push(currentSegment)
+      }
+      currentSegment = []
+      return
+    }
+
+    const clamped = {
+      x: clamp(Number(point.x.toFixed(4)), axes.x.min, axes.x.max),
+      y: clamp(Number(point.y.toFixed(4)), axes.y.min, axes.y.max),
+    }
+    const last = currentSegment.at(-1)
+    if (!last || distanceBetween(last, clamped) > EDGE_EPSILON) {
+      currentSegment.push(clamped)
+    }
+  }
+
+  for (
+    let theta = domain.min;
+    theta <= domain.max + thetaStep * 0.25;
+    theta += thetaStep
+  ) {
+    const roundedTheta = Number(theta.toFixed(4))
+    let previousRadius = 0
+    let previousValue = safeImplicitValue(evaluator, roundedTheta, 0, 0, roundedTheta)
+    let foundRoot: number | null = Math.abs(previousValue ?? Number.NaN) <= ZERO_EPSILON ? 0 : null
+
+    for (
+      let radiusIndex = 1;
+      radiusIndex <= IMPLICIT_POLAR_RADIUS_STEPS && foundRoot === null;
+      radiusIndex += 1
+    ) {
+      const radius = radiusIndex * radiusStep
+      const value = safeImplicitValue(evaluator, roundedTheta, 0, radius, roundedTheta)
+
+      if (previousValue !== null && value !== null) {
+        const crossing = interpolatedZeroPoint(
+          { x: previousRadius, y: 0 },
+          previousValue,
+          { x: radius, y: 0 },
+          value,
+        )
+        if (crossing) {
+          foundRoot = Math.max(0, crossing.x)
+          break
+        }
+      }
+
+      previousRadius = radius
+      previousValue = value
+    }
+
+    pushPoint(
+      foundRoot === null
+        ? null
+        : {
+            x: foundRoot * Math.cos(roundedTheta),
+            y: foundRoot * Math.sin(roundedTheta),
+          },
+    )
+  }
+
+  if (currentSegment.length > 1) {
+    segments.push(currentSegment)
+  }
+
+  return segments
+}
+
+function flattenSegments(segments: PlotPoint[][]): PlotPoint[] {
+  return segments.flatMap((segment) => segment)
+}
+
 function collectBoundaryHits(points: PlotPoint[], axes: GraphAxes): BoundaryHit[] {
   const hits: BoundaryHit[] = []
   const seen = new Set<string>()
@@ -731,30 +1156,62 @@ function collectBoundaryHits(points: PlotPoint[], axes: GraphAxes): BoundaryHit[
   return hits
 }
 
+function targetHitForSegments(target: PlotPoint, segments: PlotPoint[][]): PlotPoint | null {
+  for (const segment of segments) {
+    for (const point of segment) {
+      if (distanceBetween(point, target) <= TARGET_TOLERANCE) {
+        return target
+      }
+    }
+
+    for (let index = 1; index < segment.length; index += 1) {
+      if (distanceToSegment(target, segment[index - 1], segment[index]) <= TARGET_TOLERANCE) {
+        return target
+      }
+    }
+  }
+
+  return null
+}
+
+function matchesGoalByTarget(goal: GoalDefinition, segments: PlotPoint[][]): boolean {
+  return Boolean(goal.target && targetHitForSegments(goal.target, segments))
+}
+
 export function evaluateSectionPlot(
   section: SectionDefinition,
   placements: Record<string, TileId | null>,
 ): PlotResult | null {
-  const expression = buildExpressionString(section, placements)
+  const builtExpression = buildExpression(section, placements)
 
-  if (!expression) {
+  if (!builtExpression) {
     return null
   }
 
   const axes = resolveAxes(section)
-  const points =
-    section.coordinateMode === 'polar'
-      ? visiblePolarPoints(expression, axes, resolveParameterDomain(section))
-      : visibleCartesianPoints(expression, axes)
+  const segments =
+    builtExpression.kind === 'implicit-cartesian'
+      ? visibleImplicitCartesianSegments(builtExpression.expression, axes)
+      : builtExpression.kind === 'implicit-polar'
+        ? visibleImplicitPolarSegments(builtExpression.expression, axes, resolveParameterDomain(section))
+        : builtExpression.kind === 'explicit-polar'
+          ? [visiblePolarPoints(builtExpression.expression, axes, resolveParameterDomain(section))]
+          : [visibleCartesianPoints(builtExpression.expression, axes)]
+  const points = flattenSegments(segments)
   const hits = collectBoundaryHits(points, axes)
   const achievedGoalIds = section.goals
-    .filter((goal) => hits.some((hit) => matchesGoal(goal, hit)))
+    .filter(
+      (goal) =>
+        matchesGoalByTarget(goal, segments) ||
+        hits.some((hit) => matchesGoal(goal, hit)),
+    )
     .map((goal) => goal.id)
 
   return {
-    expression,
+    expression: builtExpression.expression,
     screenLabel: formatEquationLabel(section, placements, false),
     points,
+    segments,
     hits,
     achievedGoalIds,
     hasVisiblePath: points.length > 1,

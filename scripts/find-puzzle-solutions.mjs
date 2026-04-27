@@ -5,11 +5,14 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const TOLERANCE = 0.5
+const MIN_TILE_USAGE = 3
+const MIN_AXIS_SPAN = 5
+const MAX_AXIS_SPAN = 20
 const BLANK = '\u25a1'
 const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const DEFAULT_PUZZLES_PATH = path.join(ROOT_DIR, 'PUZZLES.md')
+const DEFAULT_PUZZLES_PATH = path.join(ROOT_DIR, 'puzzles.json')
 
-const TILE_ORDER = ['x', '2', '+', '5', '-', '(', '1', '/', '^', ')', '0', 'theta', 'sin']
+const TILE_ORDER = ['x', '2', '+', '5', '-', '(', '/', '^', ')', '0', 'y', '=', 'theta', 'sin', 'pi']
 const INITIAL_TILES = ['x']
 
 const TILE_DEFINITIONS = {
@@ -19,13 +22,15 @@ const TILE_DEFINITIONS = {
   '5': { label: '5', unlockNames: ['5'] },
   '-': { label: '-', unlockNames: ['-'] },
   '(': { label: '(', unlockNames: ['left parenthesis', '('] },
-  '1': { label: '1', unlockNames: ['1'] },
   '/': { label: '/', unlockNames: ['/'] },
   '^': { label: '^', unlockNames: ['^'] },
   ')': { label: ')', unlockNames: ['right parenthesis', ')'] },
   '0': { label: '0', unlockNames: ['0'] },
+  y: { label: 'y', unlockNames: ['y'] },
+  '=': { label: '=', unlockNames: ['=', 'equals'] },
   theta: { label: 'theta', unlockNames: ['theta', '\u03b8', '\u0398'] },
   sin: { label: 'sin', unlockNames: ['sin'] },
+  pi: { label: 'pi', unlockNames: ['pi', '\u03c0'] },
 }
 
 const UNLOCK_NAME_TO_TILE_ID = new Map(
@@ -39,12 +44,25 @@ function normalizeCell(value) {
 }
 
 function printUsage() {
-  console.log(`Usage: node scripts/find-puzzle-solutions.mjs [--file PUZZLES.md] [--json] [row-id ...]
+  console.log(`Usage: node scripts/find-puzzle-solutions.mjs [--file puzzles.json] [--json] [row-id ...]
 
-Reads the Graphbound puzzle table, simulates tile unlocks in table order, and
-prints every unique unlocked-tile equation that lands within ${TOLERANCE} graph
-units of each row's target coordinate. Pass one or more row ids, such as 20a,
-to print only those rows after simulating the full unlock path up to them.`)
+Reads Graphbound puzzle data from puzzles.json, simulates tile unlocks in data
+order, groups lettered rows by puzzle number, and prints every unique
+unlocked-tile equation that lands within ${TOLERANCE} graph units of any target
+in that puzzle group. The first row in each puzzle group supplies the equation
+template; later lettered rows are treated as additional intended
+solutions/targets for that same puzzle. Pass one or more puzzle ids or row ids,
+such as 8 or 20a, to print only those puzzle groups after simulating the full
+unlock path up to them.`)
+}
+
+function puzzleIdFromRowId(rowId) {
+  const match = rowId.match(/^(\d+)/)
+  return match ? match[1] : rowId.toLowerCase()
+}
+
+function normalizePuzzleSelector(value) {
+  return puzzleIdFromRowId(value.toLowerCase())
 }
 
 function parseArgs(args) {
@@ -179,6 +197,7 @@ function parsePuzzleRows(markdown) {
 
     rows.push({
       id,
+      puzzleId: puzzleIdFromRowId(id),
       name: row['puzzle name'],
       equation: row.equation,
       intendedSolution: row.solution,
@@ -193,6 +212,103 @@ function parsePuzzleRows(markdown) {
   }
 
   return rows
+}
+
+function loadPuzzleRows(filePath, source) {
+  if (path.extname(filePath).toLowerCase() === '.json') {
+    return parsePuzzleJson(JSON.parse(source), filePath)
+  }
+
+  return parsePuzzleRows(source)
+}
+
+function parsePuzzleJson(data, filePath) {
+  const sourceRows = Array.isArray(data) ? data : data.rows
+
+  if (!Array.isArray(sourceRows)) {
+    throw new Error(`${filePath} must contain a top-level rows array`)
+  }
+
+  return sourceRows.map((row, index) => normalizeJsonPuzzleRow(row, index, filePath))
+}
+
+function normalizeJsonPuzzleRow(row, index, filePath) {
+  if (!row || typeof row !== 'object') {
+    throw new Error(`${filePath} row ${index + 1} must be an object`)
+  }
+
+  const id = requiredString(row.id, `row ${index + 1}.id`)
+  const name = requiredString(row.name ?? row.puzzleName, `${id}.name`)
+  const equation = requiredString(row.equation, `${id}.equation`)
+  const intendedSolution = requiredString(
+    row.intendedSolution ?? row.solution,
+    `${id}.intendedSolution`,
+  )
+
+  return {
+    id,
+    puzzleId: row.puzzleId ? String(row.puzzleId) : puzzleIdFromRowId(id),
+    name,
+    equation,
+    intendedSolution,
+    unlocksPuzzle: optionalString(row.unlocksPuzzle, 'none'),
+    unlocksTile: optionalString(row.unlocksTile, 'none'),
+    axes: {
+      x: normalizeJsonAxis(row.axes?.x, `${id}.axes.x`),
+      y: normalizeJsonAxis(row.axes?.y, `${id}.axes.y`),
+    },
+    target: normalizeJsonTarget(row.target, `${id}.target`),
+  }
+}
+
+function requiredString(value, label) {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new Error(`${label} must be a non-empty string`)
+  }
+
+  return value
+}
+
+function optionalString(value, fallback) {
+  if (value === undefined || value === null || value === '') {
+    return fallback
+  }
+
+  if (typeof value !== 'string') {
+    throw new Error(`Expected string value, received ${typeof value}`)
+  }
+
+  return value
+}
+
+function normalizeJsonAxis(axis, label) {
+  if (!axis || typeof axis !== 'object') {
+    throw new Error(`${label} must be an object with min and max`)
+  }
+
+  return {
+    min: finiteNumber(axis.min, `${label}.min`),
+    max: finiteNumber(axis.max, `${label}.max`),
+  }
+}
+
+function normalizeJsonTarget(target, label) {
+  if (!target || typeof target !== 'object') {
+    throw new Error(`${label} must be an object with x and y`)
+  }
+
+  return {
+    x: finiteNumber(target.x, `${label}.x`),
+    y: finiteNumber(target.y, `${label}.y`),
+  }
+}
+
+function finiteNumber(value, label) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`${label} must be a finite number`)
+  }
+
+  return value
 }
 
 function unlockedTileId(unlockName) {
@@ -213,6 +329,15 @@ function unlockedTileId(unlockName) {
 
 function blankCount(equation) {
   return [...equation].filter((character) => character === BLANK).length
+}
+
+function blankOnlyRightSide(equation) {
+  const match = equation.match(/^\s*(?:y|r)\s*=\s*(.*?)\s*$/i)
+  return Boolean(match && match[1].replace(/\s+/g, '').replaceAll(BLANK, '') === '')
+}
+
+function allTokensBlank(equation) {
+  return equation.replace(/\s+/g, '').replaceAll(BLANK, '') === ''
 }
 
 function fillEquation(template, tileIds) {
@@ -247,6 +372,14 @@ function prettifyEquation(equation) {
     .trim()
 }
 
+function normalizeEquationForCompare(equation) {
+  return prettifyEquation(equation)
+    .replace(/\s+/g, '')
+    .replace(/\u03b8/g, 'theta')
+    .replace(/\u0398/g, 'theta')
+    .toLowerCase()
+}
+
 function* permutations(items, length, prefix = [], used = new Set()) {
   if (prefix.length === length) {
     yield prefix
@@ -264,6 +397,138 @@ function* permutations(items, length, prefix = [], used = new Set()) {
     prefix.pop()
     used.delete(item)
   }
+}
+
+function* slotPermutations(candidateLists, prefix = [], used = new Set()) {
+  if (prefix.length === candidateLists.length) {
+    yield prefix
+    return
+  }
+
+  for (const item of candidateLists[prefix.length]) {
+    if (used.has(item)) {
+      continue
+    }
+
+    used.add(item)
+    prefix.push(item)
+    yield* slotPermutations(candidateLists, prefix, used)
+    prefix.pop()
+    used.delete(item)
+  }
+}
+
+function inferredIntendedTiles(row) {
+  const count = blankCount(row.equation)
+
+  if (count === 0) {
+    return []
+  }
+
+  const directTiles = directlyInferredIntendedTiles(row)
+  if (directTiles) {
+    return directTiles
+  }
+
+  const expected = normalizeEquationForCompare(row.intendedSolution)
+
+  for (const tileIds of permutations(TILE_ORDER, count)) {
+    if (normalizeEquationForCompare(fillEquation(row.equation, tileIds)) === expected) {
+      return tileIds
+    }
+  }
+
+  return null
+}
+
+function directlyInferredIntendedTiles(row) {
+  const count = blankCount(row.equation)
+  const intendedTokens = tokenize(row.intendedSolution)
+  let fillTokens = null
+
+  if (allTokensBlank(row.equation)) {
+    fillTokens = intendedTokens
+  } else if (blankOnlyRightSide(row.equation)) {
+    const equalsIndex = intendedTokens.findIndex(
+      (token) => token.type === 'operator' && token.value === '=',
+    )
+    if (equalsIndex >= 0) {
+      fillTokens = intendedTokens.slice(equalsIndex + 1)
+    }
+  }
+
+  if (!fillTokens || fillTokens.length !== count) {
+    return null
+  }
+
+  const tileIds = fillTokens.map(tileIdForToken)
+
+  if (tileIds.some((tileId) => tileId === null)) {
+    return null
+  }
+
+  return tileIds
+}
+
+function tileIdForToken(token) {
+  if (token.type === 'number') {
+    return TILE_DEFINITIONS[token.value] ? token.value : null
+  }
+
+  if (token.type === 'identifier') {
+    if (token.value === 'theta') {
+      return 'theta'
+    }
+
+    if (TILE_DEFINITIONS[token.value]) {
+      return token.value
+    }
+
+    return null
+  }
+
+  if (token.type === 'operator') {
+    return TILE_DEFINITIONS[token.value] ? token.value : null
+  }
+
+  return null
+}
+
+function slotCandidateLists(row, availableTiles, intendedRows = [row]) {
+  const count = blankCount(row.equation)
+
+  if (count === 0) {
+    return []
+  }
+
+  if (blankOnlyRightSide(row.equation) || allTokensBlank(row.equation)) {
+    return Array.from({ length: count }, () => availableTiles)
+  }
+
+  const candidateSets = Array.from({ length: count }, () => new Set())
+
+  for (const intendedRow of intendedRows) {
+    const intendedTiles = inferredIntendedTiles({
+      ...intendedRow,
+      equation: row.equation,
+    })
+
+    if (!intendedTiles) {
+      continue
+    }
+
+    intendedTiles.forEach((tileId, index) => {
+      if (availableTiles.includes(tileId)) {
+        candidateSets[index].add(tileId)
+      }
+    })
+  }
+
+  if (candidateSets.some((candidates) => candidates.size === 0)) {
+    return Array.from({ length: count }, () => availableTiles)
+  }
+
+  return candidateSets.map((candidates) => [...candidates])
 }
 
 function normalizeEquationInput(input) {
@@ -759,6 +1024,121 @@ function canonicalExpressionKey(node) {
   }
 }
 
+function simplifyAst(node) {
+  switch (node.type) {
+    case 'num':
+    case 'var':
+    case 'const':
+      return node
+    case 'neg': {
+      const value = simplifyAst(node.value)
+      if (value.type === 'num') {
+        return { type: 'num', value: -value.value }
+      }
+      if (value.type === 'neg') {
+        return simplifyAst(value.value)
+      }
+      return { type: 'neg', value }
+    }
+    case 'inv': {
+      const value = simplifyAst(node.value)
+      if (value.type === 'num' && value.value !== 0) {
+        return { type: 'num', value: 1 / value.value }
+      }
+      return { type: 'inv', value }
+    }
+    case 'fn':
+      return { ...node, arg: simplifyAst(node.arg) }
+    case 'pow': {
+      const base = simplifyAst(node.base)
+      const exponent = simplifyAst(node.exponent)
+      if (exponent.type === 'num') {
+        if (exponent.value === 0) {
+          return { type: 'num', value: 1 }
+        }
+        if (exponent.value === 1) {
+          return base
+        }
+      }
+      if (base.type === 'num' && exponent.type === 'num') {
+        const value = Math.pow(base.value, exponent.value)
+        if (Number.isFinite(value)) {
+          return { type: 'num', value }
+        }
+      }
+      return { type: 'pow', base, exponent }
+    }
+    case 'add':
+      return simplifyAdd(node.values)
+    case 'mul':
+      return simplifyMul(node.values)
+    default:
+      throw new Error(`Unsupported AST node: ${node.type}`)
+  }
+}
+
+function simplifyAdd(values) {
+  const parts = []
+  let numericSum = 0
+
+  for (const value of values.map(simplifyAst)) {
+    const flattened = value.type === 'add' ? value.values.map(simplifyAst) : [value]
+
+    for (const part of flattened) {
+      if (part.type === 'num') {
+        numericSum += part.value
+      } else {
+        parts.push(part)
+      }
+    }
+  }
+
+  if (numericSum !== 0) {
+    parts.push({ type: 'num', value: numericSum })
+  }
+
+  if (parts.length === 0) {
+    return { type: 'num', value: 0 }
+  }
+
+  if (parts.length === 1) {
+    return parts[0]
+  }
+
+  return { type: 'add', values: parts }
+}
+
+function simplifyMul(values) {
+  const parts = []
+  let numericProduct = 1
+
+  for (const value of values.map(simplifyAst)) {
+    const flattened = value.type === 'mul' ? value.values.map(simplifyAst) : [value]
+
+    for (const part of flattened) {
+      if (part.type === 'num') {
+        numericProduct *= part.value
+      } else {
+        parts.push(part)
+      }
+    }
+  }
+
+  if (numericProduct === 0) {
+    return { type: 'num', value: 0 }
+  }
+
+  if (numericProduct !== 1 || parts.length === 0) {
+    parts.push({ type: 'num', value: numericProduct })
+  }
+
+  if (parts.length === 1) {
+    return parts[0]
+  }
+
+  return { type: 'mul', values: parts }
+}
+
 function flattenCanonicalParts(node, type) {
   if (node.type !== type) {
     return [canonicalExpressionKey(node)]
@@ -791,8 +1171,8 @@ function parseEquation(equation) {
   const rightTokens = tokens.slice(equalsIndex + 1)
   const left = parseExpression(leftTokens)
   const right = parseExpression(rightTokens)
-  const leftAst = parseExpressionAst(leftTokens)
-  const rightAst = parseExpressionAst(rightTokens)
+  const leftAst = simplifyAst(parseExpressionAst(leftTokens))
+  const rightAst = simplifyAst(parseExpressionAst(rightTokens))
   const relation = `((${left}) - (${right}))`
   const relationFn = makeEvaluator(relation)
   const rightFn = makeEvaluator(right)
@@ -846,7 +1226,24 @@ function targetPolar(target) {
   }
 }
 
-function matchesExplicitY(parsed, target) {
+function matchesExplicitY(parsed, row) {
+  const { target } = row
+  let targetValue = null
+
+  try {
+    targetValue = parsed.rightFn(target.x, target.y, Math.hypot(target.x, target.y), target.x)
+  } catch {
+    targetValue = null
+  }
+
+  if (target.x === 0 && target.y === row.axes.y.max && targetValue === Infinity) {
+    return true
+  }
+
+  if (target.x === 0 && target.y === row.axes.y.min && targetValue === -Infinity) {
+    return true
+  }
+
   const sampleSteps = 40
   let previousPoint = null
 
@@ -1064,7 +1461,7 @@ function bisectPolarRadius(parsed, theta, low, high) {
 
 function matchesTarget(parsed, row) {
   if (parsed.kind === 'explicit-y') {
-    return matchesExplicitY(parsed, row.target)
+    return matchesExplicitY(parsed, row)
   }
 
   if (parsed.kind === 'explicit-r') {
@@ -1078,16 +1475,21 @@ function matchesTarget(parsed, row) {
   return matchesImplicitCartesian(parsed, row.target)
 }
 
-function solveRow(row, availableTiles) {
-  const count = blankCount(row.equation)
+function solveRow(row, availableTiles, intendedRows = [row]) {
+  const candidateLists = slotCandidateLists(row, availableTiles, intendedRows)
   const solutionsByKey = new Map()
   const seen = new Set()
+  const allBlankEquation = allTokensBlank(row.equation)
 
-  if (count > availableTiles.length) {
+  if (candidateLists.some((candidates) => candidates.length === 0)) {
     return []
   }
 
-  for (const tileIds of permutations(availableTiles, count)) {
+  for (const tileIds of slotPermutations(candidateLists)) {
+    if (allBlankEquation && !hasViableAllBlankEquationSequence(tileIds)) {
+      continue
+    }
+
     const equation = fillEquation(row.equation, tileIds)
 
     if (seen.has(equation)) {
@@ -1095,6 +1497,10 @@ function solveRow(row, availableTiles) {
     }
 
     try {
+      if (!hasValidOperatorPlacement(equation, row)) {
+        continue
+      }
+
       if (!hasMatchedParentheses(equation)) {
         continue
       }
@@ -1129,6 +1535,21 @@ function solveRow(row, availableTiles) {
   return [...solutionsByKey.values()]
 }
 
+function hasViableAllBlankEquationSequence(tileIds) {
+  const equalsIndex = tileIds.indexOf('=')
+  const yIndex = tileIds.indexOf('y')
+
+  if (equalsIndex <= 0 || equalsIndex >= tileIds.length - 1 || yIndex < 0 || yIndex > equalsIndex) {
+    return false
+  }
+
+  const leftTiles = tileIds.slice(0, equalsIndex)
+  const leftIsY = leftTiles.length === 1 && leftTiles[0] === 'y'
+  const leftIsScaledY = leftTiles.length === 2 && /^\d+$/.test(leftTiles[0]) && leftTiles[1] === 'y'
+
+  return leftIsY || leftIsScaledY
+}
+
 function hasMatchedParentheses(equation) {
   const tokens = tokenize(equation)
   let balance = 0
@@ -1152,26 +1573,97 @@ function hasMatchedParentheses(equation) {
   return balance === 0
 }
 
-function solveAll(rows) {
+function isExpressionOperator(token) {
+  return token?.type === 'operator' && ['+', '-', '/', '^', '='].includes(token.value)
+}
+
+function isStrictBinaryOperator(token) {
+  return token?.type === 'operator' && ['+', '/', '^', '='].includes(token.value)
+}
+
+function hasValidOperatorPlacement(equation, row) {
+  const tokens = tokenize(equation)
+  const equalsIndexes = tokens
+    .map((token, index) => (token.type === 'operator' && token.value === '=' ? index : -1))
+    .filter((index) => index >= 0)
+
+  if (equalsIndexes.length !== 1 || equalsIndexes[0] === 0 || equalsIndexes[0] === tokens.length - 1) {
+    return false
+  }
+
+  const equalsIndex = equalsIndexes[0]
+  const yIndexes = tokens
+    .map((token, index) => (token.type === 'identifier' && token.value === 'y' ? index : -1))
+    .filter((index) => index >= 0)
+  const hasPolarVariable = tokens.some(
+    (token) => token.type === 'identifier' && (token.value === 'r' || token.value === 'theta'),
+  )
+
+  if (!hasPolarVariable) {
+    if (yIndexes.length !== 1 || yIndexes[0] > equalsIndex) {
+      return false
+    }
+
+    if (allTokensBlank(row.equation)) {
+      const leftTokens = tokens.slice(0, equalsIndex)
+      const leftIsY =
+        leftTokens.length === 1 && leftTokens[0].type === 'identifier' && leftTokens[0].value === 'y'
+      const leftIsScaledY =
+        leftTokens.length === 2 &&
+        leftTokens[0].type === 'number' &&
+        leftTokens[1].type === 'identifier' &&
+        leftTokens[1].value === 'y'
+
+      if (!leftIsY && !leftIsScaledY) {
+        return false
+      }
+    }
+  }
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index]
+
+    if (token.type !== 'operator') {
+      continue
+    }
+
+    const previous = tokens[index - 1]
+    const next = tokens[index + 1]
+
+    if (['+', '/', '^', '='].includes(token.value) && (index === 0 || index === tokens.length - 1)) {
+      return false
+    }
+
+    if (token.value === '-' && index === tokens.length - 1) {
+      return false
+    }
+
+    if (token.value === '^' || token.value === '=') {
+      if (isExpressionOperator(previous) || isExpressionOperator(next)) {
+        return false
+      }
+    }
+
+    if (isStrictBinaryOperator(token) && isExpressionOperator(previous)) {
+      return false
+    }
+
+    if (token.value === '+' && isExpressionOperator(next)) {
+      return false
+    }
+  }
+
+  return true
+}
+
+function rowUnlockContexts(rows) {
   const unlockedTiles = new Set(INITIAL_TILES)
-  const results = []
+  const contexts = new Map()
 
   for (const row of rows) {
-    const availableTiles = TILE_ORDER.filter(
-      (tileId) => unlockedTiles.has(tileId) && tileAllowedForPuzzleMode(tileId, row),
-    )
-    const solutions = solveRow(row, availableTiles)
-
-    results.push({
-      id: row.id,
-      name: row.name,
-      equationTemplate: row.equation,
-      intendedSolution: row.intendedSolution,
-      unlocksPuzzle: row.unlocksPuzzle,
-      unlocksTile: row.unlocksTile,
-      availableTiles,
-      target: row.target,
-      solutions,
+    contexts.set(row.id, {
+      row,
+      unlockedTiles: new Set(unlockedTiles),
     })
 
     const tileId = unlockedTileId(row.unlocksTile)
@@ -1180,14 +1672,213 @@ function solveAll(rows) {
     }
   }
 
+  return contexts
+}
+
+function puzzleGroups(rows) {
+  const groups = new Map()
+
+  for (const row of rows) {
+    if (!groups.has(row.puzzleId)) {
+      groups.set(row.puzzleId, {
+        id: row.puzzleId,
+        rows: [],
+      })
+    }
+
+    groups.get(row.puzzleId).rows.push(row)
+  }
+
+  return [...groups.values()]
+}
+
+function canonicalKeyForEquation(equation) {
+  try {
+    return parseEquation(equation).canonicalKey
+  } catch {
+    return null
+  }
+}
+
+function mergeGroupSolution(solutionsByKey, solution, targetRow) {
+  let existing = solutionsByKey.get(solution.canonicalKey)
+
+  if (!existing) {
+    existing = {
+      equation: solution.equation,
+      tiles: [...solution.tiles],
+      canonicalKey: solution.canonicalKey,
+      variantCount: 0,
+      variants: [],
+      variantKeys: new Set(),
+      matchedRows: [],
+    }
+    solutionsByKey.set(solution.canonicalKey, existing)
+  }
+
+  for (const variant of solution.variants) {
+    const variantKey = `${variant.equation}\0${variant.tiles.join(',')}`
+
+    if (existing.variantKeys.has(variantKey)) {
+      continue
+    }
+
+    existing.variantKeys.add(variantKey)
+    existing.variants.push({
+      equation: variant.equation,
+      tiles: [...variant.tiles],
+    })
+  }
+
+  if (!existing.matchedRows.some((row) => row.id === targetRow.id)) {
+    existing.matchedRows.push({
+      id: targetRow.id,
+      target: targetRow.target,
+      intendedSolution: targetRow.intendedSolution,
+    })
+  }
+
+  existing.variantCount = existing.variants.length
+}
+
+function finalizeGroupSolution(solution, intendedRowsByKey) {
+  const { variantKeys, ...publicSolution } = solution
+  const intendedRows = intendedRowsByKey.get(solution.canonicalKey) ?? []
+
+  return {
+    ...publicSolution,
+    intended: intendedRows.length > 0,
+    intendedRows,
+  }
+}
+
+function solvePuzzleGroup(group, rowContexts) {
+  const representative = group.rows[0]
+  const representativeEquation = representative.equation
+  const allowedNonIntendedCount =
+    representative.name === 'Finale' && allTokensBlank(representativeEquation) ? 2 : 1
+  const equationIssues = group.rows
+    .filter((row) => row.equation.trim() !== representativeEquation.trim())
+    .map((row) => ({
+      id: row.id,
+      equation: row.equation,
+    }))
+  const intendedRowsByKey = new Map()
+  const intendedRows = group.rows.map((row) => {
+    const canonicalKey = canonicalKeyForEquation(row.intendedSolution)
+    const intended = {
+      id: row.id,
+      solution: row.intendedSolution,
+      canonicalKey,
+      target: row.target,
+    }
+
+    if (canonicalKey) {
+      const rowsForKey = intendedRowsByKey.get(canonicalKey) ?? []
+      rowsForKey.push({
+        id: row.id,
+        solution: row.intendedSolution,
+      })
+      intendedRowsByKey.set(canonicalKey, rowsForKey)
+    }
+
+    return intended
+  })
+  const duplicateIntendedRows = [...intendedRowsByKey.values()].filter((rowsForKey) => rowsForKey.length > 1)
+  const solutionsByKey = new Map()
+  const availableByRow = []
+
+  for (const targetRow of group.rows) {
+    const context = rowContexts.get(targetRow.id)
+    const availableTiles = TILE_ORDER.filter(
+      (tileId) => context.unlockedTiles.has(tileId) && tileAllowedForPuzzleMode(tileId, representative),
+    )
+    const solverRow = {
+      ...targetRow,
+      equation: representativeEquation,
+    }
+    const rowSolutions = solveRow(solverRow, availableTiles, group.rows)
+
+    availableByRow.push({
+      id: targetRow.id,
+      availableTiles,
+    })
+
+    for (const solution of rowSolutions) {
+      mergeGroupSolution(solutionsByKey, solution, targetRow)
+    }
+  }
+
+  const solutions = [...solutionsByKey.values()].map((solution) =>
+    finalizeGroupSolution(solution, intendedRowsByKey),
+  )
+  const nonIntendedSolutions = solutions.filter((solution) => !solution.intended)
+  const foundCanonicalKeys = new Set(solutions.map((solution) => solution.canonicalKey))
+  const missingIntendedRows = intendedRows.filter(
+    (row) => row.canonicalKey && !foundCanonicalKeys.has(row.canonicalKey),
+  )
+
+  return {
+    id: group.id,
+    rowIds: group.rows.map((row) => row.id),
+    name: representative.name,
+    equationTemplate: representativeEquation,
+    intendedSolutions: intendedRows,
+    representativeRowId: representative.id,
+    availableByRow,
+    solutions,
+    nonIntendedSolutions,
+    missingIntendedRows,
+    issues: {
+      differentEquations: equationIssues,
+      duplicateIntendedSolutions: duplicateIntendedRows,
+    },
+    requirement: {
+      intendedCount: group.rows.length,
+      uniqueIntendedCount: intendedRowsByKey.size,
+      solutionCount: solutions.length,
+      nonIntendedCount: nonIntendedSolutions.length,
+      expectedMinimum: group.rows.length,
+      expectedMaximum: group.rows.length + allowedNonIntendedCount,
+      allowedNonIntendedCount,
+      passes:
+        equationIssues.length === 0 &&
+        duplicateIntendedRows.length === 0 &&
+        missingIntendedRows.length === 0 &&
+        nonIntendedSolutions.length <= allowedNonIntendedCount &&
+        solutions.length >= group.rows.length &&
+        solutions.length <= group.rows.length + allowedNonIntendedCount,
+    },
+  }
+}
+
+function solveAll(rows) {
+  const rowContexts = rowUnlockContexts(rows)
+  const results = []
+
+  for (const group of puzzleGroups(rows)) {
+    results.push(solvePuzzleGroup(group, rowContexts))
+  }
+
   return results
 }
 
 function tileAllowedForPuzzleMode(tileId, row) {
   const polar = /^\s*r\b/i.test(row.equation)
+  const fixedTokens = tokenize(row.equation.replaceAll(BLANK, ''))
+  const hasFixedEquals = fixedTokens.some((token) => token.type === 'operator' && token.value === '=')
+  const hasFixedY = fixedTokens.some((token) => token.type === 'identifier' && token.value === 'y')
+
+  if (tileId === '=' && hasFixedEquals) {
+    return false
+  }
+
+  if (tileId === 'y' && hasFixedY) {
+    return false
+  }
 
   if (polar) {
-    return tileId !== 'x'
+    return tileId !== 'x' && tileId !== 'y'
   }
 
   return tileId !== 'theta'
@@ -1197,37 +1888,274 @@ function formatTileList(tileIds) {
   return tileIds.map((tileId) => TILE_DEFINITIONS[tileId].label).join(', ')
 }
 
-function printText(results) {
+function intendedTileUsage(rows) {
+  const counts = Object.fromEntries(TILE_ORDER.map((tileId) => [tileId, 0]))
+  const rowsByTile = Object.fromEntries(TILE_ORDER.map((tileId) => [tileId, []]))
+  const misses = []
+
+  for (const row of rows) {
+    const tileIds = inferredIntendedTiles(row)
+
+    if (!tileIds) {
+      misses.push(row.id)
+      continue
+    }
+
+    for (const tileId of tileIds) {
+      counts[tileId] += 1
+      rowsByTile[tileId].push(row.id)
+    }
+  }
+
+  const shortages = TILE_ORDER
+    .filter((tileId) => counts[tileId] < MIN_TILE_USAGE)
+    .map((tileId) => ({
+      tileId,
+      count: counts[tileId],
+      rows: rowsByTile[tileId],
+    }))
+
+  return {
+    minimum: MIN_TILE_USAGE,
+    counts,
+    rowsByTile,
+    misses,
+    shortages,
+  }
+}
+
+function axisSpan(axis) {
+  return axis.max - axis.min
+}
+
+function axisIncludesZero(axis) {
+  return axis.min <= 0 && axis.max >= 0
+}
+
+function axisHasAllowedEndpoints(axis) {
+  return ![axis.min, axis.max].some((value) => Math.abs(Math.abs(value) - 1) < 1e-9)
+}
+
+function isRoundedToHalf(value) {
+  return Math.abs(value * 2 - Math.round(value * 2)) < 1e-9
+}
+
+function targetIsNearGraphEdge(row) {
+  const { target, axes } = row
+  return (
+    Math.abs(target.x - axes.x.min) <= TOLERANCE ||
+    Math.abs(target.x - axes.x.max) <= TOLERANCE ||
+    Math.abs(target.y - axes.y.min) <= TOLERANCE ||
+    Math.abs(target.y - axes.y.max) <= TOLERANCE
+  )
+}
+
+function countedTokenSummary(equation) {
+  const blanks = blankCount(equation)
+  const fixedEquation = equation.replaceAll(BLANK, ' ')
+  const fixedTokens = tokenize(fixedEquation)
+  let fixedCount = 0
+
+  for (const token of fixedTokens) {
+    if (token.type === 'number') {
+      fixedCount += 1
+      continue
+    }
+
+    if (token.type === 'identifier') {
+      if (!['y', 'r'].includes(token.value)) {
+        fixedCount += 1
+      }
+      continue
+    }
+
+    if (token.type === 'operator' && !['=', '(', ')', '|', '^'].includes(token.value)) {
+      fixedCount += 1
+    }
+  }
+
+  return {
+    blanks,
+    fixedCount,
+    total: blanks + fixedCount,
+  }
+}
+
+function authoringAudit(rows) {
+  const issues = []
+  const allBlankRows = rows.filter((row) => allTokensBlank(row.equation))
+
+  for (const row of rows) {
+    for (const [axisName, axis] of Object.entries(row.axes)) {
+      const span = axisSpan(axis)
+
+      if (span < MIN_AXIS_SPAN || span > MAX_AXIS_SPAN) {
+        issues.push(`${row.id}: ${axisName}-axis span ${span} is outside ${MIN_AXIS_SPAN}-${MAX_AXIS_SPAN}`)
+      }
+
+      if (!axisIncludesZero(axis)) {
+        issues.push(`${row.id}: ${axisName}-axis ${axis.min} to ${axis.max} does not include 0`)
+      }
+
+      if (!axisHasAllowedEndpoints(axis)) {
+        issues.push(`${row.id}: ${axisName}-axis ${axis.min} to ${axis.max} ends at 1 or -1`)
+      }
+    }
+
+    if (!isRoundedToHalf(row.target.x) || !isRoundedToHalf(row.target.y)) {
+      issues.push(`${row.id}: target (${row.target.x}, ${row.target.y}) is not rounded to the nearest 0.5`)
+    }
+
+    if (!targetIsNearGraphEdge(row)) {
+      issues.push(`${row.id}: target (${row.target.x}, ${row.target.y}) is not within ${TOLERANCE} of a graph edge`)
+    }
+
+    const tokenSummary = countedTokenSummary(row.equation)
+    if (tokenSummary.blanks < tokenSummary.total / 3) {
+      issues.push(
+        `${row.id}: ${tokenSummary.blanks} empty slots for ${tokenSummary.total} counted tokens ` +
+          `(needs at least ${tokenSummary.total / 3})`,
+      )
+    }
+  }
+
+  if (allBlankRows.length !== 1 || allBlankRows[0]?.name !== 'Finale') {
+    const labels = allBlankRows.map((row) => `${row.id} ${row.name}`).join(', ') || 'none'
+    issues.push(`Finale all-empty-template requirement failed; all-empty rows: ${labels}`)
+  } else if (blankCount(allBlankRows[0].equation) !== 7) {
+    issues.push(`Finale must have exactly 7 empty slots; found ${blankCount(allBlankRows[0].equation)}`)
+  }
+
+  return {
+    rowCount: rows.length,
+    issues,
+  }
+}
+
+function printAuthoringAudit(audit) {
+  if (audit.issues.length === 0) {
+    console.log(
+      `Authoring audit: pass (${audit.rowCount} rows; axis span/endpoints/zero, ` +
+        'target rounding/edge placement, token density, and Finale blank-template checks)',
+    )
+    return
+  }
+
+  console.log('Authoring audit requirement failures:')
+  for (const issue of audit.issues) {
+    console.log(`  - ${issue}`)
+  }
+}
+
+function printTileUsage(usage) {
+  const counts = TILE_ORDER
+    .map((tileId) => `${TILE_DEFINITIONS[tileId].label}: ${usage.counts[tileId]}`)
+    .join(', ')
+
+  console.log(`Tile usage in intended slots (minimum ${usage.minimum}): ${counts}`)
+
+  if (usage.shortages.length > 0) {
+    console.log('Tile usage requirement failures:')
+    for (const shortage of usage.shortages) {
+      console.log(
+        `  - ${TILE_DEFINITIONS[shortage.tileId].label}: ${shortage.count} ` +
+          `(${shortage.rows.join(', ') || 'no intended-slot uses'})`,
+      )
+    }
+  } else {
+    console.log('Tile usage requirement: pass')
+  }
+
+  if (usage.misses.length > 0) {
+    console.log(`Could not infer intended slot tiles for: ${usage.misses.join(', ')}`)
+  }
+}
+
+function printText(results, rows) {
   let totalSolutions = 0
+  let failingGroups = 0
 
   for (const result of results) {
     totalSolutions += result.solutions.length
-    console.log(`${result.id} ${result.name}`)
-    console.log(`  unlocked tiles: ${formatTileList(result.availableTiles)}`)
-    console.log(`  target: (${result.target.x}, ${result.target.y})`)
-    console.log(`  intended: ${result.intendedSolution}`)
+    if (!result.requirement.passes) {
+      failingGroups += 1
+    }
+
+    console.log(`${result.id} ${result.name} (${result.rowIds.join(', ')})`)
+    console.log(`  equation: ${result.equationTemplate}    [from ${result.representativeRowId}]`)
+    console.log(`  intended solutions (${result.intendedSolutions.length}):`)
+
+    for (const intended of result.intendedSolutions) {
+      const keyStatus = intended.canonicalKey ? '' : '    (could not parse)'
+      console.log(`    - ${intended.id}: ${intended.solution}${keyStatus}`)
+    }
+
+    console.log('  unlocked tiles by row:')
+    for (const row of result.availableByRow) {
+      console.log(`    - ${row.id}: ${formatTileList(row.availableTiles)}`)
+    }
+
+    if (result.issues.differentEquations.length > 0) {
+      console.log('  requirement issue: lettered rows use different equation templates')
+      for (const issue of result.issues.differentEquations) {
+        console.log(`    - ${issue.id}: ${issue.equation}`)
+      }
+    }
+
+    if (result.issues.duplicateIntendedSolutions.length > 0) {
+      console.log('  requirement issue: duplicate intended solutions')
+      for (const rowsForKey of result.issues.duplicateIntendedSolutions) {
+        console.log(`    - ${rowsForKey.map((row) => `${row.id}: ${row.solution}`).join('; ')}`)
+      }
+    }
+
+    if (result.missingIntendedRows.length > 0) {
+      console.log('  requirement issue: intended solutions not found by the shared equation template')
+      for (const row of result.missingIntendedRows) {
+        console.log(`    - ${row.id}: ${row.solution}`)
+      }
+    }
 
     if (result.solutions.length === 0) {
       console.log('  solutions: none found')
     } else {
-      console.log(`  solutions (${result.solutions.length}):`)
+      console.log(
+        `  solutions (${result.solutions.length}; ${result.nonIntendedSolutions.length} non-intended):`,
+      )
 
       for (const solution of result.solutions) {
         const variants = solution.variantCount > 1 ? `    (${solution.variantCount} variants)` : ''
-        console.log(`    - ${solution.equation}    [${formatTileList(solution.tiles)}]${variants}`)
+        const intended = solution.intended
+          ? `intended ${solution.intendedRows.map((row) => row.id).join(', ')}`
+          : 'non-intended'
+        const targets = solution.matchedRows.map((row) => row.id).join(', ')
+        console.log(
+          `    - ${solution.equation}    [${formatTileList(solution.tiles)}]    ${intended}; hits ${targets}${variants}`,
+        )
       }
     }
 
+    console.log(
+      `  requirement: ${result.requirement.passes ? 'pass' : 'FAIL'} ` +
+        `(expected ${result.requirement.expectedMinimum}-${result.requirement.expectedMaximum} total unique, ` +
+        `found ${result.requirement.solutionCount}; ` +
+        `${result.requirement.nonIntendedCount} non-intended)`,
+    )
     console.log('')
   }
 
-  console.log(`Found ${totalSolutions} total solutions across ${results.length} puzzle rows.`)
+  console.log(
+    `Found ${totalSolutions} total unique solutions across ${results.length} puzzle groups; ` +
+      `${failingGroups} groups currently fail the per-puzzle requirement.`,
+  )
+  printTileUsage(intendedTileUsage(rows))
+  printAuthoringAudit(authoringAudit(rows))
 }
 
 function main() {
   const options = parseArgs(process.argv.slice(2))
-  const markdown = readFileSync(options.file, 'utf8')
-  const rows = parsePuzzleRows(markdown)
+  const source = readFileSync(options.file, 'utf8')
+  const rows = loadPuzzleRows(options.file, source)
   const results = filterResults(solveAll(rows), options.rowIds)
 
   if (options.json) {
@@ -1235,7 +2163,7 @@ function main() {
     return
   }
 
-  printText(results)
+  printText(results, rows)
 }
 
 function filterResults(results, rowIds) {
@@ -1243,12 +2171,12 @@ function filterResults(results, rowIds) {
     return results
   }
 
-  const wanted = new Set(rowIds)
+  const wanted = new Set(rowIds.map(normalizePuzzleSelector))
   const filtered = results.filter((result) => wanted.has(result.id.toLowerCase()))
 
-  for (const rowId of wanted) {
-    if (!results.some((result) => result.id.toLowerCase() === rowId)) {
-      throw new Error(`Unknown puzzle row id: ${rowId}`)
+  for (const puzzleId of wanted) {
+    if (!results.some((result) => result.id.toLowerCase() === puzzleId)) {
+      throw new Error(`Unknown puzzle id or row id: ${puzzleId}`)
     }
   }
 

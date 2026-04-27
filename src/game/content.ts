@@ -1,8 +1,14 @@
+import puzzlesData from '../../puzzles.json'
 import type {
+  EquationPart,
+  GoalEdge,
+  GoalShapeKind,
   GraphAxes,
+  Point,
   SectionDefinition,
   SectionVisualDefinition,
   TileDefinition,
+  TileId,
 } from './types'
 
 export const GAME_TITLE = 'Graphbound'
@@ -37,1446 +43,542 @@ const TILE_ROLE_FILLS = {
 } as const
 
 const PENCIL = '#48382a'
+const BLANK = '□'
+const GOAL_RANGE = 0.24
+const TAU = Math.PI * 2
+const SECTION_COLUMNS = 6
+const SECTION_X_SPACING = 760
+const SECTION_Y_SPACING = 620
+
+const RUNTIME_TILE_IDS = [
+  'x',
+  'y',
+  'θ',
+  'π',
+  '2',
+  '5',
+  '0',
+  '+',
+  '-',
+  '/',
+  '^',
+  '=',
+  '(',
+  ')',
+  'sin',
+] as const
+
+export const TILE_DEFINITIONS: Record<TileId, TileDefinition> = {
+  x: { id: 'x', label: 'x', fill: TILE_ROLE_FILLS.variable, text: PENCIL, role: 'variable' },
+  y: { id: 'y', label: 'y', fill: TILE_ROLE_FILLS.variable, text: PENCIL, role: 'variable' },
+  'θ': { id: 'θ', label: 'Θ', fill: TILE_ROLE_FILLS.variable, text: PENCIL, role: 'variable' },
+  'π': { id: 'π', label: 'π', fill: TILE_ROLE_FILLS.number, text: PENCIL, role: 'number' },
+  '2': { id: '2', label: '2', fill: TILE_ROLE_FILLS.number, text: PENCIL, role: 'number' },
+  '5': { id: '5', label: '5', fill: TILE_ROLE_FILLS.number, text: PENCIL, role: 'number' },
+  '0': { id: '0', label: '0', fill: TILE_ROLE_FILLS.number, text: PENCIL, role: 'number' },
+  '+': { id: '+', label: '+', fill: TILE_ROLE_FILLS.operator, text: PENCIL, role: 'operator' },
+  '-': { id: '-', label: '-', fill: TILE_ROLE_FILLS.operator, text: PENCIL, role: 'operator' },
+  '/': { id: '/', label: '/', fill: TILE_ROLE_FILLS.operator, text: PENCIL, role: 'operator' },
+  '^': { id: '^', label: '^', fill: TILE_ROLE_FILLS.operator, text: PENCIL, role: 'operator' },
+  '=': { id: '=', label: '=', fill: TILE_ROLE_FILLS.operator, text: PENCIL, role: 'operator' },
+  '(': { id: '(', label: '(', fill: TILE_ROLE_FILLS.operator, text: PENCIL, role: 'operator' },
+  ')': { id: ')', label: ')', fill: TILE_ROLE_FILLS.operator, text: PENCIL, role: 'operator' },
+  sin: { id: 'sin', label: 'sin', fill: TILE_ROLE_FILLS.operator, text: PENCIL, role: 'operator' },
+}
+
+interface PuzzleJson {
+  rows: PuzzleRowJson[]
+}
+
+interface PuzzleRowJson {
+  id: string
+  name: string
+  equation: string
+  intendedSolution: string
+  unlocksPuzzle?: string
+  unlocksTile?: string
+  axes: GraphAxes
+  target: Point
+}
+
+interface PuzzleGroup {
+  puzzleId: string
+  rows: PuzzleRowJson[]
+}
+
+interface TokenizedEquation {
+  parts: EquationPart[]
+  slots: Array<{ id: string; allowedTiles: TileId[]; label: string }>
+}
+
+function puzzleIdFromRowId(rowId: string): string {
+  const match = rowId.match(/^(\d+)/)
+  return match ? match[1] : rowId.toLowerCase()
+}
+
+function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+}
+
+function puzzleNameFromUnlock(value: string | undefined): string | null {
+  if (!value || ['none', 'victory'].includes(value.trim().toLowerCase())) {
+    return null
+  }
+
+  return value.replace(/^\d+\s+/, '').trim()
+}
+
+function sectionIdForPuzzleName(name: string): string {
+  return slugify(name)
+}
 
 function normalizeCanonicalExpression(expression: string): string {
   return expression.replace(/\s+/g, ' ').trim().toLowerCase()
 }
 
 function assertUniqueGoalSolutions(sections: SectionDefinition[]): void {
-  const seen = new Map<string, { sectionId: string; goalId: string }>()
-
   for (const section of sections) {
+    const seen = new Map<string, string>()
+
     for (const goal of section.goals) {
       if (!goal.canonicalExpression) {
         continue
       }
 
       const normalized = normalizeCanonicalExpression(goal.canonicalExpression)
-      const duplicate = seen.get(normalized)
+      const duplicateGoalId = seen.get(normalized)
 
-      if (duplicate) {
+      if (duplicateGoalId) {
         throw new Error(
-          `Duplicate canonical puzzle solution "${goal.canonicalExpression}" on ${section.id}:${goal.id}; already used by ${duplicate.sectionId}:${duplicate.goalId}`,
+          `Duplicate canonical puzzle solution "${goal.canonicalExpression}" on ${section.id}:${goal.id}; already used by ${section.id}:${duplicateGoalId}`,
         )
       }
 
-      seen.set(normalized, { sectionId: section.id, goalId: goal.id })
+      seen.set(normalized, goal.id)
     }
   }
 }
 
-export const TILE_DEFINITIONS: Record<string, TileDefinition> = {
-  x: { id: 'x', label: 'x', fill: TILE_ROLE_FILLS.variable, text: PENCIL, role: 'variable' },
-  'θ': { id: 'θ', label: 'Θ', fill: TILE_ROLE_FILLS.variable, text: PENCIL, role: 'variable' },
-  '2': { id: '2', label: '2', fill: TILE_ROLE_FILLS.number, text: PENCIL, role: 'number' },
-  '5': { id: '5', label: '5', fill: TILE_ROLE_FILLS.number, text: PENCIL, role: 'number' },
-  '1': { id: '1', label: '1', fill: TILE_ROLE_FILLS.number, text: PENCIL, role: 'number' },
-  '0': { id: '0', label: '0', fill: TILE_ROLE_FILLS.number, text: PENCIL, role: 'number' },
-  '+': { id: '+', label: '+', fill: TILE_ROLE_FILLS.operator, text: PENCIL, role: 'operator' },
-  '-': { id: '-', label: '-', fill: TILE_ROLE_FILLS.operator, text: PENCIL, role: 'operator' },
+function groupRows(rows: PuzzleRowJson[]): PuzzleGroup[] {
+  const groups = new Map<string, PuzzleGroup>()
+
+  for (const row of rows) {
+    const puzzleId = puzzleIdFromRowId(row.id)
+    if (!groups.has(puzzleId)) {
+      groups.set(puzzleId, { puzzleId, rows: [] })
+    }
+    groups.get(puzzleId)?.rows.push(row)
+  }
+
+  return [...groups.values()]
 }
 
-export const SECTIONS: SectionDefinition[] = [
-  {
-    id: 'sprout',
-    title: 'Sprout',
-    blurb: 'Place x to sketch the very first line and wake the next graph.',
-    accent: '#6bb9b2',
-    world: { x: 0, y: 24 },
-    visual: {
-      terrainWidth: 520,
-      terrainHeight: 298,
-      boardX: 30,
-      boardWidth: 320,
-      boardHeight: 258,
-      graphX: 48,
-      graphY: 18,
-      graphWidth: 206,
-      graphHeight: 206,
-      equationY: 230,
-    },
-    rewardTileId: '2',
-    initialUnlocked: true,
-    equation: [{ type: 'slot', slotId: 'seed' }],
-    slots: [{ id: 'seed', allowedTiles: ['x'], label: 'variable' }],
-    goals: [
-      {
-        id: 'path-ridge',
-        label: 'Wake the ridge path',
-        shape: 'heart',
-        edge: 'top',
-        min: 9.5,
-        max: 10,
-        unlocks: ['ridge'],
-        color: '#ef9551',
-        canonicalExpression: 'x',
-      },
-    ],
-  },
-  {
-    id: 'ridge',
-    title: 'Ridge',
-    blurb: 'A fixed + waits here. Add the new number tile to tilt the path upward.',
-    accent: '#eb9b6f',
-    world: { x: 560, y: 12 },
+function isPolarEquation(row: PuzzleRowJson): boolean {
+  return /^\s*r\b/i.test(row.equation) || /^\s*r\b/i.test(row.intendedSolution)
+}
+
+function normalizeFixedToken(value: string): string {
+  if (value.toLowerCase() === 'theta') {
+    return 'θ'
+  }
+
+  if (value.toLowerCase() === 'pi') {
+    return 'π'
+  }
+
+  return value
+}
+
+function tokenizeEquationTemplate(template: string): TokenizedEquation {
+  const parts: EquationPart[] = []
+  const slots: TokenizedEquation['slots'] = []
+  let index = 0
+  let slotIndex = 1
+
+  const pushSlot = () => {
+    const slotId = `slot-${slotIndex}`
+    slotIndex += 1
+    parts.push({ type: 'slot', slotId })
+    slots.push({
+      id: slotId,
+      allowedTiles: [...RUNTIME_TILE_IDS],
+      label: `token ${slotIndex - 1}`,
+    })
+  }
+
+  const pushFixed = (value: string) => {
+    parts.push({ type: 'fixed', value: normalizeFixedToken(value) })
+  }
+
+  while (index < template.length) {
+    const character = template[index]
+
+    if (/\s/.test(character)) {
+      index += 1
+      continue
+    }
+
+    if (character === BLANK) {
+      pushSlot()
+      index += 1
+      continue
+    }
+
+    if (/[A-Za-z]/.test(character)) {
+      let end = index + 1
+      while (end < template.length && /[A-Za-z]/.test(template[end])) {
+        end += 1
+      }
+      pushFixed(template.slice(index, end))
+      index = end
+      continue
+    }
+
+    if (/\d|\./.test(character)) {
+      let end = index + 1
+      while (end < template.length && /[\d.]/.test(template[end])) {
+        end += 1
+      }
+      pushFixed(template.slice(index, end))
+      index = end
+      continue
+    }
+
+    if ('+-*/^=()|<>;'.includes(character)) {
+      pushFixed(character)
+      index += 1
+      continue
+    }
+
+    throw new Error(`Unexpected puzzle template character "${character}" in "${template}"`)
+  }
+
+  return { parts, slots }
+}
+
+function equationPartsForRow(row: PuzzleRowJson): {
+  equation: EquationPart[]
+  displayEquation?: EquationPart[]
+  slots: TokenizedEquation['slots']
+  equationPrefix?: 'y' | 'r'
+} {
+  if (row.equation.replace(/\s+/g, '').replaceAll(BLANK, '') === '') {
+    const tokenized = tokenizeEquationTemplate(row.equation)
+    return {
+      equation: tokenized.parts,
+      displayEquation: tokenized.parts,
+      slots: tokenized.slots,
+    }
+  }
+
+  const prefixMatch = row.equation.match(/^\s*(y|r)\s*=\s*(.*)$/i)
+  if (prefixMatch) {
+    const tokenized = tokenizeEquationTemplate(prefixMatch[2])
+    return {
+      equation: tokenized.parts,
+      slots: tokenized.slots,
+      equationPrefix: prefixMatch[1].toLowerCase() === 'r' ? 'r' : 'y',
+    }
+  }
+
+  const tokenized = tokenizeEquationTemplate(row.equation)
+  return {
+    equation: tokenized.parts,
+    displayEquation: tokenized.parts,
+    slots: tokenized.slots,
+  }
+}
+
+function runtimeTileId(value: string | undefined): TileId | null {
+  const normalized = value?.trim().toLowerCase()
+
+  if (!normalized || ['none', 'victory'].includes(normalized)) {
+    return null
+  }
+
+  const aliases: Record<string, TileId> = {
+    x: 'x',
+    y: 'y',
+    theta: 'θ',
+    θ: 'θ',
+    pi: 'π',
+    π: 'π',
+    '2': '2',
+    '5': '5',
+    '0': '0',
+    '+': '+',
+    '-': '-',
+    '/': '/',
+    '^': '^',
+    '=': '=',
+    equals: '=',
+    'left parenthesis': '(',
+    'right parenthesis': ')',
+    '(': '(',
+    ')': ')',
+    sin: 'sin',
+  }
+
+  const tileId = aliases[normalized]
+  if (!tileId) {
+    throw new Error(`Unknown puzzle tile id "${value}"`)
+  }
+
+  return tileId
+}
+
+function normalizeSolutionText(value: string): string {
+  return value
+    .replace(/\s+/g, '')
+    .replace(/theta/gi, 'θ')
+    .replace(/Θ/g, 'θ')
+    .replace(/pi/gi, 'π')
+}
+
+function solutionEquationBodies(row: PuzzleRowJson): { template: string; solution: string } {
+  const prefixMatch = row.equation.match(/^\s*(y|r)\s*=\s*(.*)$/i)
+
+  if (!prefixMatch) {
+    return {
+      template: row.equation,
+      solution: row.intendedSolution,
+    }
+  }
+
+  const solutionMatch = row.intendedSolution.match(/^\s*(y|r)\s*=\s*(.*)$/i)
+  return {
+    template: prefixMatch[2],
+    solution: solutionMatch ? solutionMatch[2] : row.intendedSolution,
+  }
+}
+
+function normalizedTileLabel(tileId: TileId): string {
+  return normalizeSolutionText(TILE_DEFINITIONS[tileId].label)
+}
+
+function splitSolutionSegmentIntoTiles(segment: string, count: number): TileId[] | null {
+  const candidates = RUNTIME_TILE_IDS
+    .map((tileId) => ({ tileId, label: normalizedTileLabel(tileId) }))
+    .sort((left, right) => right.label.length - left.label.length)
+
+  const search = (offset: number, remaining: number): TileId[] | null => {
+    if (remaining === 0) {
+      return offset === segment.length ? [] : null
+    }
+
+    for (const candidate of candidates) {
+      if (!segment.startsWith(candidate.label, offset)) {
+        continue
+      }
+
+      const tail = search(offset + candidate.label.length, remaining - 1)
+      if (tail) {
+        return [candidate.tileId, ...tail]
+      }
+    }
+
+    return null
+  }
+
+  return search(0, count)
+}
+
+function solutionTilesForRow(row: PuzzleRowJson): TileId[] {
+  const bodies = solutionEquationBodies(row)
+  const template = normalizeSolutionText(bodies.template)
+  const solution = normalizeSolutionText(bodies.solution)
+  const tiles: TileId[] = []
+  let templateIndex = 0
+  let solutionIndex = 0
+
+  while (templateIndex < template.length) {
+    if (template[templateIndex] !== BLANK) {
+      if (solution[solutionIndex] !== template[templateIndex]) {
+        throw new Error(
+          `Intended solution "${row.intendedSolution}" does not match template "${row.equation}" near "${template[templateIndex]}"`,
+        )
+      }
+      templateIndex += 1
+      solutionIndex += 1
+      continue
+    }
+
+    const slotStart = templateIndex
+    while (templateIndex < template.length && template[templateIndex] === BLANK) {
+      templateIndex += 1
+    }
+
+    const slotCount = templateIndex - slotStart
+    const nextSlotIndex = template.indexOf(BLANK, templateIndex)
+    const nextFixed =
+      nextSlotIndex >= 0
+        ? template.slice(templateIndex, nextSlotIndex)
+        : template.slice(templateIndex)
+    const segmentEnd =
+      nextFixed.length === 0 ? solution.length : solution.indexOf(nextFixed, solutionIndex)
+
+    if (segmentEnd < solutionIndex) {
+      throw new Error(
+        `Could not align intended solution "${row.intendedSolution}" with template "${row.equation}"`,
+      )
+    }
+
+    const segment = solution.slice(solutionIndex, segmentEnd)
+    const segmentTiles = splitSolutionSegmentIntoTiles(segment, slotCount)
+    if (!segmentTiles) {
+      throw new Error(
+        `Could not split intended solution segment "${segment}" into ${slotCount} tiles for ${row.id}`,
+      )
+    }
+
+    tiles.push(...segmentTiles)
+    solutionIndex = segmentEnd
+  }
+
+  if (solutionIndex !== solution.length) {
+    throw new Error(
+      `Intended solution "${row.intendedSolution}" has extra text after template "${row.equation}"`,
+    )
+  }
+
+  return tiles
+}
+
+function goalEdgeForTarget(row: PuzzleRowJson): GoalEdge {
+  const distances: Array<{ edge: GoalEdge; distance: number }> = [
+    { edge: 'top', distance: Math.abs(row.target.y - row.axes.y.max) },
+    { edge: 'right', distance: Math.abs(row.target.x - row.axes.x.max) },
+    { edge: 'bottom', distance: Math.abs(row.target.y - row.axes.y.min) },
+    { edge: 'left', distance: Math.abs(row.target.x - row.axes.x.min) },
+  ]
+
+  distances.sort((left, right) => left.distance - right.distance)
+  return distances[0].edge
+}
+
+function goalRangeForEdge(row: PuzzleRowJson, edge: GoalEdge): { min: number; max: number } {
+  const coordinate = edge === 'top' || edge === 'bottom' ? row.target.x : row.target.y
+  const axis = edge === 'top' || edge === 'bottom' ? row.axes.x : row.axes.y
+
+  return {
+    min: Math.max(axis.min, coordinate - GOAL_RANGE),
+    max: Math.min(axis.max, coordinate + GOAL_RANGE),
+  }
+}
+
+function sectionWorld(index: number): Point {
+  const row = Math.floor(index / SECTION_COLUMNS)
+  const column = index % SECTION_COLUMNS
+  const xColumn = row % 2 === 0 ? column : SECTION_COLUMNS - 1 - column
+
+  return {
+    x: xColumn * SECTION_X_SPACING,
+    y: row * SECTION_Y_SPACING,
+  }
+}
+
+function sectionAccent(index: number): string {
+  const accents = ['#6bb9b2', '#eb9b6f', '#9c86d6', '#8db6d9', '#d8a25d', '#cf8b8e']
+  return accents[index % accents.length]
+}
+
+function goalShape(index: number): GoalShapeKind {
+  const shapes: GoalShapeKind[] = [
+    'heart',
+    'triangle',
+    'x',
+    'star',
+    'circle',
+    'diamond',
+    'square',
+    'hexagon',
+    'clover',
+  ]
+  return shapes[index % shapes.length]
+}
+
+function goalColor(index: number): string {
+  const colors = ['#ef9551', '#eb7eb5', '#3f72f0', '#a764f4', '#d8a25d', '#cf8b8e']
+  return colors[index % colors.length]
+}
+
+function visualForGroup(group: PuzzleGroup): SectionVisualDefinition {
+  const representative = group.rows[0]
+  const blankCount = [...representative.equation].filter((character) => character === BLANK).length
+
+  return {
+    terrainWidth: 620,
+    terrainHeight: 390,
+    boardX: 64,
+    boardY: 28,
+    boardWidth: 372,
+    boardHeight: 302,
+    graphX: 46,
+    graphY: 18,
+    graphWidth: 210,
+    graphHeight: 210,
+    equationY: 254,
+    slotSize: blankCount >= 6 ? 34 : 38,
+    tokenGap: blankCount >= 6 ? 7 : 9,
+  }
+}
+
+function buildSection(group: PuzzleGroup, index: number): SectionDefinition {
+  const representative = group.rows[0]
+  const equation = equationPartsForRow(representative)
+  const sectionId = sectionIdForPuzzleName(representative.name)
+  const coordinateMode = isPolarEquation(representative) ? 'polar' : 'cartesian'
+
+  return {
+    id: sectionId,
+    title: representative.name,
+    blurb: `Solve ${representative.name}.`,
+    accent: sectionAccent(index),
+    world: sectionWorld(index),
     axes: {
-      x: { min: 0, max: 10, tickStep: 1 },
-      y: { min: -2, max: 10, tickStep: 1 },
+      x: { ...representative.axes.x, tickStep: 1 },
+      y: { ...representative.axes.y, tickStep: 1 },
     },
-    visual: {
-      terrainWidth: 622,
-      terrainHeight: 320,
-      boardX: 132,
-      boardY: 22,
-      boardWidth: 334,
-      boardHeight: 272,
-      graphX: 44,
-      graphY: 18,
-      graphWidth: 210,
-      graphHeight: 194,
-      equationY: 244,
-    },
-    rewardTileId: '+',
-    equation: [
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: '+' },
-      { type: 'slot', slotId: 'lift' },
-    ],
-    slots: [{ id: 'lift', allowedTiles: ['2', '5'], label: 'number' }],
-    goals: [
-      {
-        id: 'path-orchard',
-        label: 'Open the orchard',
-        shape: 'triangle',
-        edge: 'top',
-        min: 7.6,
-        max: 8.4,
-        unlocks: ['orchard'],
-        color: '#eb7eb5',
-        canonicalExpression: 'x + 2',
-      },
-    ],
-    entryPath: [
-      { x: 180, y: 0 },
-      { x: 180, y: 22 },
-      { x: 176, y: 40 },
-    ],
-  },
-  {
-    id: 'orchard',
-    title: 'Orchard',
-    blurb: 'This board branches. 2x reveals the cove right away, and 5x reaches the canopy later once stronger tiles are in play.',
-    accent: '#9c86d6',
-    world: { x: 1180, y: 0 },
-    axes: {
-      x: { min: 0, max: 10, tickStep: 1 },
-      y: { min: 0, max: 14, tickStep: 1 },
-    },
-    visual: {
-      terrainWidth: 664,
-      terrainHeight: 346,
-      boardX: 110,
-      boardY: 24,
-      boardWidth: 352,
-      boardHeight: 286,
-      graphX: 48,
-      graphY: 18,
-      graphWidth: 222,
-      graphHeight: 208,
-      equationY: 252,
-    },
-    equation: [{ type: 'slot', slotId: 'lead' }, { type: 'slot', slotId: 'tail' }],
-    slots: [
-      { id: 'lead', allowedTiles: ['2', '5', 'x', '+'], label: 'lead token' },
-      { id: 'tail', allowedTiles: ['2', '5', 'x', '+'], label: 'tail token' },
-    ],
-    goals: [
-      {
-        id: 'path-cove',
-        label: 'Open the cove',
-        shape: 'x',
-        edge: 'top',
-        min: 6.8,
-        max: 7.2,
-        unlocks: ['cove'],
-        color: '#3f72f0',
-        canonicalExpression: '2x',
-      },
-      {
-        id: 'path-canopy',
-        label: 'Reach the canopy route',
-        shape: 'star',
-        edge: 'top',
-        min: 2.6,
-        max: 3.0,
-        unlocks: ['canopy'],
-        color: '#a764f4',
-        canonicalExpression: '5x',
-      },
-    ],
-    entryPath: [
-      { x: 178, y: 0 },
-      { x: 178, y: 24 },
-      { x: 174, y: 42 },
-    ],
-  },
-  {
-    id: 'cove',
-    title: 'Cove',
-    blurb: 'The first descending line uses a single blank so the player can feel a graph head downward on purpose.',
-    accent: '#8db6d9',
-    world: { x: 1490, y: 640 },
-    axes: {
-      x: { min: 0, max: 8, tickStep: 1 },
-      y: { min: -8, max: 3, tickStep: 1 },
-    },
-    visual: {
-      terrainWidth: 514,
-      terrainHeight: 364,
-      boardX: 42,
-      boardY: 46,
-      boardWidth: 314,
-      boardHeight: 248,
-      graphX: 34,
-      graphY: 12,
-      graphWidth: 214,
-      graphHeight: 170,
-      equationY: 216,
-    },
-    rewardTileId: '5',
-    equation: [
-      { type: 'slot', slotId: 'lift' },
-      { type: 'fixed', value: '-' },
-      { type: 'fixed', value: 'x' },
-    ],
-    slots: [{ id: 'lift', allowedTiles: ['2'], label: 'descending lead' }],
-    goals: [
-      {
-        id: 'path-basin',
-        label: 'Open the basin path',
-        shape: 'square',
-        edge: 'right',
-        min: -6,
-        max: -6,
-        unlocks: ['basin'],
-        color: '#3f72f0',
-        canonicalExpression: '2 - x',
-      },
-    ],
-    entryPath: [
-      { x: 0, y: 122 },
-      { x: 18, y: 122 },
-      { x: 42, y: 116 },
-    ],
-  },
-  {
-    id: 'basin',
-    title: 'Basin',
-    blurb: 'This branch now has two exits: the gentler fraction and the steeper fraction each pull toward a different target.',
-    accent: '#7ba5bf',
-    world: { x: 2120, y: 700 },
-    axes: {
-      x: { min: 0, max: 10, tickStep: 1 },
-      y: { min: -6, max: 6, tickStep: 1 },
-    },
-    equation: [
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: '-' },
-      { type: 'slot', slotId: 'drop' },
-    ],
-    slots: [{ id: 'drop', allowedTiles: ['5'], label: 'drop amount' }],
-    goals: [
-      {
-        id: 'path-gallery',
-        label: 'Wake the gallery',
-        shape: 'heart',
-        edge: 'right',
-        min: 4.8,
-        max: 5.2,
-        unlocks: ['gallery'],
-        color: '#f19d57',
-        canonicalExpression: 'x - 5',
-      },
-      {
-        id: 'path-basin-low',
-        label: 'Find the lower cove trace',
-        shape: 'circle',
-        edge: 'right',
-        min: 1.15,
-        max: 1.35,
-        unlocks: [],
-        color: '#7daee8',
-        canonicalExpression: '(2x) / (x + 5)',
-      },
-    ],
-  },
-  {
-    id: 'gallery',
-    title: 'Gallery',
-    blurb: 'This first left-side rewrite now has a second low exit, so the same algebraic shell can send you two very different directions.',
-    accent: '#cc8eb4',
-    world: { x: 2610, y: 320 },
-    axes: {
-      x: { min: 0, max: 10, tickStep: 1 },
-      y: { min: -1, max: 6, tickStep: 1 },
-    },
-    equation: [
-      { type: 'fixed', value: '0' },
-      { type: 'fixed', value: '-' },
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: '+' },
-      { type: 'slot', slotId: 'lift' },
-    ],
-    displayEquation: [
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: '+' },
-      { type: 'fixed', value: 'y' },
-      { type: 'fixed', value: '-' },
-      { type: 'slot', slotId: 'lift' },
-      { type: 'fixed', value: '=' },
-      { type: 'fixed', value: '0' },
-    ],
-    slots: [{ id: 'lift', allowedTiles: ['5'], label: 'sum target' }],
-    goals: [
-      {
-        id: 'path-crossroads',
-        label: 'Reveal the center crossroads',
-        shape: 'diamond',
-        edge: 'bottom',
-        min: 6,
-        max: 6,
-        unlocks: ['crossroads'],
-        color: '#e18ea8',
-        canonicalExpression: '0 - x + 5',
-      },
-      {
-        id: 'path-gallery-low',
-        label: 'Find the lower gallery note',
-        shape: 'circle',
-        edge: 'bottom',
-        min: 2.85,
-        max: 3.15,
-        unlocks: [],
-        color: '#ebb47d',
-        canonicalExpression: '0 - x + 2',
-      },
-    ],
-  },
-  {
-    id: 'canopy',
-    title: 'Canopy',
-    blurb: 'A shifted absolute value shows how corners can be lifted into brand-new routes.',
-    accent: '#7eb17d',
-    world: { x: 1180, y: -720 },
-    axes: {
-      x: { min: -2, max: 8, tickStep: 1 },
-      y: { min: -1, max: 7, tickStep: 1 },
-    },
-    visual: {
-      terrainWidth: 528,
-      terrainHeight: 430,
-      boardX: 94,
-      boardY: 24,
-      boardWidth: 262,
-      boardHeight: 344,
-      graphX: 36,
-      graphY: 16,
-      graphWidth: 186,
-      graphHeight: 250,
-      equationY: 304,
-      slotSize: 38,
-    },
-    rewardTileId: '-',
-    equation: [
-      { type: 'fixed', value: '|' },
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: '-' },
-      { type: 'fixed', value: '5' },
-      { type: 'fixed', value: '|' },
-      { type: 'fixed', value: '+' },
-      { type: 'slot', slotId: 'lift' },
-    ],
-    slots: [{ id: 'lift', allowedTiles: ['2'], label: 'lift' }],
-    goals: [
-      {
-        id: 'path-minus',
-        label: 'Win the minus tile',
-        shape: 'x',
-        edge: 'right',
-        min: 4.8,
-        max: 5.2,
-        unlocks: [],
-        color: '#5bc8ff',
-        canonicalExpression: '|x - 5| + 2',
-      },
-    ],
-    entryPath: [
-      { x: 176, y: 0 },
-      { x: 176, y: 22 },
-      { x: 168, y: 40 },
-    ],
-  },
-  {
-    id: 'crossroads',
-    title: 'Crossroads',
-    blurb: 'This full-plane center board plants one target in each quadrant and asks you to keep returning with a better toolkit.',
-    accent: '#8f86c9',
-    world: { x: 1830, y: -40 },
-    axes: {
-      x: { min: -10, max: 10, tickStep: 5 },
-      y: { min: -10, max: 10, tickStep: 5 },
-    },
-    visual: {
-      terrainWidth: 760,
-      terrainHeight: 620,
-      boardX: 82,
-      boardY: 18,
-      boardWidth: 584,
-      boardHeight: 560,
-      graphX: 54,
-      graphY: 16,
-      graphWidth: 420,
-      graphHeight: 420,
-      equationY: 488,
-    },
-    equation: [
-      { type: 'slot', slotId: 'first' },
-      { type: 'slot', slotId: 'second' },
-      { type: 'slot', slotId: 'third' },
-      { type: 'slot', slotId: 'fourth' },
-    ],
-    slots: [
-      { id: 'first', allowedTiles: ['2', '1', '5', '0', 'x', '+', '-'], label: 'first token' },
-      { id: 'second', allowedTiles: ['2', '1', '5', '0', 'x', '+', '-'], label: 'second token' },
-      { id: 'third', allowedTiles: ['2', '1', '5', '0', 'x', '+', '-'], label: 'third token' },
-      { id: 'fourth', allowedTiles: ['2', '1', '5', '0', 'x', '+', '-'], label: 'fourth token' },
-    ],
-    goals: [
-      {
-        id: 'path-eastreach',
-        label: 'Open the northeast branch',
-        shape: 'hexagon',
-        edge: 'top',
-        min: 2.3,
-        max: 2.7,
-        unlocks: ['eastreach'],
-        color: '#e7904e',
-        canonicalExpression: 'x2 + 5',
-      },
-      {
-        id: 'path-arch',
-        label: 'Open the northwest branch',
-        shape: 'triangle',
-        edge: 'top',
-        min: -2.7,
-        max: -2.3,
-        unlocks: ['arch'],
-        color: '#b07cf3',
-        canonicalExpression: '5 - x2',
-      },
-      {
-        id: 'path-southreach',
-        label: 'Open the southwest branch',
-        shape: 'x',
-        edge: 'bottom',
-        min: -2.7,
-        max: -2.3,
-        unlocks: ['southreach'],
-        color: '#58b9ff',
-        canonicalExpression: 'x2 - 5',
-      },
-      {
-        id: 'path-northreach',
-        label: 'Open the southeast branch',
-        shape: 'star',
-        edge: 'bottom',
-        min: 2.2,
-        max: 2.6,
-        unlocks: ['northreach'],
-        color: '#f28eb1',
-        canonicalExpression: '2 - 5x',
-      },
-    ],
-  },
-  {
-    id: 'eastreach',
-    title: 'Eastreach',
-    blurb: 'Superscripts turn the familiar line tile into the world’s first true power curve.',
-    accent: '#d9aa78',
-    world: { x: 2660, y: -30 },
-    axes: {
-      x: { min: 0, max: 1.8, tickStep: 0.3 },
-      y: { min: 0, max: 3, tickStep: 0.5 },
-    },
-    equation: [
-      { type: 'fixed', value: 'x' },
-      { type: 'slot', slotId: 'power', displayStyle: 'superscript' },
-    ],
-    slots: [{ id: 'power', allowedTiles: ['2'], label: 'power' }],
-    goals: [
-      {
-        id: 'path-eastvault',
-        label: 'Open the east vault',
-        shape: 'circle',
-        edge: 'top',
-        min: 1.68,
-        max: 1.74,
-        unlocks: ['eastvault'],
-        color: '#f3a06d',
-        canonicalExpression: 'x^2',
-      },
-    ],
-  },
-  {
-    id: 'eastvault',
-    title: 'East Vault',
-    blurb: 'Another superscript curve plus a lift term rounds out the power notation.',
-    accent: '#e29d78',
-    world: { x: 3010, y: 20 },
-    axes: {
-      x: { min: 0, max: 2.5, tickStep: 0.5 },
-      y: { min: 0, max: 9, tickStep: 1 },
-    },
-    rewardTileId: '1',
-    equation: [
-      { type: 'fixed', value: 'x' },
-      { type: 'slot', slotId: 'power', displayStyle: 'superscript' },
-      { type: 'fixed', value: '+' },
-      { type: 'fixed', value: '5' },
-    ],
-    slots: [{ id: 'power', allowedTiles: ['2'], label: 'power' }],
-    goals: [
-      {
-        id: 'path-splice',
-        label: 'Win the one tile and open the splice',
-        shape: 'star',
-        edge: 'top',
-        min: 1.9,
-        max: 2.1,
-        unlocks: ['splice'],
-        color: '#ef9f6f',
-        canonicalExpression: 'x^2 + 5',
-      },
-    ],
-  },
-  {
-    id: 'splice',
-    title: 'Splice',
-    blurb: 'Piecewise rules arrive as a mirrored roof: one branch handles the left side and one handles the right.',
-    accent: '#da9f79',
-    world: { x: 3640, y: 120 },
-    axes: {
-      x: { min: -4, max: 4, tickStep: 1 },
-      y: { min: -2, max: 3, tickStep: 1 },
-    },
-    visual: {
-      terrainWidth: 720,
-      terrainHeight: 360,
-      boardX: 72,
-      boardY: 24,
-      boardWidth: 520,
-      boardHeight: 292,
-      graphX: 38,
-      graphY: 18,
-      graphWidth: 258,
-      graphHeight: 160,
-      equationY: 234,
-      slotSize: 38,
-      tokenGap: 8,
-    },
-    equation: [
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: '+' },
-      { type: 'slot', slotId: 'lift' },
-      { type: 'fixed', value: 'for' },
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: '<' },
-      { type: 'fixed', value: '0' },
-      { type: 'fixed', value: ';' },
-      { type: 'fixed', value: '2' },
-      { type: 'fixed', value: '-' },
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: 'for' },
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: '>' },
-      { type: 'fixed', value: '0' },
-    ],
-    slots: [{ id: 'lift', allowedTiles: ['2'], label: 'left-branch lift' }],
-    goals: [
-      {
-        id: 'path-weir',
-        label: 'Open the weir',
-        shape: 'square',
-        edge: 'left',
-        min: -1.1,
-        max: -0.9,
-        unlocks: ['weir'],
-        color: '#e8a681',
-        canonicalExpression: 'x + 2 for x < 0 ; 2 - x for x > 0',
-      },
-    ],
-  },
-  {
-    id: 'weir',
-    title: 'Weir',
-    blurb: 'A second split-function board mixes a sharp absolute branch with a softer quadratic branch on the other side.',
-    accent: '#ddaa87',
-    world: { x: 4160, y: 460 },
-    axes: {
-      x: { min: -4, max: 4, tickStep: 1 },
-      y: { min: -1, max: 3, tickStep: 1 },
-    },
-    visual: {
-      terrainWidth: 760,
-      terrainHeight: 360,
-      boardX: 70,
-      boardY: 24,
-      boardWidth: 548,
-      boardHeight: 292,
-      graphX: 42,
-      graphY: 18,
-      graphWidth: 264,
-      graphHeight: 148,
-      equationY: 232,
-      slotSize: 38,
-      tokenGap: 8,
-    },
-    equation: [
-      { type: 'fixed', value: '|' },
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: '|' },
-      { type: 'fixed', value: 'for' },
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: '<' },
-      { type: 'fixed', value: '0' },
-      { type: 'fixed', value: ';' },
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: '2', displayStyle: 'superscript' },
-      { type: 'fixed', value: '/' },
-      { type: 'fixed', value: '5' },
-      { type: 'fixed', value: 'for' },
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: '>' },
-      { type: 'fixed', value: '0' },
-    ],
-    slots: [],
-    goals: [
-      {
-        id: 'path-weir-finish',
-        label: 'Finish the weir',
-        shape: 'clover',
-        edge: 'right',
-        min: 2.95,
-        max: 3.05,
-        unlocks: [],
-        color: '#efb08c',
-        canonicalExpression: '|x| for x < 0 ; x^2 / 5 for x > 0',
-      },
-    ],
-  },
-  {
-    id: 'arch',
-    title: 'Arch',
-    blurb: 'Sine appears as a soft wave, and this board now doubles as a revisit where a later flat ledge can peel off from the same notation.',
-    accent: '#a685d8',
-    world: { x: 1490, y: -730 },
-    axes: {
-      x: { min: 0, max: 1.6, tickStep: 0.2 },
-      y: { min: 5, max: 6.2, tickStep: 0.2 },
-    },
-    equation: [
-      { type: 'fixed', value: 'sin' },
-      { type: 'fixed', value: '(' },
-      { type: 'slot', slotId: 'wave' },
-      { type: 'fixed', value: ')' },
-      { type: 'fixed', value: '+' },
-      { type: 'fixed', value: '5' },
-    ],
-    slots: [{ id: 'wave', allowedTiles: ['x'], label: 'wave input' }],
-    goals: [
-      {
-        id: 'path-mire',
-        label: 'Open the mire',
-        shape: 'clover',
-        edge: 'right',
-        min: 5.95,
-        max: 6.05,
-        unlocks: ['mire'],
-        color: '#9e7bef',
-        canonicalExpression: 'sin(x) + 5',
-      },
-      {
-        id: 'path-arch-flat',
-        label: 'Flatten the arch into a ledge',
-        shape: 'square',
-        edge: 'right',
-        min: 4.95,
-        max: 5.05,
-        unlocks: [],
-        color: '#c8b0f5',
-        canonicalExpression: 'sin(0) + 5',
-      },
-    ],
-  },
-  {
-    id: 'mire',
-    title: 'Mire',
-    blurb: 'A shifted sine curve asks you to read wave phase instead of just height, and later another phase shift opens a second return target.',
-    accent: '#9188d9',
-    world: { x: 760, y: -820 },
-    axes: {
-      x: { min: 0, max: 2.4, tickStep: 0.4 },
-      y: { min: 2, max: 3, tickStep: 0.2 },
-    },
-    equation: [
-      { type: 'fixed', value: 'sin' },
-      { type: 'fixed', value: '(' },
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: '+' },
-      { type: 'slot', slotId: 'shift' },
-      { type: 'fixed', value: ')' },
-      { type: 'fixed', value: '+' },
-      { type: 'fixed', value: '2' },
-    ],
-    displayEquation: [
-      { type: 'fixed', value: 'y' },
-      { type: 'fixed', value: '-' },
-      { type: 'fixed', value: 'sin' },
-      { type: 'fixed', value: '(' },
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: '+' },
-      { type: 'slot', slotId: 'shift' },
-      { type: 'fixed', value: ')' },
-      { type: 'fixed', value: '-' },
-      { type: 'fixed', value: '2' },
-      { type: 'fixed', value: '=' },
-      { type: 'fixed', value: '0' },
-    ],
-    slots: [{ id: 'shift', allowedTiles: ['2'], label: 'shift' }],
-    goals: [
-      {
-        id: 'path-hollow',
-        label: 'Open the hollow',
-        shape: 'x',
-        edge: 'right',
-        min: 2.65,
-        max: 2.8,
-        unlocks: ['hollow'],
-        color: '#a870f3',
-        canonicalExpression: 'sin(x + 2) + 2',
-      },
-      {
-        id: 'path-mire-floor',
-        label: 'Trace the lower mire lip',
-        shape: 'triangle',
-        edge: 'bottom',
-        min: 2.05,
-        max: 2.2,
-        unlocks: [],
-        color: '#c1a1fa',
-        canonicalExpression: 'sin(x + 1) + 2',
-      },
-    ],
-  },
-  {
-    id: 'hollow',
-    title: 'Hollow',
-    blurb: 'Logs feel different immediately: they grow slowly, only exist on one side of the plane, and now support two different late-game bases on the same shell.',
-    accent: '#7f7cc0',
-    world: { x: 240, y: -520 },
-    axes: {
-      x: { min: -1, max: 6, tickStep: 1 },
-      y: { min: -0.2, max: 3, tickStep: 0.5 },
-    },
-    equation: [
-      { type: 'fixed', value: 'log' },
-      { type: 'fixed', value: '2', displayStyle: 'subscript' },
-      { type: 'fixed', value: '(' },
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: '+' },
-      { type: 'slot', slotId: 'shift' },
-      { type: 'fixed', value: ')' },
-    ],
-    slots: [{ id: 'shift', allowedTiles: ['1'], label: 'shift' }],
-    goals: [
-      {
-        id: 'path-ember',
-        label: 'Open the ember branch',
-        shape: 'hexagon',
-        edge: 'right',
-        min: 2.7,
-        max: 2.9,
-        unlocks: ['ember'],
-        color: '#8f86d6',
-        canonicalExpression: 'log_2(x + 1)',
-      },
-      {
-        id: 'path-hollow-soft',
-        label: 'Find the softer hollow rise',
-        shape: 'heart',
-        edge: 'right',
-        min: 1.14,
-        max: 1.28,
-        unlocks: [],
-        color: '#b5a7e5',
-        canonicalExpression: 'log_5(x + 1)',
-      },
-    ],
-  },
-  {
-    id: 'ember',
-    title: 'Ember',
-    blurb: 'Exponential growth starts with a single shift blank so the player can feel just how abruptly the curve wakes up.',
-    accent: '#ca8a72',
-    world: { x: -180, y: -860 },
-    axes: {
-      x: { min: 0, max: 2.2, tickStep: 0.5 },
-      y: { min: 0, max: 2.6, tickStep: 0.5 },
-    },
-    equation: [
-      { type: 'fixed', value: 'e' },
-      { type: 'fixed', value: '^' },
-      { type: 'fixed', value: '(' },
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: '-' },
-      { type: 'slot', slotId: 'shift' },
-      { type: 'fixed', value: ')' },
-    ],
-    slots: [{ id: 'shift', allowedTiles: ['2'], label: 'exponential shift' }],
-    goals: [
-      {
-        id: 'path-glade',
-        label: 'Open the glade',
-        shape: 'circle',
-        edge: 'top',
-        min: 1.85,
-        max: 1.95,
-        unlocks: ['glade'],
-        color: '#c98a75',
-        canonicalExpression: 'e^(x - 2)',
-      },
-    ],
-  },
-  {
-    id: 'glade',
-    title: 'Glade',
-    blurb: 'Natural log is the quiet inverse of Ember: it rises slowly, hugs the axis, and now offers a second higher revisit once stronger constants are available.',
-    accent: '#c4947a',
-    world: { x: -620, y: -1070 },
-    axes: {
-      x: { min: 0.2, max: 4.2, tickStep: 1 },
-      y: { min: -2, max: 2, tickStep: 1 },
-    },
-    equation: [
-      { type: 'fixed', value: 'ln' },
-      { type: 'fixed', value: '(' },
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: '+' },
-      { type: 'slot', slotId: 'shift' },
-      { type: 'fixed', value: ')' },
-    ],
-    slots: [{ id: 'shift', allowedTiles: ['1'], label: 'log shift' }],
-    goals: [
-      {
-        id: 'path-glade-finish',
-        label: 'Finish the glade',
-        shape: 'triangle',
-        edge: 'right',
-        min: 1.6,
-        max: 1.8,
-        unlocks: [],
-        color: '#c39f7d',
-        canonicalExpression: 'ln(x + 1)',
-      },
-      {
-        id: 'path-glade-high',
-        label: 'Lift into the high glade trace',
-        shape: 'circle',
-        edge: 'top',
-        min: 2.28,
-        max: 2.48,
-        unlocks: [],
-        color: '#ddb490',
-        canonicalExpression: 'ln(x + 5)',
-      },
-    ],
-  },
-  {
-    id: 'southreach',
-    title: 'Southreach',
-    blurb: 'The log-base choice now matters twice: one base reaches far right while the other pops upward much earlier.',
-    accent: '#6ea7de',
-    world: { x: 1660, y: 900 },
-    axes: {
-      x: { min: -5, max: 15, tickStep: 5 },
-      y: { min: -0.5, max: 2.5, tickStep: 0.5 },
-    },
-    equation: [
-      { type: 'fixed', value: 'log' },
-      { type: 'slot', slotId: 'base', displayStyle: 'subscript' },
-      { type: 'fixed', value: '(' },
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: '+' },
-      { type: 'fixed', value: '5' },
-      { type: 'fixed', value: ')' },
-    ],
-    slots: [{ id: 'base', allowedTiles: ['2', '5'], label: 'base' }],
-    goals: [
-      {
-        id: 'path-southvault',
-        label: 'Open the south vault',
-        shape: 'heart',
-        edge: 'right',
-        min: 1.75,
-        max: 1.95,
-        unlocks: ['southvault'],
-        color: '#5bb2ff',
-        canonicalExpression: 'log_5(x + 5)',
-      },
-      {
-        id: 'path-southreach-top',
-        label: 'Reach the higher log crest',
-        shape: 'triangle',
-        edge: 'top',
-        min: 0.55,
-        max: 0.75,
-        unlocks: [],
-        color: '#9cd0ff',
-        canonicalExpression: 'log_2(x + 5)',
-      },
-    ],
-  },
-  {
-    id: 'southvault',
-    title: 'South Vault',
-    blurb: 'Mix the absolute-value corner with a fraction to carve out a gentler final branch.',
-    accent: '#63a8dd',
-    world: { x: 720, y: 920 },
-    axes: {
-      x: { min: 0, max: 10, tickStep: 1 },
-      y: { min: 0, max: 3, tickStep: 0.5 },
-    },
-    rewardTileId: '0',
-    equation: [
-      { type: 'fixed', value: '|' },
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: '-' },
-      { type: 'slot', slotId: 'offset' },
-      { type: 'fixed', value: '|' },
-      { type: 'fixed', value: '/' },
-      { type: 'fixed', value: '2' },
-    ],
-    slots: [{ id: 'offset', allowedTiles: ['5'], label: 'offset' }],
-    goals: [
-      {
-        id: 'path-chorus',
-        label: 'Win the zero tile and open the chorus',
-        shape: 'star',
-        edge: 'right',
-        min: 2.45,
-        max: 2.55,
-        unlocks: ['chorus'],
-        color: '#67b4ef',
-        canonicalExpression: '|x - 5| / 2',
-      },
-    ],
-  },
-  {
-    id: 'chorus',
-    title: 'Chorus',
-    blurb: 'Cosine enters as a sibling to sine, and this board now invites a second revisit where the wave settles down onto the floor instead of riding high.',
-    accent: '#6b9fd1',
-    world: { x: 400, y: 1260 },
-    axes: {
-      x: { min: 0, max: 3.2, tickStep: 0.5 },
-      y: { min: 1, max: 3.2, tickStep: 0.5 },
-    },
-    equation: [
-      { type: 'fixed', value: 'cos' },
-      { type: 'fixed', value: '(' },
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: ')' },
-      { type: 'fixed', value: '+' },
-      { type: 'slot', slotId: 'lift' },
-    ],
-    slots: [{ id: 'lift', allowedTiles: ['2'], label: 'wave lift' }],
-    goals: [
-      {
-        id: 'path-echo',
-        label: 'Open the echo',
-        shape: 'clover',
-        edge: 'right',
-        min: 0.95,
-        max: 1.1,
-        unlocks: ['echo'],
-        color: '#76b4f0',
-        canonicalExpression: 'cos(x) + 2',
-      },
-      {
-        id: 'path-chorus-floor',
-        label: 'Touch the quiet chorus floor',
-        shape: 'square',
-        edge: 'bottom',
-        min: 1.48,
-        max: 1.64,
-        unlocks: [],
-        color: '#a3cff8',
-        canonicalExpression: 'cos(x) + 1',
-      },
-    ],
-  },
-  {
-    id: 'echo',
-    title: 'Echo',
-    blurb: 'A second cosine board shifts the whole wave over, and now that phase choice matters twice on the same graph.',
-    accent: '#82b8e2',
-    world: { x: 120, y: 1360 },
-    axes: {
-      x: { min: 0, max: 3.2, tickStep: 0.5 },
-      y: { min: 0, max: 2.2, tickStep: 0.5 },
-    },
-    equation: [
-      { type: 'fixed', value: 'cos' },
-      { type: 'fixed', value: '(' },
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: '+' },
-      { type: 'slot', slotId: 'shift' },
-      { type: 'fixed', value: ')' },
-      { type: 'fixed', value: '+' },
-      { type: 'fixed', value: '1' },
-    ],
-    slots: [{ id: 'shift', allowedTiles: ['1'], label: 'phase shift' }],
-    goals: [
-      {
-        id: 'path-forge',
-        label: 'Open the forge',
-        shape: 'diamond',
-        edge: 'right',
-        min: 0.25,
-        max: 0.4,
-        unlocks: ['forge'],
-        color: '#8ac0eb',
-        canonicalExpression: 'cos(x + 1) + 1',
-      },
-      {
-        id: 'path-echo-high',
-        label: 'Catch the higher echo return',
-        shape: 'heart',
-        edge: 'right',
-        min: 1.4,
-        max: 1.55,
-        unlocks: [],
-        color: '#b1d7f7',
-        canonicalExpression: 'cos(x + 2) + 1',
-      },
-    ],
-  },
-  {
-    id: 'forge',
-    title: 'Forge',
-    blurb: 'Factored form feels different from a plain parabola because different roots now lead to different exits on the same board.',
-    accent: '#9ac3e7',
-    world: { x: -220, y: 1660 },
-    axes: {
-      x: { min: -2, max: 6, tickStep: 1 },
-      y: { min: -6, max: 4, tickStep: 1 },
-    },
-    visual: {
-      terrainWidth: 610,
-      terrainHeight: 360,
-      boardX: 58,
-      boardY: 26,
-      boardWidth: 390,
-      boardHeight: 292,
-      graphX: 38,
-      graphY: 16,
-      graphWidth: 248,
-      graphHeight: 220,
-      equationY: 254,
-    },
-    equation: [
-      { type: 'fixed', value: '(' },
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: '-' },
-      { type: 'slot', slotId: 'left' },
-      { type: 'fixed', value: ')' },
-      { type: 'fixed', value: '(' },
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: '+' },
-      { type: 'slot', slotId: 'right' },
-      { type: 'fixed', value: ')' },
-    ],
-    slots: [
-      { id: 'left', allowedTiles: ['5', '2'], label: 'right root' },
-      { id: 'right', allowedTiles: ['1'], label: 'left root' },
-    ],
-    goals: [
-      {
-        id: 'path-anvil',
-        label: 'Open the anvil',
-        shape: 'triangle',
-        edge: 'right',
-        min: 3.8,
-        max: 4.2,
-        unlocks: ['anvil'],
-        color: '#9dc8ee',
-        canonicalExpression: '(x - 5)(x + 1)',
-      },
-      {
-        id: 'path-forge-mid',
-        label: 'Catch the nearer peak',
-        shape: 'diamond',
-        edge: 'top',
-        min: 2.9,
-        max: 3.1,
-        unlocks: [],
-        color: '#b2daf4',
-        canonicalExpression: '(x - 2)(x + 1)',
-      },
-    ],
-  },
-  {
-    id: 'anvil',
-    title: 'Anvil',
-    blurb: 'A second factored board swaps in earlier number tiles so the player has to read roots as editable design choices, not one-off notation.',
-    accent: '#a7cdef',
-    world: { x: -780, y: 2010 },
-    axes: {
-      x: { min: -6, max: 4, tickStep: 1 },
-      y: { min: -9, max: 4, tickStep: 1 },
-    },
-    visual: {
-      terrainWidth: 640,
-      terrainHeight: 390,
-      boardX: 60,
-      boardY: 24,
-      boardWidth: 408,
-      boardHeight: 320,
-      graphX: 38,
-      graphY: 18,
-      graphWidth: 252,
-      graphHeight: 240,
-      equationY: 276,
-    },
-    equation: [
-      { type: 'fixed', value: '(' },
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: '-' },
-      { type: 'slot', slotId: 'left' },
-      { type: 'fixed', value: ')' },
-      { type: 'fixed', value: '(' },
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: '+' },
-      { type: 'slot', slotId: 'right' },
-      { type: 'fixed', value: ')' },
-    ],
-    slots: [
-      { id: 'left', allowedTiles: ['2'], label: 'right root' },
-      { id: 'right', allowedTiles: ['5'], label: 'left root' },
-    ],
-    goals: [
-      {
-        id: 'path-anvil-finish',
-        label: 'Finish the anvil',
-        shape: 'hexagon',
-        edge: 'left',
-        min: 2.8,
-        max: 3.2,
-        unlocks: [],
-        color: '#afd3f3',
-        canonicalExpression: '(x - 2)(x + 5)',
-      },
-    ],
-  },
-  {
-    id: 'northreach',
-    title: 'Northreach',
-    blurb: 'A mixed power-and-fraction puzzle awards the theta tile for the polar branch.',
-    accent: '#d28e7d',
-    world: { x: 2520, y: -660 },
-    axes: {
-      x: { min: 0, max: 5, tickStep: 1 },
-      y: { min: 0, max: 2.2, tickStep: 0.5 },
-    },
-    rewardTileId: 'θ',
-    equation: [
-      { type: 'fixed', value: '(' },
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: '2', displayStyle: 'superscript' },
-      { type: 'fixed', value: '+' },
-      { type: 'slot', slotId: 'lift' },
-      { type: 'fixed', value: ')' },
-      { type: 'fixed', value: '/' },
-      { type: 'fixed', value: '5' },
-    ],
-    displayEquation: [
-      { type: 'fixed', value: '5' },
-      { type: 'fixed', value: 'y' },
-      { type: 'fixed', value: '-' },
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: '2', displayStyle: 'superscript' },
-      { type: 'fixed', value: '-' },
-      { type: 'slot', slotId: 'lift' },
-      { type: 'fixed', value: '=' },
-      { type: 'fixed', value: '0' },
-    ],
-    slots: [{ id: 'lift', allowedTiles: ['5'], label: 'lift' }],
-    goals: [
-      {
-        id: 'path-loft',
-        label: 'Open the loft',
-        shape: 'circle',
-        edge: 'right',
-        min: 2,
-        max: 2.1,
-        unlocks: ['loft'],
-        color: '#de907c',
-        canonicalExpression: '(x^2 + 5) / 5',
-      },
-    ],
-  },
-  {
-    id: 'loft',
-    title: 'Loft',
-    blurb: 'Polar space starts simply: the radius grows directly with theta.',
-    accent: '#cf9479',
-    world: { x: 2920, y: -760 },
-    coordinateMode: 'polar',
-    equationPrefix: 'r',
-    parameterDomain: { min: 0, max: 3.1416, tickStep: 0.7854 },
-    axes: {
-      x: { min: -3.4, max: 3.4, tickStep: 1 },
-      y: { min: -1, max: 4, tickStep: 1 },
-    },
-    equation: [{ type: 'slot', slotId: 'theta' }],
-    slots: [{ id: 'theta', allowedTiles: ['θ'], label: 'theta input' }],
-    goals: [
-      {
-        id: 'path-weave',
-        label: 'Open the weave',
-        shape: 'x',
-        edge: 'left',
-        min: -0.2,
-        max: 0.2,
-        unlocks: ['weave'],
-        color: '#dd9b77',
-        canonicalExpression: 'θ',
-      },
-    ],
-  },
-  {
-    id: 'weave',
-    title: 'Weave',
-    blurb: 'A second polar spiral shows how theta can scale the whole path, not just place it.',
-    accent: '#d68c6e',
-    world: { x: 3480, y: -520 },
-    coordinateMode: 'polar',
-    equationPrefix: 'r',
-    parameterDomain: { min: 0, max: 1.5708, tickStep: 0.3927 },
-    axes: {
-      x: { min: -1, max: 3.4, tickStep: 1 },
-      y: { min: -0.5, max: 3.3, tickStep: 0.5 },
-    },
-    equation: [
-      { type: 'slot', slotId: 'radius' },
-      { type: 'slot', slotId: 'theta' },
-    ],
-    slots: [
-      { id: 'radius', allowedTiles: ['2'], label: 'radius factor' },
-      { id: 'theta', allowedTiles: ['θ'], label: 'theta input' },
-    ],
-    goals: [
-      {
-        id: 'path-cellar',
-        label: 'Open the cellar',
-        shape: 'heart',
-        edge: 'top',
-        min: -0.2,
-        max: 0.2,
-        unlocks: ['cellar'],
-        color: '#d78c70',
-        canonicalExpression: '2θ',
-      },
-    ],
-  },
-  {
-    id: 'cellar',
-    title: 'Cellar',
-    blurb: 'One last cartesian revisit mixes a squared term inside parentheses and a final division.',
-    accent: '#d58b77',
-    world: { x: 3340, y: 240 },
-    axes: {
-      x: { min: 0, max: 5, tickStep: 1 },
-      y: { min: 0, max: 4.2, tickStep: 0.5 },
-    },
-    equation: [
-      { type: 'fixed', value: '(' },
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: '2', displayStyle: 'superscript' },
-      { type: 'fixed', value: '-' },
-      { type: 'slot', slotId: 'drop' },
-      { type: 'fixed', value: ')' },
-      { type: 'fixed', value: '/' },
-      { type: 'fixed', value: '5' },
-    ],
-    slots: [{ id: 'drop', allowedTiles: ['5'], label: 'drop' }],
-    goals: [
-      {
-        id: 'path-finale',
-        label: 'Open the finale and the petal',
-        shape: 'circle',
-        edge: 'right',
-        min: 3.9,
-        max: 4.1,
-        unlocks: ['finale', 'petal'],
-        color: '#d69280',
-        canonicalExpression: '(x^2 - 5) / 5',
-      },
-    ],
-  },
-  {
-    id: 'petal',
-    title: 'Petal',
-    blurb: 'Advanced polar play starts with a rose-petal arc, using sine inside radius space instead of as a cartesian wave.',
-    accent: '#d59c81',
-    world: { x: 3920, y: -860 },
-    coordinateMode: 'polar',
-    equationPrefix: 'r',
-    parameterDomain: { min: 0, max: 3.1416, tickStep: 0.3927 },
-    axes: {
-      x: { min: -2.4, max: 2.4, tickStep: 1 },
-      y: { min: -0.4, max: 2.4, tickStep: 0.5 },
-    },
-    equation: [
-      { type: 'slot', slotId: 'radius' },
-      { type: 'fixed', value: 'sin' },
-      { type: 'fixed', value: '(' },
-      { type: 'fixed', value: 'θ' },
-      { type: 'fixed', value: ')' },
-    ],
-    slots: [{ id: 'radius', allowedTiles: ['2'], label: 'polar scale' }],
-    goals: [
-      {
-        id: 'path-halo',
-        label: 'Open the halo',
-        shape: 'heart',
-        edge: 'top',
-        min: 0.9,
-        max: 1.1,
-        unlocks: ['halo'],
-        color: '#dfa98a',
-        canonicalExpression: '2sin(θ)',
-      },
-    ],
-  },
-  {
-    id: 'halo',
-    title: 'Halo',
-    blurb: 'The last polar board bends into a cardioid-like loop, which makes the theta arm feel genuinely distinct from the cartesian branches.',
-    accent: '#e1ab90',
-    world: { x: 4420, y: -560 },
-    coordinateMode: 'polar',
-    equationPrefix: 'r',
-    parameterDomain: { min: 0, max: 6.2832, tickStep: 0.7854 },
-    axes: {
-      x: { min: -0.4, max: 2.0, tickStep: 0.5 },
-      y: { min: -1.6, max: 2.0, tickStep: 0.5 },
-    },
-    visual: {
-      terrainWidth: 620,
-      terrainHeight: 290,
-      boardX: 60,
-      boardY: 20,
-      boardWidth: 420,
-      boardHeight: 230,
-      graphX: 112,
-      graphY: 18,
-      graphWidth: 128,
-      graphHeight: 158,
-      equationY: 186,
-      slotSize: 38,
-      tokenGap: 8,
-    },
-    equation: [
-      { type: 'slot', slotId: 'lift' },
-      { type: 'fixed', value: '+' },
-      { type: 'fixed', value: 'cos' },
-      { type: 'fixed', value: '(' },
-      { type: 'fixed', value: 'θ' },
-      { type: 'fixed', value: ')' },
-    ],
-    slots: [{ id: 'lift', allowedTiles: ['1', '2'], label: 'polar lift' }],
-    goals: [
-      {
-        id: 'path-halo-finish',
-        label: 'Finish the halo',
-        shape: 'hexagon',
-        edge: 'right',
-        min: -0.05,
-        max: 0.05,
-        unlocks: [],
-        color: '#e7b396',
-        canonicalExpression: '1 + cos(θ)',
-      },
-      {
-        id: 'path-halo-top',
-        label: 'Reach the upper loop',
-        shape: 'clover',
-        edge: 'top',
-        min: -0.05,
-        max: 0.05,
-        unlocks: [],
-        color: '#f0c4a6',
-        canonicalExpression: '2 + cos(θ)',
-      },
-    ],
-  },
-  {
-    id: 'finale',
-    title: 'Finale',
-    blurb: 'The finale now asks for two different log lifts on the same skeleton, so the endgame feels like choosing a final flavor rather than solving one last slot.',
-    accent: '#c78882',
-    world: { x: 2860, y: 520 },
-    axes: {
-      x: { min: 0, max: 4.6, tickStep: 1 },
-      y: { min: 0, max: 2.0, tickStep: 0.5 },
-    },
-    equation: [
-      { type: 'fixed', value: 'log' },
-      { type: 'fixed', value: '5', displayStyle: 'subscript' },
-      { type: 'fixed', value: '(' },
-      { type: 'fixed', value: 'x' },
-      { type: 'fixed', value: '2', displayStyle: 'superscript' },
-      { type: 'fixed', value: '+' },
-      { type: 'slot', slotId: 'lift' },
-      { type: 'fixed', value: ')' },
-    ],
-    slots: [{ id: 'lift', allowedTiles: ['1', '5'], label: 'lift' }],
-    goals: [
-      {
-        id: 'path-victory',
-        label: 'Finish the whole world',
-        shape: 'star',
-        edge: 'top',
-        min: 4.4,
-        max: 4.55,
-        unlocks: [],
-        color: '#cf8b8e',
-        canonicalExpression: 'log_5(x^2 + 5)',
-      },
-      {
-        id: 'path-finale-right',
-        label: 'Find the quieter final curve',
-        shape: 'circle',
-        edge: 'right',
-        min: 1.88,
-        max: 1.96,
-        unlocks: [],
-        color: '#d6a3a6',
-        canonicalExpression: 'log_5(x^2 + 1)',
-      },
-    ],
-  },
-]
+    coordinateMode,
+    parameterDomain:
+      coordinateMode === 'polar' ? { min: 0, max: TAU, tickStep: Math.PI / 4 } : undefined,
+    equationPrefix: equation.equationPrefix,
+    visual: visualForGroup(group),
+    initialUnlocked: index === 0,
+    equation: equation.equation,
+    displayEquation: equation.displayEquation,
+    slots: equation.slots,
+    goals: group.rows.map((row, goalIndex) => {
+      const edge = goalEdgeForTarget(row)
+      const range = goalRangeForEdge(row, edge)
+      const unlockName = puzzleNameFromUnlock(row.unlocksPuzzle)
+      const rewardTileId = runtimeTileId(row.unlocksTile)
+
+      return {
+        id: `goal-${row.id}`,
+        label: row.intendedSolution,
+        shape: goalShape(index + goalIndex),
+        edge,
+        min: range.min,
+        max: range.max,
+        target: { ...row.target },
+        unlocks: unlockName ? [sectionIdForPuzzleName(unlockName)] : [],
+        rewardTileId: rewardTileId ?? undefined,
+        solutionTiles: solutionTilesForRow(row),
+        color: goalColor(index + goalIndex),
+        canonicalExpression: row.intendedSolution,
+      }
+    }),
+  }
+}
+
+function buildSectionsFromPuzzleData(data: PuzzleJson): SectionDefinition[] {
+  return groupRows(data.rows).map(buildSection)
+}
+
+export const SECTIONS: SectionDefinition[] = buildSectionsFromPuzzleData(puzzlesData as PuzzleJson)
 
 assertUniqueGoalSolutions(SECTIONS)
