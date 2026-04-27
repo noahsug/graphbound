@@ -619,37 +619,66 @@ function targetPolar(target) {
 }
 
 function matchesExplicitY(parsed, target) {
-  const theta = target.x
-  const y = parsed.rightFn(target.x, target.y, Math.hypot(target.x, target.y), theta)
+  const sampleSteps = 40
+  let previousPoint = null
 
-  return finiteValue(y) && Math.abs(y - target.y) <= TOLERANCE
+  for (let index = 0; index <= sampleSteps; index += 1) {
+    const x = target.x - TOLERANCE + (2 * TOLERANCE * index) / sampleSteps
+    const y = parsed.rightFn(x, target.y, Math.hypot(x, target.y), x)
+
+    if (!finiteValue(y)) {
+      previousPoint = null
+      continue
+    }
+
+    const point = { x, y }
+
+    if (distance(point, target) <= TOLERANCE) {
+      return true
+    }
+
+    if (previousPoint && distanceToSegment(target, previousPoint, point) <= TOLERANCE) {
+      return true
+    }
+
+    previousPoint = point
+  }
+
+  return false
 }
 
 function matchesExplicitR(parsed, target) {
   const polar = targetPolar(target)
-  const candidateAngles = [polar.theta]
+  const thetaSpread = polar.r > 0 ? Math.asin(Math.min(1, TOLERANCE / polar.r)) + 0.08 : Math.PI
+  const sampleSteps = 48
+  let previousPoint = null
 
-  if (polar.theta > 0) {
-    candidateAngles.push(polar.theta - Math.PI * 2)
-  } else {
-    candidateAngles.push(polar.theta + Math.PI * 2)
-  }
-
-  return candidateAngles.some((theta) => {
+  for (let index = 0; index <= sampleSteps; index += 1) {
+    const theta = polar.theta - thetaSpread + (2 * thetaSpread * index) / sampleSteps
     const radius = parsed.rightFn(theta, 0, polar.r, theta)
 
     if (!finiteValue(radius)) {
-      return false
+      previousPoint = null
+      continue
     }
 
-    return distance(
-      {
-        x: radius * Math.cos(theta),
-        y: radius * Math.sin(theta),
-      },
-      target,
-    ) <= TOLERANCE
-  })
+    const point = {
+      x: radius * Math.cos(theta),
+      y: radius * Math.sin(theta),
+    }
+
+    if (distance(point, target) <= TOLERANCE) {
+      return true
+    }
+
+    if (previousPoint && distanceToSegment(target, previousPoint, point) <= TOLERANCE) {
+      return true
+    }
+
+    previousPoint = point
+  }
+
+  return false
 }
 
 function relationValue(parsed, x, y, r, theta) {

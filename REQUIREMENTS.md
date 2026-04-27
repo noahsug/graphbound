@@ -39,8 +39,8 @@ These requirements should be testable with numbers, fixed pass/fail checks, or d
 ### Target Shapes
 
 - [ ] Target shape graph-space coordinates are rounded to the nearest `0.5`.
-- [ ] Target shapes sit on the edge of the graph bounds.
-- [ ] Cartesian target shapes have `x` equal to the x-axis min or max, or `y` equal to the y-axis min or max.
+- [ ] Target shape centers are within `0.5` graph units of the graph bounds edge.
+- [ ] Cartesian target shapes have `x` within `0.5` of the x-axis min or max, or `y` within `0.5` of the y-axis min or max; for example, a target at `5.5` is valid on an axis ending at `6`.
 - [ ] Polar target shape coordinates are rounded cartesian points where the polar curve hits the graph edge.
 - [ ] A solution counts only if the plotted curve comes within `0.5` graph units of the target center.
 - [ ] When a whole-number placement is easy to author, target shapes use whole-number coordinates.
