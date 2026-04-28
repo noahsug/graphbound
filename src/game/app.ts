@@ -2660,16 +2660,6 @@ class GraphboundApp {
     return this.hoveredGoalKey ?? this.pinnedGoalKey
   }
 
-  private inspectedGoalForSection(sectionId: string): GoalDefinition | null {
-    const key = this.inspectedGoalKey()
-    if (!key || !key.startsWith(`${sectionId}:`)) {
-      return null
-    }
-
-    const goalId = key.slice(sectionId.length + 1)
-    return this.sectionById.get(sectionId)?.goals.find((goal) => goal.id === goalId) ?? null
-  }
-
   private placementExpression(sectionId: string): string {
     const section = this.sectionById.get(sectionId)
     const runtime = this.sectionRuntimes.get(sectionId)
@@ -2860,11 +2850,15 @@ class GraphboundApp {
   private drawGoalAxisGuides(
     sectionId: string,
     goal: GoalDefinition,
-    xAxisY: number,
-    yAxisX: number,
-    scale: number,
   ): void {
-    void scale
+    const graph = this.graphRect(sectionId)
+    const axes = this.sectionAxes(sectionId)
+    const xAxisY =
+      axes.y.min <= 0 && axes.y.max >= 0
+        ? this.graphValueToScreenY(sectionId, 0)
+        : graph.y + graph.height
+    const yAxisX =
+      axes.x.min <= 0 && axes.x.max >= 0 ? this.graphValueToScreenX(sectionId, 0) : graph.x
     const point = this.goalTargetPoint(sectionId, goal)
     const color = this.goalColor(sectionId, goal)
     const labelColor = mixColors(color, INK, 0.22, 0.96)
@@ -2901,16 +2895,87 @@ class GraphboundApp {
       }),
     )
 
-    this.context.save()
-    this.context.fillStyle = labelColor
-    this.context.font = `${Math.round(GOAL_GUIDE_LABEL_SIZE * this.layout.worldScale)}px 'Short Stack', cursive`
-    this.context.textBaseline = 'top'
-    this.context.textAlign = 'center'
-    this.context.fillText(xLabel, x, xAxisY + majorTick * 0.7)
-    this.context.textBaseline = 'middle'
-    this.context.textAlign = 'right'
-    this.context.fillText(yLabel, yAxisX - minorTick * 0.9, y)
-    this.context.restore()
+    this.drawGuideLabel(xLabel, x, xAxisY + majorTick * 0.7, 'center', 'top', labelColor)
+    this.drawGuideLabel(yLabel, yAxisX - minorTick * 0.9, y, 'right', 'middle', labelColor)
+  }
+
+  private drawGuideLabel(
+    text: string,
+    x: number,
+    y: number,
+    align: CanvasTextAlign,
+    baseline: CanvasTextBaseline,
+    color: string,
+  ): void {
+    const context = this.context
+    const fontSize = Math.round(GOAL_GUIDE_LABEL_SIZE * this.layout.worldScale)
+    const paddingX = Math.max(5, 5 * this.layout.worldScale)
+    const paddingY = Math.max(3, 3 * this.layout.worldScale)
+
+    context.save()
+    context.font = `${fontSize}px 'Short Stack', cursive`
+    context.textAlign = align
+    context.textBaseline = baseline
+
+    const metrics = context.measureText(text)
+    const ascent = metrics.actualBoundingBoxAscent || fontSize * 0.75
+    const descent = metrics.actualBoundingBoxDescent || fontSize * 0.25
+    const width = metrics.width
+    let left = x
+    if (align === 'center') {
+      left -= width / 2
+    } else if (align === 'right' || align === 'end') {
+      left -= width
+    }
+
+    let top = y
+    if (baseline === 'middle') {
+      top -= (ascent + descent) / 2
+    } else if (baseline === 'bottom' || baseline === 'alphabetic') {
+      top -= ascent
+    }
+
+    const rect = {
+      x: left - paddingX,
+      y: top - paddingY,
+      width: width + paddingX * 2,
+      height: ascent + descent + paddingY * 2,
+    }
+
+    context.shadowColor = 'rgba(70, 55, 36, 0.22)'
+    context.shadowBlur = 12
+    context.shadowOffsetY = 3
+    roundRectPath(context, rect, Math.max(5, rect.height * 0.28))
+    context.fillStyle = 'rgba(255, 253, 247, 0.96)'
+    context.fill()
+    context.shadowColor = 'transparent'
+    context.strokeStyle = mixColors(color, '#ffffff', 0.08, 0.95)
+    context.lineWidth = Math.max(1, 1.25 * this.layout.worldScale)
+    context.stroke()
+    context.fillStyle = color
+    context.fillText(text, x, y)
+    context.restore()
+  }
+
+  private drawInspectedGoalOverlay(): void {
+    const key = this.inspectedGoalKey()
+    if (!key) {
+      return
+    }
+
+    const separatorIndex = key.indexOf(':')
+    if (separatorIndex < 0) {
+      return
+    }
+
+    const sectionId = key.slice(0, separatorIndex)
+    const goalId = key.slice(separatorIndex + 1)
+    const goal = this.sectionById.get(sectionId)?.goals.find((candidate) => candidate.id === goalId)
+    if (!goal) {
+      return
+    }
+
+    this.drawGoalAxisGuides(sectionId, goal)
   }
 
   private goalRoutePoints(sectionId: string, goal: GoalDefinition): Point[] {
@@ -3731,6 +3796,14 @@ class GraphboundApp {
 
     this.cameraTween = null
     const clickedConnectorTargetId = this.connectorTargetAtPoint(point)
+    const startedSectionId = this.sectionAtPoint(point) ?? clickedConnectorTargetId
+    const clearedPinnedGoal = Boolean(this.pinnedGoalKey && !startedSectionId)
+
+    if (clearedPinnedGoal) {
+      this.pinnedGoalKey = null
+      this.hoveredGoalKey = null
+    }
+
     this.drag = {
       kind: 'pan',
       pointerId: event.pointerId,
@@ -3738,9 +3811,12 @@ class GraphboundApp {
       start: point,
       cameraStart: { ...this.camera },
       dragging: false,
-      startedSectionId: this.sectionAtPoint(point) ?? clickedConnectorTargetId,
+      startedSectionId,
     }
     this.canvas.setPointerCapture(event.pointerId)
+    if (clearedPinnedGoal) {
+      this.render()
+    }
   }
 
   private handlePointerMove = (event: PointerEvent): void => {
@@ -5464,11 +5540,6 @@ class GraphboundApp {
       )
     }
 
-    const inspectedGoal = this.inspectedGoalForSection(sectionId)
-    if (inspectedGoal) {
-      this.drawGoalAxisGuides(sectionId, inspectedGoal, xAxisY, yAxisX, scale)
-    }
-
     if (runtime.plotResult && runtime.plotResult.points.length > 1) {
       const progress = runtime.animating ? runtime.plotProgress : 1
       const plotSegments =
@@ -5655,6 +5726,7 @@ class GraphboundApp {
     orderedSections.forEach((section) => this.drawSection(section.id))
     this.drawWorldLinksOverlay()
     this.drawTray()
+    this.drawInspectedGoalOverlay()
   }
 
   private renderGameToText(): string {
