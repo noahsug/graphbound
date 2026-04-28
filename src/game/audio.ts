@@ -59,6 +59,7 @@ export class AudioManager {
   private masterGain: GainNode | null = null
   private sfxGain: GainNode | null = null
   private musicGain: GainNode | null = null
+  private musicDuckGain: GainNode | null = null
   private readonly preferences = loadPreferences()
   private readonly root: HTMLDivElement
   private readonly panel: HTMLDivElement
@@ -66,6 +67,8 @@ export class AudioManager {
   private readonly musicSlider: HTMLInputElement
   private readonly sfxSlider: HTMLInputElement
   private placeVariant = 0
+  private musicStep = 0
+  private musicTimeout: number | null = null
 
   constructor() {
     this.root = document.createElement('div')
@@ -93,6 +96,7 @@ export class AudioManager {
       this.preferences.muted = !this.preferences.muted
       this.applyPreferences()
       this.syncControls()
+      this.ensureMusicStarted()
     })
 
     this.musicSlider.addEventListener('input', () => {
@@ -100,6 +104,7 @@ export class AudioManager {
       this.preferences.musicVolume = clamp(Number(this.musicSlider.value), 0, 1)
       this.applyPreferences()
       savePreferences(this.preferences)
+      this.ensureMusicStarted()
     })
 
     this.sfxSlider.addEventListener('input', () => {
@@ -132,6 +137,7 @@ export class AudioManager {
     if (context.state === 'suspended') {
       await context.resume()
     }
+    this.ensureMusicStarted()
   }
 
   play(name: SfxName): void {
@@ -141,6 +147,9 @@ export class AudioManager {
 
     const context = this.audioContext()
     const now = context.currentTime
+    if (['target-hit', 'tile-unlock', 'puzzle-unlock', 'graph-complete'].includes(name)) {
+      this.duckMusic(name === 'target-hit' ? 520 : 980)
+    }
 
     if (name === 'tile-place') {
       this.playTilePlace(now)
@@ -182,8 +191,10 @@ export class AudioManager {
       this.masterGain = this.context.createGain()
       this.sfxGain = this.context.createGain()
       this.musicGain = this.context.createGain()
+      this.musicDuckGain = this.context.createGain()
       this.sfxGain.connect(this.masterGain)
-      this.musicGain.connect(this.masterGain)
+      this.musicGain.connect(this.musicDuckGain)
+      this.musicDuckGain.connect(this.masterGain)
       this.masterGain.connect(this.context.destination)
       this.applyPreferences()
     }
@@ -231,6 +242,82 @@ export class AudioManager {
     if (this.musicGain) {
       this.musicGain.gain.value = this.preferences.musicVolume
     }
+    if (this.musicDuckGain) {
+      this.musicDuckGain.gain.value = 1
+    }
+  }
+
+  private ensureMusicStarted(): void {
+    if (
+      !this.context ||
+      this.context.state !== 'running' ||
+      this.preferences.muted ||
+      this.preferences.musicVolume <= 0 ||
+      this.musicTimeout !== null
+    ) {
+      return
+    }
+
+    this.scheduleMusicTick(80)
+  }
+
+  private scheduleMusicTick(delayMs: number): void {
+    this.musicTimeout = window.setTimeout(() => {
+      this.musicTimeout = null
+      this.playMusicStep()
+      this.ensureMusicStarted()
+    }, delayMs)
+  }
+
+  private playMusicStep(): void {
+    if (!this.context || !this.musicGain || this.preferences.muted || this.preferences.musicVolume <= 0) {
+      return
+    }
+
+    const context = this.context
+    const step = this.musicStep % 80
+    const now = context.currentTime
+    const roots = [261.63, 293.66, 329.63, 392, 349.23]
+    const root = roots[Math.floor(step / 16) % roots.length]
+    const melody: Array<number | null> = [
+      0, null, 7, null, 4, null, null, null,
+      2, null, 4, null, 9, null, null, null,
+      7, null, 4, null, 2, null, null, null,
+      0, null, null, null, 7, null, null, null,
+    ]
+    const intervals = [1, 9 / 8, 5 / 4, 4 / 3, 3 / 2, 5 / 3, 15 / 8, 2]
+
+    if (step % 8 === 0) {
+      this.playMusicTone(now, root / 2, 4.4, 0.045, 'sine')
+      this.playMusicTone(now + 0.04, root, 3.5, 0.026, 'triangle')
+      this.playMusicTone(now + 0.08, root * 1.5, 3.1, 0.019, 'sine')
+    }
+
+    const melodyIndex = step % melody.length
+    const note = melody[melodyIndex]
+    if (note !== null && step % 2 === 0) {
+      const frequency = root * intervals[note % intervals.length]
+      this.playMusicTone(now + 0.02, frequency, 1.8, 0.034, 'triangle')
+      this.playMusicTone(now + 0.025, frequency * 2, 1.2, 0.01, 'sine')
+    }
+
+    if (step % 16 === 12) {
+      this.playMusicTone(now, root * 2, 0.62, 0.018, 'sine')
+    }
+
+    this.musicStep = (this.musicStep + 1) % 80
+  }
+
+  private duckMusic(durationMs: number): void {
+    if (!this.context || !this.musicDuckGain) {
+      return
+    }
+
+    const now = this.context.currentTime
+    const recoverAt = now + durationMs / 1000
+    this.musicDuckGain.gain.cancelScheduledValues(now)
+    this.musicDuckGain.gain.setTargetAtTime(0.42, now, 0.03)
+    this.musicDuckGain.gain.setTargetAtTime(1, recoverAt, 0.42)
   }
 
   private playTilePlace(startTime: number, pitchScale = 1): void {
@@ -270,6 +357,33 @@ export class AudioManager {
     this.playTone(startTime, 329.63, 0.16, 0.08, 'triangle')
     this.playTone(startTime + 0.09, 392, 0.2, 0.08, 'triangle')
     this.playTone(startTime + 0.2, 523.25, 0.24, 0.075, 'sine')
+  }
+
+  private playMusicTone(
+    startTime: number,
+    frequency: number,
+    duration: number,
+    volume: number,
+    type: OscillatorType,
+  ): void {
+    const context = this.audioContext()
+    const oscillator = context.createOscillator()
+    const gain = context.createGain()
+    const filter = context.createBiquadFilter()
+
+    oscillator.type = type
+    oscillator.frequency.setValueAtTime(frequency, startTime)
+    filter.type = 'lowpass'
+    filter.frequency.setValueAtTime(1700, startTime)
+    gain.gain.setValueAtTime(0.0001, startTime)
+    gain.gain.exponentialRampToValueAtTime(volume, startTime + 0.08)
+    gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration)
+
+    oscillator.connect(filter)
+    filter.connect(gain)
+    gain.connect(this.musicGain!)
+    oscillator.start(startTime)
+    oscillator.stop(startTime + duration + 0.08)
   }
 
   private playTone(
