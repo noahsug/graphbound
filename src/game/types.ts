@@ -154,6 +154,8 @@ export interface SectionRuntime {
   fuseCameraToScale: number | null
   animating: boolean
   animatingGoalId: string | null
+  targetHitSoundPlayed: boolean
+  unlockRouteSoundPlayed: boolean
   statusMessage: string
   pendingGoalIds: string[]
   solvedGoalIds: string[]

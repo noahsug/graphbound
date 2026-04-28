@@ -1,5 +1,6 @@
 import rough from 'roughjs'
 
+import { AudioManager } from './audio'
 import {
   DEFAULT_AXES,
   DEFAULT_SECTION_VISUAL,
@@ -646,6 +647,7 @@ class GraphboundApp {
   private readonly completedSections = new Set<string>()
   private readonly unlockedSections = new Set<string>()
   private readonly unlockedTiles = new Set<TileId>(['x'])
+  private readonly audio = new AudioManager()
   private readonly sectionRevealProgress = new Map<string, number>()
   private readonly connectorRouteWorldCache = new Map<string, Point[]>()
   private readonly activeTouchPoints = new Map<number, Point>()
@@ -718,6 +720,8 @@ class GraphboundApp {
         fuseCameraToScale: null,
         animating: false,
         animatingGoalId: null,
+        targetHitSoundPlayed: false,
+        unlockRouteSoundPlayed: false,
         statusMessage: section.blurb,
         pendingGoalIds: [],
         solvedGoalIds: [],
@@ -794,6 +798,8 @@ class GraphboundApp {
     runtime.fuseCameraToScale = null
     runtime.animating = false
     runtime.animatingGoalId = null
+    runtime.targetHitSoundPlayed = false
+    runtime.unlockRouteSoundPlayed = false
     runtime.statusMessage = section.blurb
     runtime.pendingGoalIds = []
     runtime.solvedGoalIds = []
@@ -3345,6 +3351,8 @@ class GraphboundApp {
     runtime.fuseCameraTo = null
     runtime.fuseCameraFromScale = null
     runtime.fuseCameraToScale = null
+    runtime.targetHitSoundPlayed = false
+    runtime.unlockRouteSoundPlayed = false
 
     if (!result) {
       runtime.plotProgress = 0
@@ -3423,6 +3431,7 @@ class GraphboundApp {
 
       this.unlockedTiles.add(goal.rewardTileId)
       newlyUnlockedTiles.push(goal.rewardTileId)
+      this.audio.play('tile-unlock')
     }
 
     runtime.solvedGoalIds = section.goals
@@ -3443,7 +3452,11 @@ class GraphboundApp {
       this.completedSections.add(sectionId)
 
       if (section.rewardTileId) {
+        const newlyUnlockedRewardTile = !this.unlockedTiles.has(section.rewardTileId)
         this.unlockedTiles.add(section.rewardTileId)
+        if (newlyUnlockedRewardTile) {
+          this.audio.play('tile-unlock')
+        }
         runtime.statusMessage = `tile-${section.rewardTileId}-unlocked`
       } else if (newlyUnlockedTiles.length > 0) {
         runtime.statusMessage = `tile-${newlyUnlockedTiles.at(-1)}-unlocked`
@@ -3452,6 +3465,7 @@ class GraphboundApp {
       } else {
         runtime.statusMessage = `${sectionId}-completed`
       }
+      this.audio.play('graph-complete')
     } else if (newlyUnlockedTiles.length > 0) {
       runtime.statusMessage = `tile-${newlyUnlockedTiles.at(-1)}-unlocked`
     } else if (newlyUnlockedSections.length > 0) {
@@ -3508,11 +3522,15 @@ class GraphboundApp {
     const slot = this.activeSection.slots.find((candidate) => candidate.id === slotId)
     const existingSlotId = this.slotIdUsingTile(this.activeSectionId, tileId)
     const ignoredSlotIds = existingSlotId ? [existingSlotId] : []
+    const replacingDifferentTile =
+      this.activeRuntime.placements[slotId] !== null &&
+      this.activeRuntime.placements[slotId] !== tileId
 
     if (
       !slot ||
       !this.tileAllowedInSlot(this.activeSectionId, slotId, tileId, ignoredSlotIds)
     ) {
+      this.audio.play('tile-invalid')
       return
     }
 
@@ -3523,6 +3541,7 @@ class GraphboundApp {
     this.activeRuntime.placements[slotId] = tileId
     this.selectedTileId = null
     this.focusTilesOnSection(this.activeSectionId)
+    this.audio.play(replacingDifferentTile ? 'tile-replace' : 'tile-place')
     this.updateSectionPlot(this.activeSectionId, animated)
     this.render()
   }
@@ -3667,6 +3686,10 @@ class GraphboundApp {
       }
 
       if (runtime.animatingGoalId && runtime.targetFillProgress < 1) {
+        if (!runtime.targetHitSoundPlayed) {
+          this.audio.play('target-hit')
+          runtime.targetHitSoundPlayed = true
+        }
         runtime.targetFillProgress = clamp(
           runtime.targetFillProgress + deltaMs / TARGET_FILL_DURATION_MS,
           0,
@@ -3685,6 +3708,11 @@ class GraphboundApp {
         const route = goal ? this.goalConnectionPoints(section.id, goal) : []
         const durationMs =
           route.length > 1 ? this.connectorDurationMs(section.id, route) : FUSE_DURATION_MS
+
+        if (!runtime.unlockRouteSoundPlayed && goal?.unlocks.length) {
+          this.audio.play('puzzle-unlock')
+          runtime.unlockRouteSoundPlayed = true
+        }
 
         if (runtime.fuseProgress < 1) {
           runtime.fuseProgress = clamp(runtime.fuseProgress + deltaMs / durationMs, 0, 1)
@@ -3746,6 +3774,7 @@ class GraphboundApp {
   }
 
   private handlePointerDown = (event: PointerEvent): void => {
+    void this.audio.unlock()
     const point = this.getPointerPoint(event)
 
     if (event.pointerType === 'touch') {
@@ -4006,6 +4035,7 @@ class GraphboundApp {
   }
 
   private handleWheel = (event: WheelEvent): void => {
+    void this.audio.unlock()
     const delta = this.normalizedWheelDelta(event)
     if (Math.abs(delta.x) < 0.01 && Math.abs(delta.y) < 0.01) {
       return
@@ -4029,6 +4059,7 @@ class GraphboundApp {
   }
 
   private handleKeyDown = (event: KeyboardEvent): void => {
+    void this.audio.unlock()
     const key = event.key.toLowerCase()
 
     if (key === 'f') {

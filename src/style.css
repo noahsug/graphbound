@@ -74,6 +74,62 @@ body {
   cursor: default;
 }
 
+.audio-settings {
+  position: fixed;
+  right: 16px;
+  top: 14px;
+  z-index: 4;
+  font-family: 'Short Stack', cursive;
+  color: #2d2620;
+}
+
+.audio-settings__button {
+  appearance: none;
+  border: 1.5px dashed rgba(45, 38, 32, 0.55);
+  border-radius: 6px;
+  background: rgba(255, 250, 239, 0.76);
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  padding: 7px 8px;
+  box-shadow: 0 5px 16px rgba(75, 60, 44, 0.1);
+}
+
+.audio-settings__button[aria-pressed='true'] {
+  opacity: 0.68;
+}
+
+.audio-settings__panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  width: 176px;
+  padding: 10px 12px 12px;
+  border: 1.5px dashed rgba(45, 38, 32, 0.46);
+  border-radius: 8px;
+  background: rgba(255, 250, 239, 0.94);
+  box-shadow: 0 10px 28px rgba(75, 60, 44, 0.12);
+}
+
+.audio-settings__title {
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+
+.audio-settings__slider {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+  font-size: 11px;
+}
+
+.audio-settings__slider input {
+  width: 100%;
+  accent-color: #c79d45;
+}
+
 @keyframes loading-spin {
   from {
     transform: rotate(0deg);
