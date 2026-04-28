@@ -48,7 +48,7 @@ const GOAL_RANGE = 0.24
 const TAU = Math.PI * 2
 const SECTION_COLUMNS = 6
 const SECTION_X_SPACING = 760
-const SECTION_Y_SPACING = 620
+const SECTION_Y_SPACING = 780
 
 const RUNTIME_TILE_IDS = [
   'x',

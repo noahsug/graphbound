@@ -63,6 +63,7 @@ These requirements should be testable with numbers, fixed pass/fail checks, or d
 - [ ] Each unlockable tile must be used in at least `3` intended solutions across the game. A tile counts as used only when it fills an empty tile slot in the intended solution; fixed equation text does not count.
 - [ ] If `N` is the total number of counted tokens in a puzzle equation, the number of empty tile slots must be at least `N / 3`. Count empty tile slots and fixed values as tokens, but do not count fixed `=`, `y`, `r`, parentheses, absolute-value bars, or `^`. Functions such as `sin` count as one fixed value.
 - [ ] `y` and `=` are unlockable tiles. The `y` tile can be placed in cartesian puzzle templates even when they already include a fixed `y`; equations such as `y = y + x` are valid implicit equations. The `=` tile can only be placed in puzzle templates that do not already include a fixed `=`.
+- [ ] If an equation uses `y` as a placed or non-output variable, it must also use `x`; if an equation uses `r` as a placed or non-output variable, it must also use `theta`. The leading output variable in forms such as `y = ...`, `2y = ...`, `r = ...`, or `2r = ...` does not count for this requirement.
 - [ ] Exactly one famous-constant tile is available: either `pi` or `e`, not both. That tile must be required by at least one puzzle whose intended solution is specific to that constant.
 - [ ] The Finale is the only puzzle whose equation template is made entirely of empty tile slots, including the `y` and `=` tokens, and it has exactly `7` empty tile slots.
 - [ ] At least one puzzle uses division by zero as a meaningful solve: the intended equation should evaluate to positive infinity at `x = 0`, and that infinity should reach a target shape placed at `(0, <top of graph>)`.
@@ -118,7 +119,7 @@ These requirements should be testable with numbers, fixed pass/fail checks, or d
 - [ ] Zoom-in cannot exceed the startup framing.
 - [ ] Camera clamping prevents the user from scrolling so far that no graph or graph line remains visible.
 - [ ] Camera clamping is tightened enough that moving about `50px` farther would push the visible content off-screen.
-- [ ] Clicking a connecting line takes the player to the farther connected graph with the same smooth focus behavior as clicking the graph itself.
+- [ ] Clicking a connecting line does not navigate; graph focus is controlled by clicking graphs or moving the camera.
 
 ### Rendering Stability
 

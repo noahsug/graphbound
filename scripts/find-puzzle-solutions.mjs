@@ -1579,6 +1579,40 @@ function hasMatchedParentheses(equation) {
   return balance === 0
 }
 
+function tokenIsNumber(token) {
+  return token?.type === 'number'
+}
+
+function tokenIsIdentifier(token, value) {
+  return token?.type === 'identifier' && token.value === value
+}
+
+function tokensWithoutSolvedOutputVariable(tokens) {
+  const equalsIndex = tokens.findIndex((token) => token.type === 'operator' && token.value === '=')
+  if (equalsIndex <= 0) {
+    return tokens
+  }
+
+  const leftTokens = tokens.slice(0, equalsIndex)
+  const leftIsOutput =
+    (leftTokens.length === 1 && (tokenIsIdentifier(leftTokens[0], 'y') || tokenIsIdentifier(leftTokens[0], 'r'))) ||
+    (leftTokens.length === 2 &&
+      tokenIsNumber(leftTokens[0]) &&
+      (tokenIsIdentifier(leftTokens[1], 'y') || tokenIsIdentifier(leftTokens[1], 'r')))
+
+  return leftIsOutput ? tokens.slice(equalsIndex + 1) : tokens
+}
+
+function hasRequiredVariablePairs(equation) {
+  const relevantTokens = tokensWithoutSolvedOutputVariable(tokenize(equation))
+  const hasX = relevantTokens.some((token) => tokenIsIdentifier(token, 'x'))
+  const hasY = relevantTokens.some((token) => tokenIsIdentifier(token, 'y'))
+  const hasR = relevantTokens.some((token) => tokenIsIdentifier(token, 'r'))
+  const hasTheta = relevantTokens.some((token) => tokenIsIdentifier(token, 'theta'))
+
+  return (!hasY || hasX) && (!hasR || hasTheta)
+}
+
 function isExpressionOperator(token) {
   return token?.type === 'operator' && ['+', '-', '/', '^', '='].includes(token.value)
 }
@@ -1597,6 +1631,10 @@ function hasValidOperatorPlacement(equation, row) {
     return false
   }
 
+  if (!hasRequiredVariablePairs(equation)) {
+    return false
+  }
+
   const equalsIndex = equalsIndexes[0]
   const yIndexes = tokens
     .map((token, index) => (token.type === 'identifier' && token.value === 'y' ? index : -1))
@@ -1606,7 +1644,7 @@ function hasValidOperatorPlacement(equation, row) {
   )
 
   if (!hasPolarVariable) {
-    if (yIndexes.length !== 1 || yIndexes[0] > equalsIndex) {
+    if (yIndexes.length < 1 || !yIndexes.some((index) => index < equalsIndex)) {
       return false
     }
 
@@ -2005,6 +2043,11 @@ function authoringAudit(rows) {
       continue
     }
 
+    if (!hasRequiredVariablePairs(row.intendedSolution)) {
+      issues.push(`${row.id}: intended solution "${row.intendedSolution}" is missing its paired variable`)
+      continue
+    }
+
     const duplicate = intendedSolutionsByKey.get(canonicalKey)
     if (duplicate) {
       issues.push(
@@ -2020,6 +2063,10 @@ function authoringAudit(rows) {
   }
 
   for (const row of rows) {
+    if (!row.equation.includes(BLANK) && !hasRequiredVariablePairs(row.equation)) {
+      issues.push(`${row.id}: equation template "${row.equation}" is missing a required variable pair`)
+    }
+
     for (const [axisName, axis] of Object.entries(row.axes)) {
       const span = axisSpan(axis)
 
@@ -2085,7 +2132,7 @@ function printAuthoringAudit(audit) {
   if (audit.issues.length === 0) {
     console.log(
       `Authoring audit: pass (${audit.rowCount} rows; axis span/endpoints/zero, ` +
-        'target rounding/edge placement, token density, unlock counts, unique intended solutions, and Finale blank-template checks)',
+        'target rounding/edge placement, token density, variable pairs, unlock counts, unique intended solutions, and Finale blank-template checks)',
     )
     return
   }

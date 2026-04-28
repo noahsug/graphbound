@@ -15,7 +15,7 @@ Authoring requirements live in `REQUIREMENTS.md`.
 | 5b | Basin | y = □ - □ | y = 5 - x | 7 Canopy | none | 0 to 10 | -5 to 5 | (10, -5) |
 | 6a | Gallery | y = □ □ □ □ | y = 2x + 5 | none | - | -5 to 5 | -5 to 15 | (5, 15) |
 | 6b | Gallery | y = □ □ □ □ | y = 5 - 2x | 8 Crossroads | none | -5 to 5 | -5 to 15 | (5, -5) |
-| 7a | Canopy | y = \|x - □\| | y = \|x - 5\| | 9 Hollow | none | 0 to 10 | 0 to 5 | (0, 5) |
+| 7a | Canopy | y = \|x - □\| | y = \|x - 5\| | 9 Hollow | none | 0 to 10 | 0 to 8 | (0, 5) |
 | 8a | Crossroads | y = □ □ x □ □ | y = 5 + x - 2 | 10 Eastreach | none | -10 to 10 | -2 to 10 | (7, 10) |
 | 9a | Hollow | y = □ □ □ | y = x + 5 | none | left parenthesis | 0 to 5 | -5 to 10 | (5, 10) |
 | 9b | Hollow | y = □ □ □ | y = x - 2 | 11 Paren Grove | none | 0 to 5 | -5 to 10 | (5, 3) |

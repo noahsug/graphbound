@@ -38,7 +38,10 @@ const SHADOW = 'rgba(75, 60, 44, 0.12)'
 const CAMERA_DURATION_MS = 880
 const FUSE_DURATION_MS = 560
 const TARGET_FILL_DURATION_MS = 220
-const UNLOCK_CAMERA_DURATION_MULTIPLIER = 1.7
+const UNLOCK_CAMERA_DURATION_MULTIPLIER = 1
+const MIN_CONNECTOR_DRAW_SPEED_PX_PER_MS = 0.55
+const MIN_CONNECTOR_DURATION_MS = 620
+const MAX_CONNECTOR_DURATION_MS = 2100
 const SECTION_REVEAL_DURATION_MS = 1160
 const DOG_PET_MS = 1200
 const PAN_DRAG_THRESHOLD = 7
@@ -79,7 +82,7 @@ const MINOR_TICK_SIZE = 6
 const TICK_STROKE_WIDTH = 1.55
 const GOAL_GUIDE_MAJOR_TICK_SIZE = 16
 const GOAL_GUIDE_MINOR_TICK_SIZE = 10
-const GOAL_GUIDE_LABEL_SIZE = 14
+const GOAL_GUIDE_LABEL_SIZE = 16
 const CAMERA_VISIBILITY_MARGIN_PX = 50
 
 type RoughCanvas = ReturnType<typeof rough.canvas>
@@ -456,41 +459,6 @@ function pointInExpandedRect(point: Point, rect: Rect, inset = 0): boolean {
   )
 }
 
-function pointToSegmentDistance(point: Point, start: Point, end: Point): number {
-  const dx = end.x - start.x
-  const dy = end.y - start.y
-  const lengthSquared = dx * dx + dy * dy
-
-  if (lengthSquared <= 0.000001) {
-    return distanceBetween(point, start)
-  }
-
-  const t = clamp(
-    ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared,
-    0,
-    1,
-  )
-
-  return distanceBetween(point, {
-    x: start.x + dx * t,
-    y: start.y + dy * t,
-  })
-}
-
-function pointToPolylineDistance(point: Point, points: Point[]): number {
-  if (points.length < 2) {
-    return Number.POSITIVE_INFINITY
-  }
-
-  let best = Number.POSITIVE_INFINITY
-
-  for (let index = 1; index < points.length; index += 1) {
-    best = Math.min(best, pointToSegmentDistance(point, points[index - 1], points[index]))
-  }
-
-  return best
-}
-
 function rectsIntersect(a: Rect, b: Rect, inset = 0): boolean {
   return !(
     a.x + a.width < b.x - inset ||
@@ -791,6 +759,7 @@ class GraphboundApp {
       animatePlaceTile: (tileId: TileId, slotId: string) => this.debugAnimatePlaceTile(tileId, slotId),
       startAtLevel: (levelNumber: number) => this.debugStartAtLevel(levelNumber),
       getState: () => JSON.parse(this.renderGameToText()),
+      getInteractionRects: () => this.debugInteractionRects(),
       getLayoutIssues: () => this.layoutOverlapIssues(),
     }
   }
@@ -1541,6 +1510,26 @@ class GraphboundApp {
     this.render()
   }
 
+  private debugInteractionRects(): unknown {
+    return {
+      tray: this.trayTileRects().map(({ tileId, rect }) => ({ tileId, rect })),
+      slots: this.activeSection.slots.map((slot) => ({
+        slotId: slot.id,
+        tileId: this.activeRuntime.placements[slot.id],
+        rect: this.slotRect(slot.id),
+        slottedRect: this.slottedTileRect(slot.id),
+      })),
+      goals: this.sections.flatMap((section) =>
+        section.goals.map((goal) => ({
+          key: this.goalKey(section.id, goal.id),
+          sectionId: section.id,
+          goalId: goal.id,
+          rect: this.goalShapeRect(section.id, goal),
+        })),
+      ),
+    }
+  }
+
   private activeTileIds(): TileId[] {
     return [...this.unlockedTiles]
   }
@@ -1744,6 +1733,10 @@ class GraphboundApp {
       }
     }
 
+    if (!this.equationCanSatisfyVariablePairs(values)) {
+      return false
+    }
+
     for (let index = 0; index < values.length; index += 1) {
       const value = values[index]
 
@@ -1772,6 +1765,49 @@ class GraphboundApp {
     }
 
     return true
+  }
+
+  private equationCanSatisfyVariablePairs(values: Array<string | null>): boolean {
+    const relevantValues = this.valuesWithoutSolvedOutputVariable(values)
+    const hasEmptySlot = relevantValues.some((value) => value === null)
+    const hasX = relevantValues.some((value) => value === 'x')
+    const hasY = relevantValues.some((value) => value === 'y')
+    const hasTheta = relevantValues.some((value) => this.valueIsTheta(value))
+    const hasR = relevantValues.some((value) => value === 'r')
+
+    if (hasY && !hasX && !hasEmptySlot) {
+      return false
+    }
+
+    if (hasR && !hasTheta && !hasEmptySlot) {
+      return false
+    }
+
+    return true
+  }
+
+  private valuesWithoutSolvedOutputVariable(values: Array<string | null>): Array<string | null> {
+    const equalsIndex = values.indexOf('=')
+    if (equalsIndex <= 0) {
+      return values
+    }
+
+    const leftValues = values.slice(0, equalsIndex).filter((value): value is string => Boolean(value))
+    const leftIsOutput =
+      (leftValues.length === 1 && (leftValues[0] === 'y' || leftValues[0] === 'r')) ||
+      (leftValues.length === 2 &&
+        this.valueIsNumberText(leftValues[0]) &&
+        (leftValues[1] === 'y' || leftValues[1] === 'r'))
+
+    return leftIsOutput ? values.slice(equalsIndex + 1) : values
+  }
+
+  private valueIsNumberText(value: string | null | undefined): boolean {
+    return Boolean(value && /^-?\d+(?:\.\d+)?$/.test(value))
+  }
+
+  private valueIsTheta(value: string | null | undefined): boolean {
+    return value === 'θ' || value === 'Θ' || value === 'theta'
   }
 
   private valueIsEquationOperator(value: string | null | undefined): boolean {
@@ -1820,20 +1856,34 @@ class GraphboundApp {
 
   private syncTileFocusSelection(): void {
     const sectionId = this.tileFocusSectionId
-    if (!sectionId) {
-      return
-    }
 
-    if (!this.unlockedSections.has(sectionId)) {
+    if (sectionId && (!this.unlockedSections.has(sectionId) || this.completedSections.has(sectionId))) {
       this.tileFocusSectionId = null
+    }
+
+    if (this.tileFocusSectionId && this.sectionVisibleRatio(this.tileFocusSectionId) <= 0.2) {
+      this.tileFocusSectionId = null
+    }
+
+    if (this.tileFocusSectionId) {
       return
     }
 
+    const visibleSections = [...this.unlockedSections].filter(
+      (candidateId) =>
+        !this.completedSections.has(candidateId) && this.sectionVisibleRatio(candidateId) > 0.2,
+    )
+
+    if (visibleSections.length === 1) {
+      this.tileFocusSectionId = visibleSections[0]
+    }
+  }
+
+  private sectionVisibleRatio(sectionId: string): number {
     const rect = this.boardRect(sectionId)
     const totalArea = rect.width * rect.height
     if (totalArea <= 0) {
-      this.tileFocusSectionId = null
-      return
+      return 0
     }
 
     const visibleArea = rectIntersectionArea(rect, {
@@ -1843,9 +1893,7 @@ class GraphboundApp {
       height: this.layout.height,
     })
 
-    if (visibleArea / totalArea <= 0.2) {
-      this.tileFocusSectionId = null
-    }
+    return visibleArea / totalArea
   }
 
   private getPointerPoint(event: PointerEvent): Point {
@@ -2101,61 +2149,6 @@ class GraphboundApp {
     }
 
     return null
-  }
-
-  private connectorTargetAtPoint(point: Point): string | null {
-    const hitThreshold = Math.max(12, 18 * this.layout.worldScale)
-    const activeFocus = this.sectionFocusPoint(this.activeSectionId)
-    let bestTargetId: string | null = null
-    let bestHitDistance = Number.POSITIVE_INFINITY
-
-    for (const section of this.sections) {
-      if (!this.unlockedSections.has(section.id)) {
-        continue
-      }
-
-      const runtime = this.sectionRuntimes.get(section.id)
-      if (!runtime) {
-        continue
-      }
-
-      for (const goal of section.goals) {
-        const targetId = goal.unlocks[0]
-        if (!targetId || !this.unlockedSections.has(targetId)) {
-          continue
-        }
-
-        const solved = this.completedGoals.has(`${section.id}:${goal.id}`)
-        const isAnimatingGoal = runtime.animatingGoalId === goal.id
-        const fuseProgress = solved ? 1 : isAnimatingGoal ? runtime.fuseProgress : 0
-
-        if (fuseProgress <= 0) {
-          continue
-        }
-
-        const route = this.goalConnectionPoints(section.id, goal)
-        if (route.length < 2) {
-          continue
-        }
-
-        const visible = fuseProgress >= 1 ? route : partialPolyline(route, fuseProgress)
-        const hitDistance = pointToPolylineDistance(point, visible)
-        if (hitDistance > hitThreshold) {
-          continue
-        }
-
-        const sourceDistance = distanceBetween(activeFocus, this.sectionFocusPoint(section.id))
-        const targetDistance = distanceBetween(activeFocus, this.sectionFocusPoint(targetId))
-        const destinationId = targetDistance >= sourceDistance ? targetId : section.id
-
-        if (hitDistance < bestHitDistance) {
-          bestHitDistance = hitDistance
-          bestTargetId = destinationId
-        }
-      }
-    }
-
-    return bestTargetId
   }
 
   private terrainLocalToScreen(sectionId: string, localPoint: Point): Point {
@@ -2640,9 +2633,7 @@ class GraphboundApp {
       return false
     }
 
-    return section.slots.some((slot) =>
-      !runtime.placements[slot.id] && this.tileAllowedInSlot(sectionId, slot.id, tileId),
-    )
+    return section.slots.some((slot) => this.tileAllowedInSlot(sectionId, slot.id, tileId))
   }
 
   private trayTileDimmed(tileId: TileId): boolean {
@@ -2653,16 +2644,12 @@ class GraphboundApp {
     return !this.tileCanStillBePlacedInFocusedPuzzle(tileId)
   }
 
-  private nearestOverlappingOpenSlot(tileId: TileId, tileRect: Rect): string | null {
+  private nearestOverlappingSlot(tileId: TileId, tileRect: Rect): string | null {
     const tileCenter = this.rectCenter(tileRect)
     let bestSlotId: string | null = null
     let bestDistance = Number.POSITIVE_INFINITY
 
     for (const slotId of this.compatibleSlots(tileId)) {
-      if (this.activeRuntime.placements[slotId]) {
-        continue
-      }
-
       const rect = this.slotRect(slotId)
       if (!rect || !rectsIntersect(tileRect, rect)) {
         continue
@@ -2672,48 +2659,6 @@ class GraphboundApp {
       if (distanceToSlot < bestDistance) {
         bestDistance = distanceToSlot
         bestSlotId = slotId
-      }
-    }
-
-    return bestSlotId
-  }
-
-  private nearestOverlappingSwapSlot(
-    sourceSlotId: string,
-    tileId: TileId,
-    tileRect: Rect,
-  ): string | null {
-    const tileCenter = this.rectCenter(tileRect)
-    let bestSlotId: string | null = null
-    let bestDistance = Number.POSITIVE_INFINITY
-
-    for (const slot of this.activeSection.slots) {
-      const targetSlotId = slot.id
-      if (targetSlotId === sourceSlotId) {
-        continue
-      }
-
-      const targetTileId = this.activeRuntime.placements[targetSlotId]
-      if (!targetTileId) {
-        continue
-      }
-
-      if (
-        !this.tileAllowedInSlot(this.activeSectionId, targetSlotId, tileId, [sourceSlotId]) ||
-        !this.tileAllowedInSlot(this.activeSectionId, sourceSlotId, targetTileId, [targetSlotId])
-      ) {
-        continue
-      }
-
-      const rect = this.slotRect(targetSlotId)
-      if (!rect || !rectsIntersect(tileRect, rect)) {
-        continue
-      }
-
-      const distanceToSlot = distanceBetween(tileCenter, this.rectCenter(rect))
-      if (distanceToSlot < bestDistance) {
-        bestDistance = distanceToSlot
-        bestSlotId = targetSlotId
       }
     }
 
@@ -2928,6 +2873,16 @@ class GraphboundApp {
     }
 
     this.hoveredGoalKey = nextKey
+    return true
+  }
+
+  private clearPinnedGoalSelection(): boolean {
+    if (!this.pinnedGoalKey && !this.hoveredGoalKey) {
+      return false
+    }
+
+    this.pinnedGoalKey = null
+    this.hoveredGoalKey = null
     return true
   }
 
@@ -3290,7 +3245,7 @@ class GraphboundApp {
     const targetPoint = this.boardOutsidePointFrom(targetId, sourceId)
     const routed = this.routedConnectorPoints(
       [sourcePoint, targetPoint],
-      new Set<string>(),
+      new Set<string>([sourceId, targetId]),
       ignoredGoalKeys,
     )
     return simplifyConnectorPoints(routed)
@@ -3556,7 +3511,6 @@ class GraphboundApp {
 
     if (
       !slot ||
-      this.activeRuntime.placements[slotId] ||
       !this.tileAllowedInSlot(this.activeSectionId, slotId, tileId, ignoredSlotIds)
     ) {
       return
@@ -3567,30 +3521,6 @@ class GraphboundApp {
     }
 
     this.activeRuntime.placements[slotId] = tileId
-    this.selectedTileId = null
-    this.focusTilesOnSection(this.activeSectionId)
-    this.updateSectionPlot(this.activeSectionId, animated)
-    this.render()
-  }
-
-  private swapDraggedTileWithSlot(
-    sourceSlotId: string,
-    targetSlotId: string,
-    draggedTileId: TileId,
-    animated: boolean,
-  ): void {
-    const targetTileId = this.activeRuntime.placements[targetSlotId]
-
-    if (
-      !targetTileId ||
-      !this.tileAllowedInSlot(this.activeSectionId, targetSlotId, draggedTileId, [sourceSlotId]) ||
-      !this.tileAllowedInSlot(this.activeSectionId, sourceSlotId, targetTileId, [targetSlotId])
-    ) {
-      return
-    }
-
-    this.activeRuntime.placements[sourceSlotId] = targetTileId
-    this.activeRuntime.placements[targetSlotId] = draggedTileId
     this.selectedTileId = null
     this.focusTilesOnSection(this.activeSectionId)
     this.updateSectionPlot(this.activeSectionId, animated)
@@ -3898,6 +3828,8 @@ class GraphboundApp {
       return
     }
 
+    const clearedPinnedGoal = this.clearPinnedGoalSelection()
+
     for (const section of [...this.unlockedSections].reverse()) {
       const rect = this.dogRect(section)
       if (!rect || !pointInRect(point, rect)) {
@@ -3912,14 +3844,7 @@ class GraphboundApp {
     }
 
     this.cameraTween = null
-    const clickedConnectorTargetId = this.connectorTargetAtPoint(point)
-    const startedSectionId = this.sectionAtPoint(point) ?? clickedConnectorTargetId
-    const clearedPinnedGoal = Boolean(this.pinnedGoalKey && !startedSectionId)
-
-    if (clearedPinnedGoal) {
-      this.pinnedGoalKey = null
-      this.hoveredGoalKey = null
-    }
+    const startedSectionId = this.sectionAtPoint(point)
 
     this.drag = {
       kind: 'pan',
@@ -4035,17 +3960,11 @@ class GraphboundApp {
 
     if (this.drag.kind === 'tile') {
       const draggedRect = this.draggedTileRect(this.drag)
-      const targetSlot = this.nearestOverlappingOpenSlot(this.drag.tileId, draggedRect)
-      const swapSlot =
-        !targetSlot && this.drag.sourceSlotId
-          ? this.nearestOverlappingSwapSlot(this.drag.sourceSlotId, this.drag.tileId, draggedRect)
-          : null
+      const targetSlot = this.nearestOverlappingSlot(this.drag.tileId, draggedRect)
 
       if (this.drag.dragging) {
         if (targetSlot) {
           this.placeTileInSlot(this.drag.tileId, targetSlot, true)
-        } else if (swapSlot && this.drag.sourceSlotId) {
-          this.swapDraggedTileWithSlot(this.drag.sourceSlotId, swapSlot, this.drag.tileId, true)
         } else if (this.drag.sourceSlotId) {
           this.activeRuntime.placements[this.drag.sourceSlotId] = this.drag.tileId
           this.updateSectionPlot(this.activeSectionId, false)
@@ -4838,11 +4757,8 @@ class GraphboundApp {
     const length = Math.max(polylineLength(rendered), 1)
     const plotSpeed = this.plotPixelsPerMs(sectionId)
 
-    if (!plotSpeed || plotSpeed <= 0) {
-      return FUSE_DURATION_MS
-    }
-
-    return length / plotSpeed
+    const speed = Math.max(plotSpeed ?? length / FUSE_DURATION_MS, MIN_CONNECTOR_DRAW_SPEED_PX_PER_MS)
+    return clamp(length / speed, MIN_CONNECTOR_DURATION_MS, MAX_CONNECTOR_DURATION_MS)
   }
 
   private drawTree(center: Point, size: number, seedKey: string): void {
@@ -5938,6 +5854,7 @@ declare global {
       animatePlaceTile: (tileId: TileId, slotId: string) => void
       startAtLevel: (levelNumber: number) => void
       getState: () => unknown
+      getInteractionRects: () => unknown
       getLayoutIssues: () => Array<{ kind: string; a: string; b: string }>
     }
   }
