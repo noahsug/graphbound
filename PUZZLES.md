@@ -8,8 +8,8 @@ Authoring requirements live in `REQUIREMENTS.md`.
 |---|---|---|---|---|---|---|---|---|
 | 1a | Sprout | y = □ | y = x | 2 Ridge | 2 | 0 to 10 | 0 to 10 | (10, 10) |
 | 2a | Ridge | y = x + □ | y = x + 2 | 3 Orchard | + | 0 to 10 | 0 to 12 | (10, 12) |
-| 3a | Orchard | y = □ □ □ | y = 2 + x | none | 5 | 0 to 10 | 0 to 15 | (10, 12) |
-| 3b | Orchard | y = □ □ □ | y = 5 + x | 4 Cove | none | 0 to 10 | 0 to 15 | (10, 15) |
+| 3a | Orchard | y = □ □ | y = 2x | none | 5 | 0 to 10 | 0 to 20 | (10, 20) |
+| 3b | Orchard | y = □ □ | y = 5x | 4 Cove | none | 0 to 10 | 0 to 20 | (4, 20) |
 | 4a | Cove | y = □ □ □ □ | y = 5x + 2 | 5 Basin | none | 0 to 5 | 0 to 20 | (3.5, 20) |
 | 5a | Basin | y = □ - □ | y = x - 5 | 6 Gallery | none | 0 to 10 | -5 to 5 | (10, 5) |
 | 5b | Basin | y = □ - □ | y = 5 - x | 7 Canopy | none | 0 to 10 | -5 to 5 | (10, -5) |
@@ -17,8 +17,8 @@ Authoring requirements live in `REQUIREMENTS.md`.
 | 6b | Gallery | y = □ □ □ □ | y = 5 - 2x | 8 Crossroads | none | -5 to 5 | -5 to 15 | (5, -5) |
 | 7a | Canopy | y = \|x - □\| | y = \|x - 5\| | 9 Hollow | none | 0 to 10 | 0 to 5 | (0, 5) |
 | 8a | Crossroads | y = □ □ x □ □ | y = 5 + x - 2 | 10 Eastreach | none | -10 to 10 | -2 to 10 | (7, 10) |
-| 9a | Hollow | y = □ □ □ □ | y = 2 + 5x | none | left parenthesis | 0 to 5 | 0 to 20 | (3.5, 20) |
-| 9b | Hollow | y = □ □ □ □ | y = 5 + 2x | 11 Paren Grove | none | 0 to 10 | 0 to 20 | (7.5, 20) |
+| 9a | Hollow | y = □ □ □ | y = x + 5 | none | left parenthesis | 0 to 5 | -5 to 10 | (5, 10) |
+| 9b | Hollow | y = □ □ □ | y = x - 2 | 11 Paren Grove | none | 0 to 5 | -5 to 10 | (5, 3) |
 | 7b | Canopy | y = \|x - □\| | y = \|x - 2\| | 12 Southreach | none | 0 to 10 | 0 to 8 | (10, 8) |
 | 10a | Eastreach | y = □ □ □ □ | y = 2x - 5 | 13 Weir | none | 0 to 10 | -5 to 15 | (10, 15) |
 | 11a | Paren Grove | y = □ 2 □ x )^2 | y = (2 + x)^2 | none | right parenthesis | -2 to 3 | 0 to 20 | (2.5, 20) |
@@ -32,7 +32,7 @@ Authoring requirements live in `REQUIREMENTS.md`.
 | 17a | Cellar | y = x □ □ + 5 | y = x ^ 2 + 5 | 19 Loft | none | -4 to 4 | 0 to 20 | (4, 20) |
 | 18a | Echo | y = □ / □ □ □ | y = x / 2 + 5 | none | 0 | 0 to 10 | 0 to 15 | (10, 10) |
 | 18b | Echo | y = □ / □ □ □ | y = x / 5 + 2 | none | y | 0 to 10 | 0 to 5 | (10, 4) |
-| 18c | Echo | y = □ / □ □ □ | y = 5 / x + 2 | none | = | 0 to 10 | 0 to 10 | (0, 10) |
+| 18c | Echo | y = □ / □ □ □ | y = 2 / x + 5 | none | = | 0 to 10 | 0 to 10 | (0, 10) |
 | 8d | Crossroads | y = □ □ x □ □ | y = 2 - x + 0 | 20 Finale | none | -10 to 10 | -2 to 10 | (-8, 10) |
 | 19a | Loft | r = □ | r = 2 | none | theta | -3 to 2 | -3 to 3 | (2, 0) |
 | 19b | Loft | r = □ | r = theta | 21 Weave | none | -3 to 3 | -3 to 3 | (-3, 0) |
@@ -53,5 +53,5 @@ Authoring requirements live in `REQUIREMENTS.md`.
 | 33a | Fermat Spiral | r ^ 2 = □ | r ^ 2 = theta | 35 Sine Dial | none | -2 to 4 | -3 to 3 | (-2, 0) |
 | 35a | Sine Dial | □ □ □(□x) / 2 | y = sin(pi x) / 2 | 36 Pi Vault | none | 0 to 5 | -5 to 0 | (0, 0) |
 | 36a | Pi Vault | □ □ x □ 2 □ □ | y = x ^ 2 / pi | 37 Half Gate | none | 0 to 5 | 0 to 10 | (5, 8) |
-| 37a | Half Gate | y = 5x □ □2□ | y = 5x / (2) | 38 Paren Echo | none | 0 to 5 | 0 to 15 | (5, 12.5) |
-| 38a | Paren Echo | y = □x + 5□ | y = (x + 5) | victory | none | 0 to 5 | 0 to 10 | (5, 10) |
+| 37a | Half Gate | y = 5x □ □2□ □ □ | y = 5x / (2) - 5 | 38 Paren Echo | none | 0 to 5 | 0 to 15 | (5, 7.5) |
+| 38a | Paren Echo | y = □x - 5□ ^ 2 | y = (x - 5)^2 | victory | none | 0 to 5 | 0 to 20 | (0.5, 20) |

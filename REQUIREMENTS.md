@@ -56,6 +56,7 @@ These requirements should be testable with numbers, fixed pass/fail checks, or d
 - [ ] Except for onboarding puzzles `1` and `2`, each puzzle solution unlocks exactly one thing: either one puzzle or one new tile, never both.
 - [ ] Puzzle `1` unlocks puzzle `2` and a new tile; puzzle `2` unlocks puzzle `3` and a new tile.
 - [ ] Intended solutions never use a leading `+` or empty parentheses `()`.
+- [ ] Each intended solution may appear only once across the whole game; rearrangements that canonicalize to the same equation, such as `y = 2 + x` and `y = x + 2`, count as the same intended solution.
 - [ ] Rows with the same puzzle number, such as `8a`, `8b`, `8c`, and `8d`, are multiple solutions for one puzzle. They must have exactly the same equation template and each row's intended solution must be unique.
 - [ ] Unique solution counts are calculated per puzzle number, not per lettered row. Use the first row's equation template for the puzzle, such as `8a`, and treat the other lettered rows as additional intended solutions/targets for that same puzzle.
 - [ ] Each puzzle may have at most `1` non-intended unique solution beyond its lettered intended solutions; commutative rearrangements such as `(2 + x)(5 + x)` and `(5 + x)(2 + x)` count as the same unique solution. For example, a puzzle with four intended rows must have either `4` or `5` unique solutions total. The Finale is the only exception: it may have up to `2` non-intended unique solutions, so its single intended solution permits `1` to `3` total unique solutions.

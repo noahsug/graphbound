@@ -1950,6 +1950,16 @@ function targetIsNearGraphEdge(row) {
   )
 }
 
+function targetIsInsideAxes(row) {
+  const { target, axes } = row
+  return (
+    target.x >= axes.x.min - 1e-9 &&
+    target.x <= axes.x.max + 1e-9 &&
+    target.y >= axes.y.min - 1e-9 &&
+    target.y <= axes.y.max + 1e-9
+  )
+}
+
 function countedTokenSummary(equation) {
   const blanks = blankCount(equation)
   const fixedEquation = equation.replaceAll(BLANK, ' ')
@@ -1984,6 +1994,29 @@ function countedTokenSummary(equation) {
 function authoringAudit(rows) {
   const issues = []
   const allBlankRows = rows.filter((row) => allTokensBlank(row.equation))
+  const intendedSolutionsByKey = new Map()
+
+  for (const row of rows) {
+    const canonicalKey = canonicalKeyForEquation(row.intendedSolution)
+
+    if (!canonicalKey) {
+      issues.push(`${row.id}: intended solution "${row.intendedSolution}" could not be parsed`)
+      continue
+    }
+
+    const duplicate = intendedSolutionsByKey.get(canonicalKey)
+    if (duplicate) {
+      issues.push(
+        `${row.id}: intended solution "${row.intendedSolution}" duplicates ${duplicate.id}: ${duplicate.solution}`,
+      )
+      continue
+    }
+
+    intendedSolutionsByKey.set(canonicalKey, {
+      id: row.id,
+      solution: row.intendedSolution,
+    })
+  }
 
   for (const row of rows) {
     for (const [axisName, axis] of Object.entries(row.axes)) {
@@ -2008,6 +2041,10 @@ function authoringAudit(rows) {
 
     if (!targetIsNearGraphEdge(row)) {
       issues.push(`${row.id}: target (${row.target.x}, ${row.target.y}) is not within ${TOLERANCE} of a graph edge`)
+    }
+
+    if (!targetIsInsideAxes(row)) {
+      issues.push(`${row.id}: target (${row.target.x}, ${row.target.y}) is outside its graph axes`)
     }
 
     const tokenSummary = countedTokenSummary(row.equation)
@@ -2036,7 +2073,7 @@ function printAuthoringAudit(audit) {
   if (audit.issues.length === 0) {
     console.log(
       `Authoring audit: pass (${audit.rowCount} rows; axis span/endpoints/zero, ` +
-        'target rounding/edge placement, token density, and Finale blank-template checks)',
+        'target rounding/edge placement, token density, unique intended solutions, and Finale blank-template checks)',
     )
     return
   }
