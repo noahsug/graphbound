@@ -1603,10 +1603,6 @@ class GraphboundApp {
       return false
     }
 
-    if (tileId === 'y' && fixedValues.includes('y')) {
-      return false
-    }
-
     if (section.coordinateMode === 'polar') {
       return tileId !== 'x' && tileId !== 'y'
     }

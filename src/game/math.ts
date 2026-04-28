@@ -15,7 +15,7 @@ import type {
 
 const EDGE_EPSILON = 0.08
 const TARGET_TOLERANCE = 0.5
-const IMPLICIT_GRID_STEPS = 120
+const IMPLICIT_GRID_STEPS = 121
 const IMPLICIT_POLAR_THETA_STEPS = 320
 const IMPLICIT_POLAR_RADIUS_STEPS = 140
 const ZERO_EPSILON = 1e-7
@@ -362,8 +362,9 @@ function buildFullEquationExpression(
   const rightTokens = tokens.slice(equalsIndex + 1)
   const right = new TokenParser(rightTokens).parseExpression()
   const solvedY = solvedVariableExpression(leftTokens, 'y', right)
+  const rightUsesOutputVariable = tokensUseOutputVariables(rightTokens)
 
-  if (solvedY) {
+  if (solvedY && !rightUsesOutputVariable) {
     return {
       kind: 'explicit-cartesian',
       expression: solvedY,
@@ -372,7 +373,7 @@ function buildFullEquationExpression(
 
   const solvedR = solvedVariableExpression(leftTokens, 'r', right)
 
-  if (solvedR) {
+  if (solvedR && !rightUsesOutputVariable) {
     return {
       kind: 'explicit-polar',
       expression: solvedR,
@@ -684,13 +685,23 @@ function buildExpression(
       }
     }
 
+    const expression = new TokenParser(tokens).parseExpression()
+
     if (tokensUseOutputVariables(tokens)) {
-      return null
+      const outputVariable = equationPrefix(section)
+
+      return {
+        kind:
+          section.coordinateMode === 'polar' || outputVariable === 'r' || tokensUsePolarVariables(tokens)
+            ? 'implicit-polar'
+            : 'implicit-cartesian',
+        expression: `((${outputVariable}) - (${expression}))`,
+      }
     }
 
     return {
       kind: section.coordinateMode === 'polar' ? 'explicit-polar' : 'explicit-cartesian',
-      expression: new TokenParser(tokens).parseExpression(),
+      expression,
     }
   } catch {
     return null

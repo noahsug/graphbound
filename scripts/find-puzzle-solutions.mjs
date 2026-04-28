@@ -1155,6 +1155,10 @@ function tokenIncludesPolarVariable(token) {
   return token.type === 'identifier' && (token.value === 'r' || token.value === 'theta')
 }
 
+function tokenIncludesOutputVariable(token) {
+  return token.type === 'identifier' && (token.value === 'y' || token.value === 'r')
+}
+
 function parseEquation(equation) {
   const tokens = tokenize(equation)
   const equalsIndex = tokens.findIndex((token) => token.type === 'operator' && token.value === '=')
@@ -1180,9 +1184,11 @@ function parseEquation(equation) {
 
   let kind = 'implicit-cartesian'
 
-  if (isSingleVariable(leftTokens, 'y')) {
+  const rightUsesOutputVariable = rightTokens.some(tokenIncludesOutputVariable)
+
+  if (isSingleVariable(leftTokens, 'y') && !rightUsesOutputVariable) {
     kind = 'explicit-y'
-  } else if (isSingleVariable(leftTokens, 'r')) {
+  } else if (isSingleVariable(leftTokens, 'r') && !rightUsesOutputVariable) {
     kind = 'explicit-r'
   } else if (usesPolar) {
     kind = 'implicit-polar'
@@ -1867,13 +1873,8 @@ function tileAllowedForPuzzleMode(tileId, row) {
   const polar = /^\s*r\b/i.test(row.equation)
   const fixedTokens = tokenize(row.equation.replaceAll(BLANK, ''))
   const hasFixedEquals = fixedTokens.some((token) => token.type === 'operator' && token.value === '=')
-  const hasFixedY = fixedTokens.some((token) => token.type === 'identifier' && token.value === 'y')
 
   if (tileId === '=' && hasFixedEquals) {
-    return false
-  }
-
-  if (tileId === 'y' && hasFixedY) {
     return false
   }
 
