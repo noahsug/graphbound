@@ -65,6 +65,7 @@ const LOCKED_GOAL_MIN_ALPHA = 0.08
 const LOCKED_GOAL_MAX_ALPHA = 0.38
 const SOLVED_GOAL_ALPHA = 0.52
 const SOLVED_GOAL_LIGHTEN = 0.64
+const DIMMED_TRAY_TILE_ALPHA = 0.38
 const EQUATION_FONT_SIZE = 23
 const EQUATION_TOKEN_SIZE = 38
 const EQUATION_PREFIX_WIDTH_Y = 40
@@ -499,6 +500,15 @@ function rectsIntersect(a: Rect, b: Rect, inset = 0): boolean {
   )
 }
 
+function rectIntersectionArea(a: Rect, b: Rect): number {
+  const left = Math.max(a.x, b.x)
+  const right = Math.min(a.x + a.width, b.x + b.width)
+  const top = Math.max(a.y, b.y)
+  const bottom = Math.min(a.y + a.height, b.y + b.height)
+
+  return Math.max(0, right - left) * Math.max(0, bottom - top)
+}
+
 function ccw(a: Point, b: Point, c: Point): number {
   return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
 }
@@ -683,6 +693,7 @@ class GraphboundApp {
       }
     | null = null
   private selectedTileId: TileId | null = null
+  private tileFocusSectionId: string | null = null
   private hoveredGoalKey: string | null = null
   private pinnedGoalKey: string | null = null
   private activeSectionId = this.sections[0].id
@@ -1531,14 +1542,17 @@ class GraphboundApp {
     return [...this.unlockedTiles]
   }
 
-  private sectionAlreadyUsesTile(sectionId: string, tileId: TileId): boolean {
+  private slotIdUsingTile(sectionId: string, tileId: TileId): string | null {
     const runtime = this.sectionRuntimes.get(sectionId)
 
     if (!runtime) {
-      return false
+      return null
     }
 
-    return Object.values(runtime.placements).some((placedTileId) => placedTileId === tileId)
+    return (
+      Object.entries(runtime.placements).find(([, placedTileId]) => placedTileId === tileId)?.[0] ??
+      null
+    )
   }
 
   private tileAllowedInSlot(
@@ -1802,6 +1816,36 @@ class GraphboundApp {
     const nearestId = this.nearestSectionToCenter()
     if (nearestId) {
       this.setActiveSection(nearestId)
+    }
+  }
+
+  private syncTileFocusSelection(): void {
+    const sectionId = this.tileFocusSectionId
+    if (!sectionId) {
+      return
+    }
+
+    if (!this.unlockedSections.has(sectionId)) {
+      this.tileFocusSectionId = null
+      return
+    }
+
+    const rect = this.boardRect(sectionId)
+    const totalArea = rect.width * rect.height
+    if (totalArea <= 0) {
+      this.tileFocusSectionId = null
+      return
+    }
+
+    const visibleArea = rectIntersectionArea(rect, {
+      x: 0,
+      y: 0,
+      width: this.layout.width,
+      height: this.layout.height,
+    })
+
+    if (visibleArea / totalArea <= 0.2) {
+      this.tileFocusSectionId = null
     }
   }
 
@@ -2560,20 +2604,54 @@ class GraphboundApp {
   private compatibleSlotsForSection(sectionId: string, tileId: TileId): string[] {
     const section = this.sectionById.get(sectionId)
 
-    if (
-      !section ||
-      this.sectionAlreadyUsesTile(sectionId, tileId)
-    ) {
+    if (!section) {
       return []
     }
 
+    const existingSlotId = this.slotIdUsingTile(sectionId, tileId)
+    const ignoredSlotIds = existingSlotId ? [existingSlotId] : []
+
     return section.slots
       .map((slot) => slot.id)
-      .filter((slotId) => this.tileAllowedInSlot(sectionId, slotId, tileId))
+      .filter((slotId) => this.tileAllowedInSlot(sectionId, slotId, tileId, ignoredSlotIds))
   }
 
   private compatibleSlots(tileId: TileId): string[] {
     return this.compatibleSlotsForSection(this.activeSectionId, tileId)
+  }
+
+  private focusTilesOnSection(sectionId: string): void {
+    this.tileFocusSectionId = sectionId
+  }
+
+  private tileCanStillBePlacedInFocusedPuzzle(tileId: TileId): boolean {
+    const sectionId = this.tileFocusSectionId
+    const section = sectionId ? this.sectionById.get(sectionId) : null
+    const runtime = sectionId ? this.sectionRuntimes.get(sectionId) : null
+
+    if (!sectionId || !section || !runtime) {
+      return true
+    }
+
+    if (!this.tileAllowedForSection(sectionId, tileId)) {
+      return false
+    }
+
+    if (this.slotIdUsingTile(sectionId, tileId)) {
+      return false
+    }
+
+    return section.slots.some((slot) =>
+      !runtime.placements[slot.id] && this.tileAllowedInSlot(sectionId, slot.id, tileId),
+    )
+  }
+
+  private trayTileDimmed(tileId: TileId): boolean {
+    if (!this.tileFocusSectionId) {
+      return false
+    }
+
+    return !this.tileCanStillBePlacedInFocusedPuzzle(tileId)
   }
 
   private nearestOverlappingOpenSlot(tileId: TileId, tileRect: Rect): string | null {
@@ -3349,6 +3427,10 @@ class GraphboundApp {
       this.completedGoals.add(`${sectionId}:${goalId}`)
     }
 
+    if (newGoals.length > 0 && this.tileFocusSectionId === sectionId) {
+      this.tileFocusSectionId = null
+    }
+
     const newlyUnlockedSections = this.unlockSectionsForGoals(sectionId, newGoals)
     const newlyUnlockedTiles: TileId[] = []
     for (const goalId of newGoals) {
@@ -3442,17 +3524,24 @@ class GraphboundApp {
 
   private placeTileInSlot(tileId: TileId, slotId: string, animated: boolean): void {
     const slot = this.activeSection.slots.find((candidate) => candidate.id === slotId)
+    const existingSlotId = this.slotIdUsingTile(this.activeSectionId, tileId)
+    const ignoredSlotIds = existingSlotId ? [existingSlotId] : []
 
     if (
       !slot ||
       this.activeRuntime.placements[slotId] ||
-      !this.tileAllowedInSlot(this.activeSectionId, slotId, tileId)
+      !this.tileAllowedInSlot(this.activeSectionId, slotId, tileId, ignoredSlotIds)
     ) {
       return
     }
 
+    if (existingSlotId && existingSlotId !== slotId) {
+      this.activeRuntime.placements[existingSlotId] = null
+    }
+
     this.activeRuntime.placements[slotId] = tileId
     this.selectedTileId = null
+    this.focusTilesOnSection(this.activeSectionId)
     this.updateSectionPlot(this.activeSectionId, animated)
     this.render()
   }
@@ -3476,6 +3565,7 @@ class GraphboundApp {
     this.activeRuntime.placements[sourceSlotId] = targetTileId
     this.activeRuntime.placements[targetSlotId] = draggedTileId
     this.selectedTileId = null
+    this.focusTilesOnSection(this.activeSectionId)
     this.updateSectionPlot(this.activeSectionId, animated)
     this.render()
   }
@@ -5675,9 +5765,15 @@ class GraphboundApp {
 
   private drawTray(): void {
     const activeTileId = this.drag?.kind === 'tile' ? this.drag.tileId : this.selectedTileId
+    const draggedTileId = this.drag?.kind === 'tile' ? this.drag.tileId : null
 
     for (const { tileId, rect } of this.trayTileRects()) {
       const lifted = tileId === activeTileId && this.drag?.kind !== 'tile'
+      const dimmed = this.trayTileDimmed(tileId) && tileId !== draggedTileId
+      this.context.save()
+      if (dimmed) {
+        this.context.globalAlpha = DIMMED_TRAY_TILE_ALPHA
+      }
       this.drawTile(
         {
           x: rect.x,
@@ -5689,6 +5785,7 @@ class GraphboundApp {
         tileId === activeTileId,
         `tray:${tileId}`,
       )
+      this.context.restore()
     }
 
     if (this.drag?.kind === 'tile' && this.drag.dragging) {
@@ -5708,6 +5805,7 @@ class GraphboundApp {
 
   private render(): void {
     this.syncSelectedSectionToCenter()
+    this.syncTileFocusSelection()
     this.drawBackground()
     this.drawWorldLinksBase()
 
@@ -5731,6 +5829,7 @@ class GraphboundApp {
 
   private renderGameToText(): string {
     this.syncSelectedSectionToCenter()
+    this.syncTileFocusSelection()
     const activeLevel = (this.sectionIndexById.get(this.activeSectionId) ?? 0) + 1
     const sections = this.sections
       .filter((section) => this.unlockedSections.has(section.id))
@@ -5789,6 +5888,7 @@ class GraphboundApp {
       unlockedTiles: [...this.unlockedTiles],
       trayTiles: this.trayTileRects().map(({ tileId }) => tileId),
       selectedTile: this.selectedTileId,
+      selectedPuzzle: this.tileFocusSectionId,
       startLevelOverride: this.startLevelOverride,
       sections,
       statusMessage: this.statusMessage,
