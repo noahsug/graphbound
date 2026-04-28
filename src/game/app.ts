@@ -679,6 +679,7 @@ class GraphboundApp {
   private readonly unlockedSections = new Set<string>()
   private readonly unlockedTiles = new Set<TileId>(['x'])
   private readonly sectionRevealProgress = new Map<string, number>()
+  private readonly connectorRouteWorldCache = new Map<string, Point[]>()
   private readonly activeTouchPoints = new Map<number, Point>()
   private paperPattern: CanvasPattern | null = null
 
@@ -836,7 +837,9 @@ class GraphboundApp {
     this.unlockedTiles.clear()
     this.unlockedTiles.add('x')
     this.sectionRevealProgress.clear()
+    this.connectorRouteWorldCache.clear()
     this.selectedTileId = null
+    this.tileFocusSectionId = null
     this.drag = null
     this.cameraTween = null
     this.keyboardVelocity = { x: 0, y: 0 }
@@ -2734,6 +2737,18 @@ class GraphboundApp {
     return `${sectionId}:${goalId}`
   }
 
+  private connectorRouteKey(sectionId: string, goalId: string): string {
+    return `${sectionId}:${goalId}`
+  }
+
+  private clearConnectorRouteCacheForSection(sectionId: string): void {
+    for (const key of this.connectorRouteWorldCache.keys()) {
+      if (key.startsWith(`${sectionId}:`)) {
+        this.connectorRouteWorldCache.delete(key)
+      }
+    }
+  }
+
   private inspectedGoalKey(): string | null {
     return this.hoveredGoalKey ?? this.pinnedGoalKey
   }
@@ -3286,10 +3301,20 @@ class GraphboundApp {
   }
 
   private goalConnectionPoints(sectionId: string, goal: GoalDefinition): Point[] {
+    const cacheKey = this.connectorRouteKey(sectionId, goal.id)
+    const cachedWorldRoute = this.connectorRouteWorldCache.get(cacheKey)
+    if (cachedWorldRoute) {
+      return cachedWorldRoute.map((point) => this.worldToScreen(point))
+    }
+
     const route = this.goalRoutePoints(sectionId, goal)
     const targetId = goal.unlocks[0]
 
     if (!targetId) {
+      this.connectorRouteWorldCache.set(
+        cacheKey,
+        route.map((point) => this.screenToWorld(point)),
+      )
       return route
     }
 
@@ -3303,7 +3328,12 @@ class GraphboundApp {
       targetId,
       new Set<string>([`${sectionId}:${goal.id}`]),
     )
-    return simplifyConnectorPoints([route[0], ...bridge])
+    const connection = simplifyConnectorPoints([route[0], ...bridge])
+    this.connectorRouteWorldCache.set(
+      cacheKey,
+      connection.map((point) => this.screenToWorld(point)),
+    )
+    return connection
   }
 
   private followAnimatingGoalCamera(sectionId: string, goalId: string | null, progress: number): void {
@@ -3350,6 +3380,7 @@ class GraphboundApp {
       return
     }
 
+    this.clearConnectorRouteCacheForSection(sectionId)
     const result = evaluateSectionPlot(section, runtime.placements)
     runtime.plotResult = result
     runtime.pendingGoalIds = result?.achievedGoalIds ?? []
