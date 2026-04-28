@@ -89,6 +89,8 @@ const TRAY_ARRIVAL_DURATION_MS = 760
 const TILE_UNLOCK_DURATION_MS = 1400
 const TILE_UNLOCK_REVEAL_END = 0.58
 const GRAPH_COMPLETE_DURATION_MS = 940
+const REWARD_DOODLE_LIFETIME_MS = 5600
+const GRAPHITE_DUST_LIFETIME_MS = 1250
 const GOAL_GUIDE_MAJOR_TICK_SIZE = 16
 const GOAL_GUIDE_MINOR_TICK_SIZE = 10
 const GOAL_GUIDE_LABEL_SIZE = 16
@@ -106,6 +108,25 @@ interface TileUnlockAnimation {
   sourceScreen: Point
   color: string
   ageMs: number
+}
+
+type RewardDoodleKind = 'check' | 'flower' | 'spark' | 'spiral' | 'pie' | 'crease'
+
+interface RewardDoodle {
+  id: string
+  kind: RewardDoodleKind
+  world: Point
+  color: string
+  ageMs: number
+  lifetimeMs: number
+}
+
+interface GraphiteDust {
+  id: string
+  world: Point
+  radius: number
+  ageMs: number
+  lifetimeMs: number
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -253,6 +274,10 @@ function hashSeed(key: string): number {
   }
 
   return Math.abs(hash % 2147483646) + 1
+}
+
+function seededUnit(key: string): number {
+  return (hashSeed(key) % 10000) / 10000
 }
 
 function seeded(key: string, options: Record<string, unknown>): Record<string, unknown> {
@@ -693,6 +718,8 @@ class GraphboundApp {
   private readonly trayArrivalAnimations = new Map<TileId, number>()
   private readonly tileUnlockAnimations: TileUnlockAnimation[] = []
   private readonly graphCompleteAnimations = new Map<string, number>()
+  private readonly rewardDoodles: RewardDoodle[] = []
+  private readonly graphiteDust: GraphiteDust[] = []
   private activeSectionId = this.sections[0].id
   private camera: Point = { ...this.sections[0].world }
   private zoomLevel = START_ZOOM_LEVEL
@@ -847,6 +874,8 @@ class GraphboundApp {
     this.trayArrivalAnimations.clear()
     this.tileUnlockAnimations.length = 0
     this.graphCompleteAnimations.clear()
+    this.rewardDoodles.length = 0
+    this.graphiteDust.length = 0
     this.drag = null
     this.cameraTween = null
     this.keyboardVelocity = { x: 0, y: 0 }
@@ -1643,6 +1672,90 @@ class GraphboundApp {
     if (sectionWillComplete && section.rewardTileId && !this.unlockedTiles.has(section.rewardTileId)) {
       this.queueTileUnlock(section.rewardTileId, source, color)
     }
+  }
+
+  private queueGoalRewardEffects(sectionId: string, goalId: string): void {
+    const section = this.sectionById.get(sectionId)
+    const goal = section?.goals.find((candidate) => candidate.id === goalId)
+    if (!section || !goal) {
+      return
+    }
+
+    const color = this.goalColor(sectionId, goal)
+    const source = this.goalShapeCenter(sectionId, goal)
+    const graphCenter = this.rectCenter(this.graphRect(sectionId))
+    const direction = {
+      x: source.x - graphCenter.x,
+      y: source.y - graphCenter.y,
+    }
+    const length = Math.max(1, Math.hypot(direction.x, direction.y))
+    const normalized = {
+      x: direction.x / length,
+      y: direction.y / length,
+    }
+    const perpendicular = {
+      x: -normalized.y,
+      y: normalized.x,
+    }
+    const offset = 42 * this.layout.worldScale
+    const wobble = (seededUnit(`doodle-wobble:${sectionId}:${goalId}`) - 0.5) * 26 * this.layout.worldScale
+    const doodleScreen = {
+      x: source.x + normalized.x * offset + perpendicular.x * wobble,
+      y: source.y + normalized.y * offset + perpendicular.y * wobble,
+    }
+
+    const rewardTile = goal.rewardTileId ?? section.rewardTileId ?? null
+    this.rewardDoodles.push({
+      id: `doodle:${sectionId}:${goalId}:${this.rewardDoodles.length}`,
+      kind: this.doodleKindForReward(section, rewardTile),
+      world: this.screenToWorld(doodleScreen),
+      color,
+      ageMs: 0,
+      lifetimeMs: REWARD_DOODLE_LIFETIME_MS,
+    })
+
+    for (let index = 0; index < 14; index += 1) {
+      const angle = seededUnit(`dust-angle:${sectionId}:${goalId}:${index}`) * Math.PI * 2
+      const distancePx = (6 + seededUnit(`dust-distance:${sectionId}:${goalId}:${index}`) * 28) *
+        this.layout.worldScale
+      const dustScreen = {
+        x: source.x + Math.cos(angle) * distancePx,
+        y: source.y + Math.sin(angle) * distancePx,
+      }
+      this.graphiteDust.push({
+        id: `dust:${sectionId}:${goalId}:${index}:${this.graphiteDust.length}`,
+        world: this.screenToWorld(dustScreen),
+        radius: 1.2 + seededUnit(`dust-radius:${sectionId}:${goalId}:${index}`) * 2.1,
+        ageMs: 0,
+        lifetimeMs: GRAPHITE_DUST_LIFETIME_MS,
+      })
+    }
+
+    this.ensureAnimation()
+  }
+
+  private doodleKindForReward(section: SectionDefinition, tileId: TileId | null): RewardDoodleKind {
+    if (tileId === 'π') {
+      return 'pie'
+    }
+
+    if (tileId === 'sin' || tileId === 'θ' || section.coordinateMode === 'polar') {
+      return 'spiral'
+    }
+
+    if (tileId === '(' || tileId === ')') {
+      return 'crease'
+    }
+
+    if (tileId === '^') {
+      return 'spark'
+    }
+
+    if (section.goals.length > 1) {
+      return 'flower'
+    }
+
+    return 'check'
   }
 
   private timedAnimationProgress(
@@ -3773,6 +3886,26 @@ class GraphboundApp {
       }
     }
 
+    for (let index = this.rewardDoodles.length - 1; index >= 0; index -= 1) {
+      const doodle = this.rewardDoodles[index]
+      doodle.ageMs += deltaMs
+      if (doodle.ageMs >= doodle.lifetimeMs) {
+        this.rewardDoodles.splice(index, 1)
+      } else {
+        keepGoing = true
+      }
+    }
+
+    for (let index = this.graphiteDust.length - 1; index >= 0; index -= 1) {
+      const dust = this.graphiteDust[index]
+      dust.ageMs += deltaMs
+      if (dust.ageMs >= dust.lifetimeMs) {
+        this.graphiteDust.splice(index, 1)
+      } else {
+        keepGoing = true
+      }
+    }
+
     return keepGoing
   }
 
@@ -3893,6 +4026,7 @@ class GraphboundApp {
         if (!runtime.targetHitSoundPlayed) {
           this.audio.play('target-hit')
           this.previewRewardUnlocks(section.id, runtime.animatingGoalId)
+          this.queueGoalRewardEffects(section.id, runtime.animatingGoalId)
           runtime.targetHitSoundPlayed = true
         }
         runtime.targetFillProgress = clamp(
@@ -6199,10 +6333,162 @@ class GraphboundApp {
     }
   }
 
+  private drawRewardDoodles(): void {
+    for (const doodle of this.rewardDoodles) {
+      const progress = clamp(doodle.ageMs / doodle.lifetimeMs, 0, 1)
+      const fadeIn = clamp(progress / 0.14, 0, 1)
+      const alpha = fadeIn * (1 - progress) ** 0.72 * 0.3
+      const center = this.worldToScreen(doodle.world)
+      const size = 17 * this.layout.worldScale
+      const stroke = mixColors(doodle.color, INK, 0.58, alpha)
+
+      this.context.save()
+      this.context.globalAlpha = 1
+
+      if (doodle.kind === 'check') {
+        this.drawRoughPolyline(
+          [
+            { x: center.x - size * 0.72, y: center.y },
+            { x: center.x - size * 0.18, y: center.y + size * 0.48 },
+            { x: center.x + size * 0.82, y: center.y - size * 0.58 },
+          ],
+          doodle.id,
+          {
+            stroke,
+            strokeWidth: Math.max(1, 1.8 * this.layout.worldScale),
+            roughness: 1.25,
+            bowing: 0.9,
+          },
+        )
+      } else if (doodle.kind === 'flower') {
+        for (let index = 0; index < 5; index += 1) {
+          const angle = -Math.PI / 2 + (index * Math.PI * 2) / 5
+          this.roughCanvas.circle(
+            center.x + Math.cos(angle) * size * 0.46,
+            center.y + Math.sin(angle) * size * 0.46,
+            size * 0.54,
+            seeded(`${doodle.id}:petal:${index}`, {
+              stroke,
+              strokeWidth: Math.max(1, 1.35 * this.layout.worldScale),
+              roughness: 1.25,
+              bowing: 0.9,
+            }),
+          )
+        }
+        this.roughCanvas.circle(center.x, center.y, size * 0.36, seeded(`${doodle.id}:center`, {
+          stroke,
+          strokeWidth: Math.max(1, 1.15 * this.layout.worldScale),
+          roughness: 1.1,
+          bowing: 0.8,
+        }))
+      } else if (doodle.kind === 'spark') {
+        const arms = [
+          [{ x: 0, y: -1 }, { x: 0, y: 1 }],
+          [{ x: -1, y: 0 }, { x: 1, y: 0 }],
+          [{ x: -0.7, y: -0.7 }, { x: 0.7, y: 0.7 }],
+          [{ x: -0.7, y: 0.7 }, { x: 0.7, y: -0.7 }],
+        ]
+        for (const [index, arm] of arms.entries()) {
+          this.drawRoughPolyline(
+            arm.map((point) => ({
+              x: center.x + point.x * size * 0.72,
+              y: center.y + point.y * size * 0.72,
+            })),
+            `${doodle.id}:spark:${index}`,
+            {
+              stroke,
+              strokeWidth: Math.max(1, 1.35 * this.layout.worldScale),
+              roughness: 1.2,
+              bowing: 0.7,
+            },
+          )
+        }
+      } else if (doodle.kind === 'spiral') {
+        const points: Point[] = []
+        for (let index = 0; index < 24; index += 1) {
+          const t = index / 23
+          const angle = t * Math.PI * 3.2
+          const radius = size * 0.76 * t
+          points.push({
+            x: center.x + Math.cos(angle) * radius,
+            y: center.y + Math.sin(angle) * radius,
+          })
+        }
+        this.drawRoughPolyline(points, `${doodle.id}:spiral`, {
+          stroke,
+          strokeWidth: Math.max(1, 1.45 * this.layout.worldScale),
+          roughness: 1.1,
+          bowing: 0.7,
+        })
+      } else if (doodle.kind === 'pie') {
+        this.roughCanvas.circle(center.x, center.y, size * 1.15, seeded(`${doodle.id}:pie`, {
+          stroke,
+          strokeWidth: Math.max(1, 1.45 * this.layout.worldScale),
+          roughness: 1.15,
+          bowing: 0.8,
+        }))
+        this.drawRoughPolyline(
+          [
+            center,
+            { x: center.x + size * 0.52, y: center.y - size * 0.45 },
+            { x: center.x + size * 0.72, y: center.y + size * 0.2 },
+            center,
+          ],
+          `${doodle.id}:slice`,
+          {
+            stroke,
+            strokeWidth: Math.max(1, 1.25 * this.layout.worldScale),
+            roughness: 1.05,
+            bowing: 0.6,
+          },
+        )
+      } else {
+        this.drawRoughPolyline(
+          [
+            { x: center.x - size * 0.86, y: center.y - size * 0.5 },
+            { x: center.x - size * 0.22, y: center.y - size * 0.08 },
+            { x: center.x - size * 0.74, y: center.y + size * 0.46 },
+            { x: center.x + size * 0.72, y: center.y + size * 0.08 },
+          ],
+          `${doodle.id}:crease`,
+          {
+            stroke,
+            strokeWidth: Math.max(1, 1.35 * this.layout.worldScale),
+            roughness: 1.2,
+            bowing: 0.85,
+          },
+        )
+      }
+
+      this.context.restore()
+    }
+  }
+
+  private drawGraphiteDust(): void {
+    if (this.graphiteDust.length === 0) {
+      return
+    }
+
+    this.context.save()
+    this.context.fillStyle = 'rgba(45, 38, 32, 0.18)'
+
+    for (const dust of this.graphiteDust) {
+      const progress = clamp(dust.ageMs / dust.lifetimeMs, 0, 1)
+      const center = this.worldToScreen(dust.world)
+      this.context.globalAlpha = (1 - progress) ** 1.4 * 0.42
+      this.context.beginPath()
+      this.context.arc(center.x, center.y, dust.radius * (1 - progress * 0.35), 0, Math.PI * 2)
+      this.context.fill()
+    }
+
+    this.context.restore()
+  }
+
   private render(): void {
     this.syncSelectedSectionToCenter()
     this.syncTileFocusSelection()
     this.drawBackground()
+    this.drawRewardDoodles()
     this.drawWorldLinksBase()
 
     const orderedSections = this.sections
@@ -6218,6 +6504,7 @@ class GraphboundApp {
       })
 
     orderedSections.forEach((section) => this.drawSection(section.id))
+    this.drawGraphiteDust()
     this.drawWorldLinksOverlay()
     this.drawGraphCompleteFlourishes()
     this.drawTray()
