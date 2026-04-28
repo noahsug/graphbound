@@ -86,6 +86,9 @@ const TILE_DRAG_SCALE = 1.06
 const TILE_SETTLE_DURATION_MS = 180
 const SLOT_FLASH_DURATION_MS = 220
 const TRAY_ARRIVAL_DURATION_MS = 760
+const TILE_UNLOCK_DURATION_MS = 1400
+const TILE_UNLOCK_REVEAL_END = 0.58
+const GRAPH_COMPLETE_DURATION_MS = 940
 const GOAL_GUIDE_MAJOR_TICK_SIZE = 16
 const GOAL_GUIDE_MINOR_TICK_SIZE = 10
 const GOAL_GUIDE_LABEL_SIZE = 16
@@ -96,6 +99,13 @@ type RoughCanvas = ReturnType<typeof rough.canvas>
 interface TileDrawOptions {
   scale?: number
   rotation?: number
+}
+
+interface TileUnlockAnimation {
+  tileId: TileId
+  sourceScreen: Point
+  color: string
+  ageMs: number
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -681,6 +691,8 @@ class GraphboundApp {
   private readonly slotSettleAnimations = new Map<string, number>()
   private readonly slotFlashAnimations = new Map<string, number>()
   private readonly trayArrivalAnimations = new Map<TileId, number>()
+  private readonly tileUnlockAnimations: TileUnlockAnimation[] = []
+  private readonly graphCompleteAnimations = new Map<string, number>()
   private activeSectionId = this.sections[0].id
   private camera: Point = { ...this.sections[0].world }
   private zoomLevel = START_ZOOM_LEVEL
@@ -833,6 +845,8 @@ class GraphboundApp {
     this.slotSettleAnimations.clear()
     this.slotFlashAnimations.clear()
     this.trayArrivalAnimations.clear()
+    this.tileUnlockAnimations.length = 0
+    this.graphCompleteAnimations.clear()
     this.drag = null
     this.cameraTween = null
     this.keyboardVelocity = { x: 0, y: 0 }
@@ -1577,6 +1591,60 @@ class GraphboundApp {
     this.ensureAnimation()
   }
 
+  private queueTileUnlock(tileId: TileId, sourceScreen: Point, color: string): void {
+    const existingIndex = this.tileUnlockAnimations.findIndex((animation) => animation.tileId === tileId)
+    if (existingIndex >= 0) {
+      return
+    }
+
+    const animation: TileUnlockAnimation = {
+      tileId,
+      sourceScreen,
+      color,
+      ageMs: 0,
+    }
+
+    this.tileUnlockAnimations.push(animation)
+
+    this.queueTrayArrival(tileId)
+    this.ensureAnimation()
+  }
+
+  private queueGraphComplete(sectionId: string): void {
+    this.graphCompleteAnimations.set(sectionId, 0)
+    this.ensureAnimation()
+  }
+
+  private tileUnlockProgress(tileId: TileId): number | null {
+    const animation = this.tileUnlockAnimations.find((candidate) => candidate.tileId === tileId)
+    return animation ? clamp(animation.ageMs / TILE_UNLOCK_DURATION_MS, 0, 1) : null
+  }
+
+  private previewRewardUnlocks(sectionId: string, goalId: string): void {
+    const section = this.sectionById.get(sectionId)
+    const runtime = this.sectionRuntimes.get(sectionId)
+    const goal = section?.goals.find((candidate) => candidate.id === goalId)
+
+    if (!section || !runtime || !goal) {
+      return
+    }
+
+    const source = this.goalShapeCenter(sectionId, goal)
+    const color = this.goalColor(sectionId, goal)
+
+    if (goal.rewardTileId && !this.unlockedTiles.has(goal.rewardTileId)) {
+      this.queueTileUnlock(goal.rewardTileId, source, color)
+    }
+
+    const solvedAfter = new Set(runtime.solvedGoalIds)
+    solvedAfter.add(goalId)
+    const sectionWillComplete = section.goals.every((candidate) => solvedAfter.has(candidate.id))
+
+    if (sectionWillComplete && section.rewardTileId && !this.unlockedTiles.has(section.rewardTileId)) {
+      this.queueTileUnlock(section.rewardTileId, source, color)
+    }
+  }
+
   private timedAnimationProgress(
     map: Map<string, number>,
     key: string,
@@ -2259,7 +2327,10 @@ class GraphboundApp {
   }
 
   private trayTileRects(): Array<{ tileId: TileId; rect: Rect }> {
-    const available = this.activeTileIds()
+    return this.trayTileRectsFor(this.activeTileIds())
+  }
+
+  private trayTileRectsFor(available: TileId[]): Array<{ tileId: TileId; rect: Rect }> {
     const size = this.layout.tileSize
     const gap = this.layout.trayGap
     const maxWidth = Math.max(size, this.layout.width - clamp(this.layout.width * 0.12, 36, 88))
@@ -2284,6 +2355,21 @@ class GraphboundApp {
         },
       }
     })
+  }
+
+  private tileUnlockTargetRect(tileId: TileId): Rect {
+    const current = this.trayTileRects().find((candidate) => candidate.tileId === tileId)
+    if (current) {
+      return current.rect
+    }
+
+    const futureTiles = [...this.activeTileIds(), tileId]
+    return this.trayTileRectsFor(futureTiles).find((candidate) => candidate.tileId === tileId)?.rect ?? {
+      x: this.layout.width / 2 - this.layout.tileSize / 2,
+      y: this.layout.trayY,
+      width: this.layout.tileSize,
+      height: this.layout.tileSize,
+    }
   }
 
   private equationPrefix(sectionId: string): 'y' | 'r' {
@@ -3494,7 +3580,11 @@ class GraphboundApp {
 
       this.unlockedTiles.add(goal.rewardTileId)
       newlyUnlockedTiles.push(goal.rewardTileId)
-      this.queueTrayArrival(goal.rewardTileId)
+      this.queueTileUnlock(
+        goal.rewardTileId,
+        this.goalShapeCenter(sectionId, goal),
+        this.goalColor(sectionId, goal),
+      )
       this.audio.play('tile-unlock')
     }
 
@@ -3519,7 +3609,16 @@ class GraphboundApp {
         const newlyUnlockedRewardTile = !this.unlockedTiles.has(section.rewardTileId)
         this.unlockedTiles.add(section.rewardTileId)
         if (newlyUnlockedRewardTile) {
-          this.queueTrayArrival(section.rewardTileId)
+          const sourceGoal = newGoals
+            .map((goalId) => section.goals.find((candidate) => candidate.id === goalId) ?? null)
+            .find((goal): goal is GoalDefinition => goal !== null)
+          this.queueTileUnlock(
+            section.rewardTileId,
+            sourceGoal
+              ? this.goalShapeCenter(sectionId, sourceGoal)
+              : this.rectCenter(this.graphRect(sectionId)),
+            sourceGoal ? this.goalColor(sectionId, sourceGoal) : section.accent,
+          )
           this.audio.play('tile-unlock')
         }
         runtime.statusMessage = `tile-${section.rewardTileId}-unlocked`
@@ -3530,6 +3629,7 @@ class GraphboundApp {
       } else {
         runtime.statusMessage = `${sectionId}-completed`
       }
+      this.queueGraphComplete(sectionId)
       this.audio.play('graph-complete')
     } else if (newlyUnlockedTiles.length > 0) {
       runtime.statusMessage = `tile-${newlyUnlockedTiles.at(-1)}-unlocked`
@@ -3661,6 +3761,17 @@ class GraphboundApp {
     stepMap(this.slotSettleAnimations, TILE_SETTLE_DURATION_MS)
     stepMap(this.slotFlashAnimations, SLOT_FLASH_DURATION_MS)
     stepMap(this.trayArrivalAnimations, TRAY_ARRIVAL_DURATION_MS)
+    stepMap(this.graphCompleteAnimations, GRAPH_COMPLETE_DURATION_MS)
+
+    for (let index = this.tileUnlockAnimations.length - 1; index >= 0; index -= 1) {
+      const animation = this.tileUnlockAnimations[index]
+      animation.ageMs += deltaMs
+      if (animation.ageMs >= TILE_UNLOCK_DURATION_MS) {
+        this.tileUnlockAnimations.splice(index, 1)
+      } else {
+        keepGoing = true
+      }
+    }
 
     return keepGoing
   }
@@ -3781,6 +3892,7 @@ class GraphboundApp {
       if (runtime.animatingGoalId && runtime.targetFillProgress < 1) {
         if (!runtime.targetHitSoundPlayed) {
           this.audio.play('target-hit')
+          this.previewRewardUnlocks(section.id, runtime.animatingGoalId)
           runtime.targetHitSoundPlayed = true
         }
         runtime.targetFillProgress = clamp(
@@ -5908,6 +6020,7 @@ class GraphboundApp {
       const arrivalAge = this.trayArrivalAnimations.get(tileId)
       const arrivalProgress =
         arrivalAge === undefined ? null : clamp(arrivalAge / TRAY_ARRIVAL_DURATION_MS, 0, 1)
+      const unlockProgress = this.tileUnlockProgress(tileId)
       const arrivalLift =
         arrivalProgress === null ? 0 : easeOutCubic(1 - arrivalProgress) * 17 * this.layout.worldScale
       const arrivalScale =
@@ -5917,6 +6030,9 @@ class GraphboundApp {
       this.context.save()
       if (dimmed) {
         this.context.globalAlpha = DIMMED_TRAY_TILE_ALPHA
+      }
+      if (unlockProgress !== null && unlockProgress < 0.86) {
+        this.context.globalAlpha = Math.min(this.context.globalAlpha, 0.2)
       }
       this.drawTile(
         {
@@ -5955,6 +6071,134 @@ class GraphboundApp {
     }
   }
 
+  private drawTileUnlockAnimations(): void {
+    for (const animation of this.tileUnlockAnimations) {
+      const tile = TILE_DEFINITIONS[animation.tileId]
+      const progress = clamp(animation.ageMs / TILE_UNLOCK_DURATION_MS, 0, 1)
+      const revealProgress = clamp(progress / TILE_UNLOCK_REVEAL_END, 0, 1)
+      const flyProgress = clamp((progress - TILE_UNLOCK_REVEAL_END) / (1 - TILE_UNLOCK_REVEAL_END), 0, 1)
+      const flyEase = easeInOutCubic(flyProgress)
+      const source = animation.sourceScreen
+      const revealCenter = {
+        x: source.x + 46 * this.layout.worldScale,
+        y: source.y - 34 * this.layout.worldScale,
+      }
+      const targetRect = this.tileUnlockTargetRect(animation.tileId)
+      const targetCenter = this.rectCenter(targetRect)
+      const center = {
+        x: lerp(revealCenter.x, targetCenter.x, flyEase),
+        y: lerp(revealCenter.y, targetCenter.y, flyEase),
+      }
+      const revealSize = this.layout.tileSize * (1.34 + easeOutCubic(revealProgress) * 0.16)
+      const size = lerp(revealSize, targetRect.width, flyEase)
+      const alpha = progress < 0.08 ? progress / 0.08 : progress > 0.94 ? (1 - progress) / 0.06 : 1
+      const rect = {
+        x: center.x - size / 2,
+        y: center.y - size / 2,
+        width: size,
+        height: size,
+      }
+
+      this.context.save()
+      this.context.globalAlpha = clamp(alpha, 0, 1)
+
+      if (flyProgress <= 0.001) {
+        const pulse = easeOutCubic(revealProgress)
+        this.context.globalAlpha *= 0.64
+        this.drawRoughPolyline([source, revealCenter], `tile-unlock-pulse:${animation.tileId}`, {
+          stroke: animation.color,
+          strokeWidth: Math.max(1.2, 2.2 * this.layout.worldScale),
+          roughness: 1,
+          bowing: 0.8,
+          strokeLineDash: [7 * this.layout.worldScale, 6 * this.layout.worldScale],
+        })
+        this.context.globalAlpha = clamp(alpha, 0, 1)
+        this.drawRoughRoundedRect(
+          {
+            x: rect.x - 9 * this.layout.worldScale * pulse,
+            y: rect.y - 9 * this.layout.worldScale * pulse,
+            width: rect.width + 18 * this.layout.worldScale * pulse,
+            height: rect.height + 18 * this.layout.worldScale * pulse,
+          },
+          rect.width * 0.24,
+          `tile-unlock-rim:${animation.tileId}`,
+          {
+            stroke: animation.color,
+            strokeWidth: Math.max(1.2, 1.7 * this.layout.worldScale),
+            roughness: 1.05,
+            bowing: 0.75,
+          },
+        )
+      }
+
+      this.drawTile(rect, tile, true, `unlock:${animation.tileId}`, {
+        scale: flyProgress > 0 ? 1 : 0.9 + easeOutCubic(revealProgress) * 0.1,
+        rotation: lerp(-0.08, 0.04, revealProgress) * (1 - flyProgress),
+      })
+      this.context.restore()
+    }
+  }
+
+  private drawGraphCompleteFlourishes(): void {
+    for (const [sectionId, ageMs] of this.graphCompleteAnimations) {
+      const section = this.sectionById.get(sectionId)
+      if (!section) {
+        continue
+      }
+
+      const progress = clamp(ageMs / GRAPH_COMPLETE_DURATION_MS, 0, 1)
+      const graph = this.graphRect(sectionId)
+      const pulse = Math.sin(progress * Math.PI)
+      const color = section.accent
+      const pad = (10 + pulse * 10) * this.layout.worldScale
+
+      this.context.save()
+      this.context.globalAlpha = (1 - progress) * 0.42
+      this.drawRoughRoundedRect(
+        {
+          x: graph.x - pad,
+          y: graph.y - pad,
+          width: graph.width + pad * 2,
+          height: graph.height + pad * 2,
+        },
+        12 * this.layout.worldScale,
+        `graph-complete:${sectionId}`,
+        {
+          stroke: color,
+          strokeWidth: Math.max(1.2, (1.6 + pulse) * this.layout.worldScale),
+          roughness: 1.1,
+          bowing: 0.8,
+        },
+      )
+
+      const checkStart = {
+        x: graph.x + graph.width + 18 * this.layout.worldScale,
+        y: graph.y + graph.height + 16 * this.layout.worldScale,
+      }
+      this.drawRoughPolyline(
+        [
+          checkStart,
+          {
+            x: checkStart.x + 8 * this.layout.worldScale,
+            y: checkStart.y + 9 * this.layout.worldScale,
+          },
+          {
+            x: checkStart.x + 26 * this.layout.worldScale,
+            y: checkStart.y - 10 * this.layout.worldScale,
+          },
+        ],
+        `graph-complete-check:${sectionId}`,
+        {
+          stroke: color,
+          strokeWidth: Math.max(1.4, 2.4 * this.layout.worldScale),
+          roughness: 1.05,
+          bowing: 0.65,
+        },
+      )
+      this.context.restore()
+    }
+  }
+
   private render(): void {
     this.syncSelectedSectionToCenter()
     this.syncTileFocusSelection()
@@ -5975,7 +6219,9 @@ class GraphboundApp {
 
     orderedSections.forEach((section) => this.drawSection(section.id))
     this.drawWorldLinksOverlay()
+    this.drawGraphCompleteFlourishes()
     this.drawTray()
+    this.drawTileUnlockAnimations()
     this.drawInspectedGoalOverlay()
   }
 
