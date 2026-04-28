@@ -2054,6 +2054,17 @@ function authoringAudit(rows) {
           `(needs at least ${tokenSummary.total / 3})`,
       )
     }
+
+    const unlocksPuzzle = normalizeCell(row.unlocksPuzzle) !== 'none'
+    const unlocksTile = unlockedTileId(row.unlocksTile) !== null
+    const unlockCount = Number(unlocksPuzzle) + Number(unlocksTile)
+    const onboarding = row.id === '1a' || row.id === '2a'
+
+    if (onboarding && unlockCount !== 2) {
+      issues.push(`${row.id}: onboarding solution must unlock both one puzzle and one tile`)
+    } else if (!onboarding && unlockCount !== 1) {
+      issues.push(`${row.id}: solution must unlock exactly one thing; found ${unlockCount}`)
+    }
   }
 
   if (allBlankRows.length !== 1 || allBlankRows[0]?.name !== 'Finale') {
@@ -2073,7 +2084,7 @@ function printAuthoringAudit(audit) {
   if (audit.issues.length === 0) {
     console.log(
       `Authoring audit: pass (${audit.rowCount} rows; axis span/endpoints/zero, ` +
-        'target rounding/edge placement, token density, unique intended solutions, and Finale blank-template checks)',
+        'target rounding/edge placement, token density, unlock counts, unique intended solutions, and Finale blank-template checks)',
     )
     return
   }

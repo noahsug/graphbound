@@ -2682,8 +2682,8 @@ class GraphboundApp {
   }
 
   private goalMatchesHit(goal: GoalDefinition, hit: BoundaryHit): boolean {
-    if (goal.target && distanceBetween(goal.target, hit.point) <= GOAL_TARGET_TOLERANCE) {
-      return true
+    if (goal.target) {
+      return distanceBetween(goal.target, hit.point) <= GOAL_TARGET_TOLERANCE
     }
 
     if (!hit.edges.includes(goal.edge)) {
@@ -2789,7 +2789,7 @@ class GraphboundApp {
       return { x: anchor.x, y: anchor.y + extension }
     }
 
-    return this.graphOutsidePointToward(sectionId, targetId)
+    return this.boardOutsidePointToward(sectionId, targetId)
   }
 
   private goalRouteWaypoints(sectionId: string, goal: GoalDefinition): Point[] {
@@ -2928,19 +2928,19 @@ class GraphboundApp {
     return [anchor, ...route]
   }
 
-  private graphOutsidePointToward(sectionId: string, targetId: string): Point {
-    const sourceRect = this.graphRect(sectionId)
+  private boardOutsidePointToward(sectionId: string, targetId: string): Point {
+    const sourceRect = this.boardRect(sectionId)
     const sourceCenter = this.rectCenter(sourceRect)
-    const targetCenter = this.rectCenter(this.graphRect(targetId))
+    const targetCenter = this.rectCenter(this.boardRect(targetId))
     const offset = 42 * this.layout.worldScale
 
     return this.rectOutsidePointToward(sourceRect, sourceCenter, targetCenter, offset)
   }
 
-  private graphOutsidePointFrom(sectionId: string, sourceId: string): Point {
-    const targetRect = this.graphRect(sectionId)
+  private boardOutsidePointFrom(sectionId: string, sourceId: string): Point {
+    const targetRect = this.boardRect(sectionId)
     const targetCenter = this.rectCenter(targetRect)
-    const sourceCenter = this.rectCenter(this.graphRect(sourceId))
+    const sourceCenter = this.rectCenter(this.boardRect(sourceId))
     const offset = 42 * this.layout.worldScale
 
     return this.rectOutsidePointToward(targetRect, targetCenter, sourceCenter, offset)
@@ -2968,20 +2968,22 @@ class GraphboundApp {
     ignoredIds: Set<string>,
     ignoredGoalKeys = new Set<string>(),
   ): Array<{ id: string; rect: Rect }> {
-    const graphObstacles = this.sections
-      .filter((section) => this.unlockedSections.has(section.id) && !ignoredIds.has(section.id))
-      .map((section) => ({ id: `graph:${section.id}`, rect: this.graphRect(section.id) }))
+    const boardObstacles = this.sections
+      .filter((section) => !ignoredIds.has(section.id))
+      .map((section) => ({ id: `board:${section.id}`, rect: this.boardRect(section.id) }))
 
-    const goalObstacles = this.sections.flatMap((section) =>
-      section.goals
-        .filter((goal) => !ignoredGoalKeys.has(`${section.id}:${goal.id}`))
-        .map((goal) => ({
-          id: `goal:${section.id}:${goal.id}`,
-          rect: this.goalShapeRect(section.id, goal),
-        }))
-    )
+    const goalObstacles = this.sections
+      .filter((section) => !ignoredIds.has(section.id))
+      .flatMap((section) =>
+        section.goals
+          .filter((goal) => !ignoredGoalKeys.has(`${section.id}:${goal.id}`))
+          .map((goal) => ({
+            id: `goal:${section.id}:${goal.id}`,
+            rect: this.goalShapeRect(section.id, goal),
+          })),
+      )
 
-    return [...graphObstacles, ...goalObstacles]
+    return [...boardObstacles, ...goalObstacles]
   }
 
   private segmentObstacleCount(
@@ -3131,10 +3133,10 @@ class GraphboundApp {
     targetId: string,
     ignoredGoalKeys = new Set<string>(),
   ): Point[] {
-    const targetPoint = this.graphOutsidePointFrom(targetId, sourceId)
+    const targetPoint = this.boardOutsidePointFrom(targetId, sourceId)
     const routed = this.routedConnectorPoints(
       [sourcePoint, targetPoint],
-      new Set<string>([sourceId, targetId]),
+      new Set<string>(),
       ignoredGoalKeys,
     )
     return simplifyConnectorPoints(routed)

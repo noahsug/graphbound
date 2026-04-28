@@ -112,6 +112,10 @@ function goalCoordinate(goal: GoalDefinition, point: PlotPoint): number {
 }
 
 function matchesGoal(goal: GoalDefinition, hit: BoundaryHit): boolean {
+  if (goal.target) {
+    return false
+  }
+
   if (!hit.edges.includes(goal.edge)) {
     return false
   }
@@ -1202,8 +1206,9 @@ export function evaluateSectionPlot(
   const achievedGoalIds = section.goals
     .filter(
       (goal) =>
-        matchesGoalByTarget(goal, segments) ||
-        hits.some((hit) => matchesGoal(goal, hit)),
+        goal.target
+          ? matchesGoalByTarget(goal, segments)
+          : hits.some((hit) => matchesGoal(goal, hit)),
     )
     .map((goal) => goal.id)
 

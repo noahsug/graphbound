@@ -53,7 +53,7 @@ These requirements should be testable with numbers, fixed pass/fail checks, or d
 ### Puzzle Authoring Safety
 
 - [ ] `puzzles.json` is the single source of truth for authored puzzle data. `PUZZLES.md` is generated from it with `npm run generate-puzzles`, and solution-finding tooling reads `puzzles.json` by default.
-- [ ] Except for onboarding puzzles `1` and `2`, each puzzle solution unlocks exactly one thing: either one puzzle or one new tile, never both.
+- [ ] Except for onboarding puzzles `1` and `2`, each puzzle solution unlocks exactly one thing: either one puzzle, one new tile, or the terminal victory state, never more than one.
 - [ ] Puzzle `1` unlocks puzzle `2` and a new tile; puzzle `2` unlocks puzzle `3` and a new tile.
 - [ ] Intended solutions never use a leading `+` or empty parentheses `()`.
 - [ ] Each intended solution may appear only once across the whole game; rearrangements that canonicalize to the same equation, such as `y = 2 + x` and `y = x + 2`, count as the same intended solution.
@@ -78,6 +78,7 @@ These requirements should be testable with numbers, fixed pass/fail checks, or d
 - [ ] Polar graph lines draw from `theta = 0` upward until the target is reached.
 - [ ] The graph line stops at the target shape.
 - [ ] The dashed unlock connector starts outside the current graph and ends outside the next graph.
+- [ ] The dashed unlock connector does not pass through any puzzle board.
 - [ ] The dashed unlock connector does not pass through any graph.
 - [ ] The dashed unlock connector does not cross any equation.
 - [ ] The dashed unlock connector does not self-overlap.

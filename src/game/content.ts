@@ -511,16 +511,16 @@ function visualForGroup(group: PuzzleGroup): SectionVisualDefinition {
 
   return {
     terrainWidth: 620,
-    terrainHeight: 390,
+    terrainHeight: 422,
     boardX: 64,
     boardY: 28,
     boardWidth: 372,
-    boardHeight: 302,
+    boardHeight: 334,
     graphX: 46,
     graphY: 18,
     graphWidth: 210,
     graphHeight: 210,
-    equationY: 254,
+    equationY: 284,
     slotSize: blankCount >= 6 ? 34 : 38,
     tokenGap: blankCount >= 6 ? 7 : 9,
   }
