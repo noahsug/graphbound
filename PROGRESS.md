@@ -430,3 +430,5 @@ Original prompt: Create a GitHub repo for this web game project, write a detaile
 - Started implementing the finish-line design roadmap from `DESIGN.md`, beginning with Pass 1: audio foundation.
 - Added a generated-audio `AudioManager` with persisted mute/music/sfx settings and a small DOM settings control. Initial SFX hooks cover tile placement/replacement, invalid placement, target hits, tile unlocks, puzzle-route unlocks, and graph completion.
 - Verified Pass 1 with `npm run build`, the required Playwright game client at `output/web-game/audio-pass1-client/`, and a focused first-solve browser check at `output/web-game/audio-pass1-solve/` with no console errors.
+- Completed Pass 2 tile tactility: tray tiles now lift on hover, dragged tiles scale/tilt with stronger shadow, placed tiles settle into slots, replacement drops flash the occupied slot, and newly unlocked tray tiles get a short arrival pulse.
+- Verified Pass 2 with `npm run build`, the required Playwright client at `output/web-game/tile-tactility-pass2-client/`, and focused hover/place/replace captures in `output/web-game/tile-tactility-pass2/` with clean console output.

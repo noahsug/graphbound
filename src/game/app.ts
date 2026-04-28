@@ -81,12 +81,22 @@ const EQUATION_SCRIPT_SLOT_SCALE = 0.72
 const MAJOR_TICK_SIZE = 12
 const MINOR_TICK_SIZE = 6
 const TICK_STROKE_WIDTH = 1.55
+const TILE_HOVER_LIFT_PX = 5
+const TILE_DRAG_SCALE = 1.06
+const TILE_SETTLE_DURATION_MS = 180
+const SLOT_FLASH_DURATION_MS = 220
+const TRAY_ARRIVAL_DURATION_MS = 760
 const GOAL_GUIDE_MAJOR_TICK_SIZE = 16
 const GOAL_GUIDE_MINOR_TICK_SIZE = 10
 const GOAL_GUIDE_LABEL_SIZE = 16
 const CAMERA_VISIBILITY_MARGIN_PX = 50
 
 type RoughCanvas = ReturnType<typeof rough.canvas>
+
+interface TileDrawOptions {
+  scale?: number
+  rotation?: number
+}
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value))
@@ -665,8 +675,12 @@ class GraphboundApp {
     | null = null
   private selectedTileId: TileId | null = null
   private tileFocusSectionId: string | null = null
+  private hoveredTrayTileId: TileId | null = null
   private hoveredGoalKey: string | null = null
   private pinnedGoalKey: string | null = null
+  private readonly slotSettleAnimations = new Map<string, number>()
+  private readonly slotFlashAnimations = new Map<string, number>()
+  private readonly trayArrivalAnimations = new Map<TileId, number>()
   private activeSectionId = this.sections[0].id
   private camera: Point = { ...this.sections[0].world }
   private zoomLevel = START_ZOOM_LEVEL
@@ -815,6 +829,10 @@ class GraphboundApp {
     this.connectorRouteWorldCache.clear()
     this.selectedTileId = null
     this.tileFocusSectionId = null
+    this.hoveredTrayTileId = null
+    this.slotSettleAnimations.clear()
+    this.slotFlashAnimations.clear()
+    this.trayArrivalAnimations.clear()
     this.drag = null
     this.cameraTween = null
     this.keyboardVelocity = { x: 0, y: 0 }
@@ -1538,6 +1556,38 @@ class GraphboundApp {
 
   private activeTileIds(): TileId[] {
     return [...this.unlockedTiles]
+  }
+
+  private slotAnimationKey(sectionId: string, slotId: string): string {
+    return `${sectionId}:${slotId}`
+  }
+
+  private queueSlotSettle(sectionId: string, slotId: string): void {
+    this.slotSettleAnimations.set(this.slotAnimationKey(sectionId, slotId), 0)
+    this.ensureAnimation()
+  }
+
+  private queueSlotFlash(sectionId: string, slotId: string): void {
+    this.slotFlashAnimations.set(this.slotAnimationKey(sectionId, slotId), 0)
+    this.ensureAnimation()
+  }
+
+  private queueTrayArrival(tileId: TileId): void {
+    this.trayArrivalAnimations.set(tileId, 0)
+    this.ensureAnimation()
+  }
+
+  private timedAnimationProgress(
+    map: Map<string, number>,
+    key: string,
+    durationMs: number,
+  ): number | null {
+    const age = map.get(key)
+    if (age === undefined) {
+      return null
+    }
+
+    return clamp(age / durationMs, 0, 1)
   }
 
   private slotIdUsingTile(sectionId: string, tileId: TileId): string | null {
@@ -2882,6 +2932,19 @@ class GraphboundApp {
     return true
   }
 
+  private updateHoveredTrayTile(point: Point | null): boolean {
+    const nextTileId = point
+      ? (this.trayTileRects().find(({ rect }) => pointInRect(point, rect))?.tileId ?? null)
+      : null
+
+    if (nextTileId === this.hoveredTrayTileId) {
+      return false
+    }
+
+    this.hoveredTrayTileId = nextTileId
+    return true
+  }
+
   private clearPinnedGoalSelection(): boolean {
     if (!this.pinnedGoalKey && !this.hoveredGoalKey) {
       return false
@@ -3431,6 +3494,7 @@ class GraphboundApp {
 
       this.unlockedTiles.add(goal.rewardTileId)
       newlyUnlockedTiles.push(goal.rewardTileId)
+      this.queueTrayArrival(goal.rewardTileId)
       this.audio.play('tile-unlock')
     }
 
@@ -3455,6 +3519,7 @@ class GraphboundApp {
         const newlyUnlockedRewardTile = !this.unlockedTiles.has(section.rewardTileId)
         this.unlockedTiles.add(section.rewardTileId)
         if (newlyUnlockedRewardTile) {
+          this.queueTrayArrival(section.rewardTileId)
           this.audio.play('tile-unlock')
         }
         runtime.statusMessage = `tile-${section.rewardTileId}-unlocked`
@@ -3541,6 +3606,10 @@ class GraphboundApp {
     this.activeRuntime.placements[slotId] = tileId
     this.selectedTileId = null
     this.focusTilesOnSection(this.activeSectionId)
+    this.queueSlotSettle(this.activeSectionId, slotId)
+    if (replacingDifferentTile) {
+      this.queueSlotFlash(this.activeSectionId, slotId)
+    }
     this.audio.play(replacingDifferentTile ? 'tile-replace' : 'tile-place')
     this.updateSectionPlot(this.activeSectionId, animated)
     this.render()
@@ -3574,8 +3643,32 @@ class GraphboundApp {
     this.lastFrameTime = null
   }
 
+  private stepTimedAnimations(deltaMs: number): boolean {
+    let keepGoing = false
+
+    const stepMap = <K,>(map: Map<K, number>, durationMs: number): void => {
+      for (const [key, age] of map) {
+        const nextAge = age + deltaMs
+        if (nextAge >= durationMs) {
+          map.delete(key)
+        } else {
+          map.set(key, nextAge)
+          keepGoing = true
+        }
+      }
+    }
+
+    stepMap(this.slotSettleAnimations, TILE_SETTLE_DURATION_MS)
+    stepMap(this.slotFlashAnimations, SLOT_FLASH_DURATION_MS)
+    stepMap(this.trayArrivalAnimations, TRAY_ARRIVAL_DURATION_MS)
+
+    return keepGoing
+  }
+
   private step(deltaMs: number): boolean {
     let keepGoing = false
+
+    keepGoing = this.stepTimedAnimations(deltaMs) || keepGoing
 
     if (this.cameraTween) {
       if (this.cameraTween.delayMs > 0) {
@@ -3807,6 +3900,7 @@ class GraphboundApp {
         start: point,
       }
       this.canvas.setPointerCapture(event.pointerId)
+      this.updateHoveredTrayTile(null)
       this.render()
       return
     }
@@ -3832,6 +3926,7 @@ class GraphboundApp {
         start: point,
       }
       this.canvas.setPointerCapture(event.pointerId)
+      this.updateHoveredTrayTile(null)
       this.render()
       return
     }
@@ -3904,7 +3999,8 @@ class GraphboundApp {
     }
 
     if (!this.drag || this.drag.pointerId !== event.pointerId) {
-      if (this.updateHoveredGoal(point)) {
+      const hoverChanged = this.updateHoveredGoal(point) || this.updateHoveredTrayTile(point)
+      if (hoverChanged) {
         this.render()
       }
       return
@@ -3941,7 +4037,8 @@ class GraphboundApp {
   }
 
   private handlePointerLeave = (): void => {
-    if (this.updateHoveredGoal(null)) {
+    const hoverChanged = this.updateHoveredGoal(null) || this.updateHoveredTrayTile(null)
+    if (hoverChanged) {
       this.render()
     }
   }
@@ -3961,7 +4058,8 @@ class GraphboundApp {
     }
 
     if (!this.drag || this.drag.pointerId !== event.pointerId) {
-      if (this.updateHoveredGoal(point)) {
+      const hoverChanged = this.updateHoveredGoal(point) || this.updateHoveredTrayTile(point)
+      if (hoverChanged) {
         this.render()
       }
       return
@@ -4010,6 +4108,7 @@ class GraphboundApp {
 
     this.drag = null
     this.updateHoveredGoal(point)
+    this.updateHoveredTrayTile(point)
     this.render()
   }
 
@@ -4031,6 +4130,7 @@ class GraphboundApp {
 
     this.drag = null
     this.updateHoveredGoal(null)
+    this.updateHoveredTrayTile(null)
     this.render()
   }
 
@@ -5443,11 +5543,45 @@ class GraphboundApp {
     this.context.restore()
   }
 
-  private drawTile(rect: Rect, tile: TileDefinition, active: boolean, seedKey: string): void {
+  private drawSlotReplacementFlash(rect: Rect, progress: number): void {
+    const eased = easeOutCubic(1 - progress)
+    const pad = 7 * this.layout.worldScale * eased
+    const flashRect = {
+      x: rect.x - pad,
+      y: rect.y - pad,
+      width: rect.width + pad * 2,
+      height: rect.height + pad * 2,
+    }
+
+    this.context.save()
+    this.context.globalAlpha = 0.32 * eased
+    fillRoundedRect(this.context, flashRect, rect.width * 0.26, 'rgba(238, 149, 87, 0.24)')
+    this.context.strokeStyle = 'rgba(238, 149, 87, 0.72)'
+    this.context.lineWidth = Math.max(1.2, 2.1 * this.layout.worldScale)
+    roundRectPath(this.context, flashRect, rect.width * 0.26)
+    this.context.stroke()
+    this.context.restore()
+  }
+
+  private drawTile(
+    rect: Rect,
+    tile: TileDefinition,
+    active: boolean,
+    seedKey: string,
+    options: TileDrawOptions = {},
+  ): void {
     const context = this.context
     const radius = rect.width * 0.22
 
     context.save()
+    if (options.scale || options.rotation) {
+      const centerX = rect.x + rect.width / 2
+      const centerY = rect.y + rect.height / 2
+      context.translate(centerX, centerY)
+      context.rotate(options.rotation ?? 0)
+      context.scale(options.scale ?? 1, options.scale ?? 1)
+      context.translate(-centerX, -centerY)
+    }
     context.shadowColor = SHADOW
     context.shadowBlur = active ? 14 : 8
     context.shadowOffsetY = active ? 6 : 3
@@ -5687,11 +5821,37 @@ class GraphboundApp {
 
       if (placedTileId) {
         const placedRect = this.slottedTileRect(token.part.slotId, sectionId) ?? token.rect
+        const animationKey = this.slotAnimationKey(sectionId, token.part.slotId)
+        const settleProgress = this.timedAnimationProgress(
+          this.slotSettleAnimations,
+          animationKey,
+          TILE_SETTLE_DURATION_MS,
+        )
+        const flashProgress = this.timedAnimationProgress(
+          this.slotFlashAnimations,
+          animationKey,
+          SLOT_FLASH_DURATION_MS,
+        )
+        const settle = settleProgress === null ? null : easeOutCubic(1 - settleProgress)
+
+        if (flashProgress !== null) {
+          this.drawSlotReplacementFlash(placedRect, flashProgress)
+        }
+
         this.drawTile(
-          placedRect,
+          {
+            x: placedRect.x,
+            y: placedRect.y - (settle ?? 0) * 5 * this.layout.worldScale,
+            width: placedRect.width,
+            height: placedRect.height,
+          },
           TILE_DEFINITIONS[placedTileId],
           false,
           `slot:${sectionId}:${token.part.slotId}`,
+          {
+            scale: 1 + (settle ?? 0) * 0.075,
+            rotation: Math.sin((settleProgress ?? 1) * Math.PI * 3) * 0.028 * (settle ?? 0),
+          },
         )
         continue
       }
@@ -5743,7 +5903,17 @@ class GraphboundApp {
 
     for (const { tileId, rect } of this.trayTileRects()) {
       const lifted = tileId === activeTileId && this.drag?.kind !== 'tile'
+      const hovered = tileId === this.hoveredTrayTileId && this.drag?.kind !== 'tile'
       const dimmed = this.trayTileDimmed(tileId) && tileId !== draggedTileId
+      const arrivalAge = this.trayArrivalAnimations.get(tileId)
+      const arrivalProgress =
+        arrivalAge === undefined ? null : clamp(arrivalAge / TRAY_ARRIVAL_DURATION_MS, 0, 1)
+      const arrivalLift =
+        arrivalProgress === null ? 0 : easeOutCubic(1 - arrivalProgress) * 17 * this.layout.worldScale
+      const arrivalScale =
+        arrivalProgress === null ? 1 : 1 + easeOutCubic(1 - arrivalProgress) * 0.16
+      const hoverLift = hovered ? TILE_HOVER_LIFT_PX : 0
+      const lift = lifted ? 8 : hoverLift
       this.context.save()
       if (dimmed) {
         this.context.globalAlpha = DIMMED_TRAY_TILE_ALPHA
@@ -5751,13 +5921,17 @@ class GraphboundApp {
       this.drawTile(
         {
           x: rect.x,
-          y: lifted ? rect.y - 8 : rect.y,
+          y: rect.y - lift - arrivalLift,
           width: rect.width,
           height: rect.height,
         },
         TILE_DEFINITIONS[tileId],
-        tileId === activeTileId,
+        tileId === activeTileId || hovered || arrivalProgress !== null,
         `tray:${tileId}`,
+        {
+          scale: (hovered ? 1.035 : 1) * arrivalScale,
+          rotation: hovered ? (((hashSeed(`tray-hover:${tileId}`) % 9) - 4) * Math.PI) / 900 : 0,
+        },
       )
       this.context.restore()
     }
@@ -5773,6 +5947,10 @@ class GraphboundApp {
         TILE_DEFINITIONS[this.drag.tileId],
         true,
         `drag:${this.drag.tileId}`,
+        {
+          scale: TILE_DRAG_SCALE,
+          rotation: (((hashSeed(`drag:${this.drag.tileId}`) % 13) - 6) * Math.PI) / 420,
+        },
       )
     }
   }
