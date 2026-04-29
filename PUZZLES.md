@@ -47,8 +47,8 @@ Authoring requirements live in `REQUIREMENTS.md`.
 | 27b | Rose Garden | r = □ □(2theta) + □ | r = 5sin(2theta) + 0 | 30 Witch Window | none | -4 to 4 | -4 to 4 | (3.5, 3.5) |
 | 27c | Rose Garden | r = □ □(2theta) + □ | r = 5sin(2theta) + 2 | none | pi | -5 to 5 | -5 to 5 | (5, 5) |
 | 29a | Lemniscate | r ^ 2 = 5□(□theta) + □ | r ^ 2 = 5sin(2theta) + 0 | 31 Serpentine | none | -3 to 2 | -3 to 2 | (2, 0.5) |
-| 30a | Witch Window | y = sin(□x) | y = sin(pi x) | 32 Spiral Loft | none | 0 to 5 | -2 to 3 | (0.5, 1) |
-| 31a | Serpentine | y = □x / (x ^ 2 + 2) □ □ | y = 5x / (x ^ 2 + 2) + 0 | 33 Fermat Spiral | none | -3 to 2 | -3 to 2 | (1.5, 1.5) |
+| 30a | Witch Window | y = sin(□x) | y = sin(pi x) | 32 Spiral Loft | none | 0 to 9 | -2 to 3 | (8.5, 1) |
+| 31a | Serpentine | y = □x / (x ^ 2 + □) □ □ | y = 5x / (x ^ 2 + 2) + 0 | 33 Fermat Spiral | none | -3 to 2 | -3 to 2 | (1.5, 1.5) |
 | 32a | Spiral Loft | r = □ | r = 5 | 35 Sine Dial | none | -5 to 5 | -5 to 5 | (-5, 0) |
 | 33a | Fermat Spiral | r ^ 2 = □ | r ^ 2 = theta | 35 Sine Dial | none | -2 to 4 | -3 to 3 | (-2, 0) |
 | 35a | Sine Dial | □ □ □(□x) / 2 | y = sin(pi x) / 2 | 36 Pi Vault | none | 0 to 5 | -5 to 0 | (0, 0) |

@@ -65,8 +65,8 @@ const GOAL_GLOW_ZOOM_THRESHOLD = 0.42
 const GOAL_GLOW_MIN_ALPHA = 0.12
 const GOAL_GLOW_MAX_ALPHA = 0.32
 const LOCKED_GOAL_ZOOM_THRESHOLD = 0.5
-const LOCKED_GOAL_MIN_ALPHA = 0.08
-const LOCKED_GOAL_MAX_ALPHA = 0.38
+const LOCKED_GOAL_MIN_ALPHA = 0.035
+const LOCKED_GOAL_MAX_ALPHA = 0.34
 const SOLVED_GOAL_ALPHA = 0.52
 const SOLVED_GOAL_LIGHTEN = 0.64
 const DIMMED_TRAY_TILE_ALPHA = 0.38
@@ -95,12 +95,15 @@ const GOAL_GUIDE_MAJOR_TICK_SIZE = 16
 const GOAL_GUIDE_MINOR_TICK_SIZE = 10
 const GOAL_GUIDE_LABEL_SIZE = 16
 const CAMERA_VISIBILITY_MARGIN_PX = 50
+const PROGRESS_STORAGE_KEY = 'graphbound-progress-v1'
+const PROGRESS_STORAGE_VERSION = 1
 
 type RoughCanvas = ReturnType<typeof rough.canvas>
 
 interface TileDrawOptions {
   scale?: number
   rotation?: number
+  showHighlight?: boolean
 }
 
 interface TileUnlockAnimation {
@@ -108,6 +111,13 @@ interface TileUnlockAnimation {
   sourceScreen: Point
   color: string
   ageMs: number
+}
+
+interface StoredProgress {
+  version: number
+  completedGoals: string[]
+  activeSectionId: string | null
+  tileFocusSectionId: string | null
 }
 
 type RewardDoodleKind = 'check' | 'flower' | 'spark' | 'spiral' | 'pie' | 'crease'
@@ -131,6 +141,10 @@ interface GraphiteDust {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value))
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
 }
 
 function lerp(start: number, end: number, progress: number): number {
@@ -692,7 +706,7 @@ class GraphboundApp {
   private readonly completedSections = new Set<string>()
   private readonly unlockedSections = new Set<string>()
   private readonly unlockedTiles = new Set<TileId>(['x'])
-  private readonly audio = new AudioManager()
+  private readonly audio: AudioManager
   private readonly sectionRevealProgress = new Map<string, number>()
   private readonly connectorRouteWorldCache = new Map<string, Point[]>()
   private readonly activeTouchPoints = new Map<number, Point>()
@@ -725,6 +739,7 @@ class GraphboundApp {
   private zoomLevel = START_ZOOM_LEVEL
   private statusMessage = 'world-ready'
   private startLevelOverride: number | null = null
+  private victoryScreenVisible = false
   private petDogTimer = 0
   private animationFrame: number | null = null
   private lastFrameTime: number | null = null
@@ -752,6 +767,7 @@ class GraphboundApp {
 
     this.context = context
     this.roughCanvas = rough.canvas(canvas)
+    this.audio = new AudioManager({ onResetProgress: () => this.resetStoredProgress() })
     this.layout = createLayout(960, 720, this.zoomLevel)
 
     for (const section of this.sections) {
@@ -789,7 +805,9 @@ class GraphboundApp {
     this.resizeObserver = new ResizeObserver(() => this.resize())
     this.resizeObserver.observe(this.canvas)
 
-    this.applyLevelOverrideFromUrl()
+    if (!this.applyLevelOverrideFromUrl()) {
+      this.restoreStoredProgress()
+    }
     this.camera = this.constrainedCamera(this.sectionFocusPoint(this.activeSectionId))
 
     this.canvas.addEventListener('pointerdown', this.handlePointerDown)
@@ -882,6 +900,8 @@ class GraphboundApp {
     this.movementKeys.clear()
     this.petDogTimer = 0
     this.startLevelOverride = null
+    this.victoryScreenVisible = false
+    this.audio.setVictoryMusic(false)
 
     for (const section of this.sections) {
       this.resetRuntime(section.id)
@@ -897,7 +917,257 @@ class GraphboundApp {
     this.statusMessage = 'world-ready'
   }
 
+  private clearStoredProgress(): void {
+    try {
+      window.localStorage.removeItem(PROGRESS_STORAGE_KEY)
+    } catch {
+      // Local storage can be unavailable in private or embedded contexts.
+    }
+  }
+
+  private resetStoredProgress(): void {
+    this.clearStoredProgress()
+    this.resetProgressionState()
+    this.render()
+  }
+
+  private validStoredGoalKeys(value: unknown): string[] {
+    if (!Array.isArray(value)) {
+      return []
+    }
+
+    const seen = new Set<string>()
+    const keys: string[] = []
+    for (const item of value) {
+      if (typeof item !== 'string' || seen.has(item) || !this.parseGoalKey(item)) {
+        continue
+      }
+
+      seen.add(item)
+      keys.push(item)
+    }
+
+    return keys
+  }
+
+  private validStoredSectionId(value: unknown): string | null {
+    return typeof value === 'string' && this.sectionById.has(value) ? value : null
+  }
+
+  private loadStoredProgress(): StoredProgress | null {
+    try {
+      const raw = window.localStorage.getItem(PROGRESS_STORAGE_KEY)
+      if (!raw) {
+        return null
+      }
+
+      const parsed: unknown = JSON.parse(raw)
+      if (!isRecord(parsed) || Number(parsed.version) !== PROGRESS_STORAGE_VERSION) {
+        return null
+      }
+
+      const completedGoals = this.validStoredGoalKeys(parsed.completedGoals)
+      const activeSectionId = this.validStoredSectionId(parsed.activeSectionId)
+      const tileFocusSectionId = this.validStoredSectionId(parsed.tileFocusSectionId)
+      if (completedGoals.length === 0 && !activeSectionId && !tileFocusSectionId) {
+        return null
+      }
+
+      return {
+        version: PROGRESS_STORAGE_VERSION,
+        completedGoals,
+        activeSectionId,
+        tileFocusSectionId,
+      }
+    } catch {
+      return null
+    }
+  }
+
+  private completedGoalKeysInOrder(): string[] {
+    return this.sections.flatMap((section) =>
+      section.goals
+        .map((goal) => this.goalKey(section.id, goal.id))
+        .filter((key) => this.completedGoals.has(key)),
+    )
+  }
+
+  private saveProgress(): void {
+    if (this.startLevelOverride !== null) {
+      return
+    }
+
+    const progress: StoredProgress = {
+      version: PROGRESS_STORAGE_VERSION,
+      completedGoals: this.completedGoalKeysInOrder(),
+      activeSectionId: this.activeSectionId,
+      tileFocusSectionId: this.tileFocusSectionId,
+    }
+
+    try {
+      window.localStorage.setItem(PROGRESS_STORAGE_KEY, JSON.stringify(progress))
+    } catch {
+      // Local storage can be unavailable in private or embedded contexts.
+    }
+  }
+
+  private parseGoalKey(key: string): { section: SectionDefinition; goal: GoalDefinition } | null {
+    const [sectionId, goalId, extra] = key.split(':')
+    if (!sectionId || !goalId || extra !== undefined) {
+      return null
+    }
+
+    const section = this.sectionById.get(sectionId)
+    const goal = section?.goals.find((candidate) => candidate.id === goalId) ?? null
+    return section && goal ? { section, goal } : null
+  }
+
+  private restoreRuntimeForSolvedSection(section: SectionDefinition, solvedGoalIds: string[]): void {
+    const runtime = this.sectionRuntimes.get(section.id)
+    if (!runtime) {
+      return
+    }
+
+    const showcase = this.findBootstrapPlacement(section.id, solvedGoalIds)
+    runtime.placements = showcase ?? this.createEmptyPlacements(section)
+    runtime.plotResult = showcase ? evaluateSectionPlot(section, runtime.placements) : null
+    runtime.plotProgress = runtime.plotResult?.hasVisiblePath ? 1 : 0
+    runtime.targetFillProgress = solvedGoalIds.length > 0 ? 1 : 0
+    runtime.fuseProgress = solvedGoalIds.length > 0 ? 1 : 0
+    runtime.fuseCameraProgress = solvedGoalIds.length > 0 ? 1 : 0
+    runtime.animating = false
+    runtime.animatingGoalId = null
+    runtime.pendingGoalIds = []
+    runtime.solvedGoalIds = solvedGoalIds
+    runtime.statusMessage = solvedGoalIds.length === section.goals.length ? `${section.id}-completed` : `revisit-${section.id}`
+  }
+
+  private applyStoredSolvedGoals(completedGoalKeys: string[]): void {
+    this.completedGoals.clear()
+    for (const key of completedGoalKeys) {
+      this.completedGoals.add(key)
+    }
+
+    for (const section of this.sections) {
+      const solvedGoalIds = section.goals
+        .filter((goal) => this.completedGoals.has(this.goalKey(section.id, goal.id)))
+        .map((goal) => goal.id)
+
+      if (solvedGoalIds.length === 0) {
+        continue
+      }
+
+      this.unlockedSections.add(section.id)
+      this.sectionRevealProgress.set(section.id, 1)
+
+      for (const goalId of solvedGoalIds) {
+        const goal = section.goals.find((candidate) => candidate.id === goalId)
+        if (!goal) {
+          continue
+        }
+
+        if (goal.rewardTileId) {
+          this.unlockedTiles.add(goal.rewardTileId)
+        }
+
+        for (const unlockId of goal.unlocks) {
+          this.unlockedSections.add(unlockId)
+          this.sectionRevealProgress.set(unlockId, 1)
+        }
+      }
+
+      if (solvedGoalIds.length === section.goals.length) {
+        this.completedSections.add(section.id)
+        if (section.rewardTileId) {
+          this.unlockedTiles.add(section.rewardTileId)
+        }
+      }
+
+      this.restoreRuntimeForSolvedSection(section, solvedGoalIds)
+    }
+  }
+
+  private restorableFocusSectionId(sectionId: string | null): string | null {
+    return sectionId && this.unlockedSections.has(sectionId) ? sectionId : null
+  }
+
+  private restoreStoredProgress(): boolean {
+    const stored = this.loadStoredProgress()
+    if (!stored) {
+      return false
+    }
+
+    this.resetProgressionState()
+    this.applyStoredSolvedGoals(stored.completedGoals)
+
+    const focusSectionId =
+      this.restorableFocusSectionId(stored.activeSectionId) ??
+      this.restorableFocusSectionId(stored.tileFocusSectionId) ??
+      this.activeSectionId
+
+    this.activeSectionId = focusSectionId
+    this.tileFocusSectionId =
+      stored.tileFocusSectionId &&
+      this.unlockedSections.has(stored.tileFocusSectionId)
+        ? stored.tileFocusSectionId
+        : null
+
+    const focus = this.sectionComfortableFocus(focusSectionId)
+    this.layout.worldScale = focus.scale
+    this.zoomLevel = this.layout.worldScale / this.layout.baseWorldScale
+    this.camera = focus.camera
+    this.statusMessage = stored.completedGoals.length > 0 ? 'progress-restored' : 'world-ready'
+    this.updateVictoryState(false)
+    return true
+  }
+
+  private completedPuzzleCount(): number {
+    return this.sections.filter((section) =>
+      section.goals.every((goal) => this.completedGoals.has(this.goalKey(section.id, goal.id))),
+    ).length
+  }
+
+  private hasCompletedEveryPuzzle(): boolean {
+    return this.sections.every((section) =>
+      section.goals.length > 0 &&
+      section.goals.every((goal) => this.completedGoals.has(this.goalKey(section.id, goal.id))),
+    )
+  }
+
+  private updateVictoryState(playMusic: boolean): void {
+    const completed = this.hasCompletedEveryPuzzle()
+    if (!completed) {
+      if (this.victoryScreenVisible) {
+        this.victoryScreenVisible = false
+      }
+      this.audio.setVictoryMusic(false)
+      return
+    }
+
+    const newlyVictorious = !this.victoryScreenVisible
+    this.victoryScreenVisible = true
+    this.statusMessage = 'victory'
+    if (playMusic && newlyVictorious) {
+      this.audio.playVictoryMusic()
+    } else {
+      this.audio.setVictoryMusic(true)
+    }
+  }
+
+  private dismissVictoryScreen(): void {
+    if (!this.victoryScreenVisible) {
+      return
+    }
+
+    this.victoryScreenVisible = false
+    this.render()
+  }
+
   private requestedLevelIndexFromUrl(): number | null {
+    if (!import.meta.env.DEV) {
+      return null
+    }
+
     const params = new URLSearchParams(window.location.search)
     const rawLevel = params.get('level')?.trim()
 
@@ -1095,13 +1365,14 @@ class GraphboundApp {
     this.statusMessage = `level-${targetIndex + 1}-ready`
   }
 
-  private applyLevelOverrideFromUrl(): void {
+  private applyLevelOverrideFromUrl(): boolean {
     const targetIndex = this.requestedLevelIndexFromUrl()
     if (targetIndex === null) {
-      return
+      return false
     }
 
     this.startAtLevel(targetIndex)
+    return true
   }
 
   private resize(): void {
@@ -1543,6 +1814,9 @@ class GraphboundApp {
       return
     }
 
+    this.setActiveSection(sectionId)
+    this.focusTilesOnSection(sectionId)
+
     if (centerCamera) {
       const focus = this.sectionComfortableFocus(sectionId)
       this.moveCameraAndScaleTo(
@@ -1553,7 +1827,6 @@ class GraphboundApp {
         focus.anchorScreen,
       )
     } else {
-      this.setActiveSection(sectionId)
       this.render()
     }
   }
@@ -1569,6 +1842,10 @@ class GraphboundApp {
   }
 
   private debugStartAtLevel(levelNumber: number): void {
+    if (!import.meta.env.DEV) {
+      return
+    }
+
     if (!Number.isFinite(levelNumber)) {
       return
     }
@@ -1977,26 +2254,43 @@ class GraphboundApp {
     for (let index = 0; index < values.length; index += 1) {
       const value = values[index]
 
+      if (value === 'sin' && !this.valueCanStartSinArgument(this.sinArgumentStartValue(values, index))) {
+        return false
+      }
+
+      if (this.valueIsVariable(value) && this.valueIsVariable(values[index + 1])) {
+        return false
+      }
+
       if (!value || !this.valueIsEquationOperator(value)) {
         continue
       }
 
       const previous = values[index - 1]
       const next = values[index + 1]
+      const unarySign = this.valueIsUnarySign(values, index)
+
+      if (unarySign && !this.valueCanStartUnaryOperand(next)) {
+        return false
+      }
 
       if ((value === '^' || value === '=') && (index === 0 || index === values.length - 1)) {
         return false
       }
 
-      if ((value === '^' || value === '=') && (this.valueIsEquationOperator(previous) || this.valueIsEquationOperator(next))) {
+      if (
+        (value === '^' || value === '=') &&
+        (this.valueIsEquationOperator(previous) ||
+          (this.valueIsEquationOperator(next) && !this.valueIsUnarySign(values, index + 1)))
+      ) {
         return false
       }
 
-      if (['+', '/', '^', '='].includes(value) && this.valueIsEquationOperator(previous)) {
+      if (!unarySign && ['+', '/', '^', '='].includes(value) && this.valueIsEquationOperator(previous)) {
         return false
       }
 
-      if (value === '+' && this.valueIsEquationOperator(next)) {
+      if (!unarySign && value === '+' && this.valueIsEquationOperator(next)) {
         return false
       }
     }
@@ -2047,8 +2341,79 @@ class GraphboundApp {
     return value === 'θ' || value === 'Θ' || value === 'theta'
   }
 
+  private valueIsVariable(value: string | null | undefined): boolean {
+    return value === 'x' || value === 'y' || value === 'r' || this.valueIsTheta(value)
+  }
+
   private valueIsEquationOperator(value: string | null | undefined): boolean {
     return Boolean(value && ['+', '-', '/', '^', '='].includes(value))
+  }
+
+  private valueIsUnarySign(values: Array<string | null>, index: number): boolean {
+    const value = values[index]
+    if (value !== '+' && value !== '-') {
+      return false
+    }
+
+    const previous = values[index - 1]
+    if (previous !== '=') {
+      return false
+    }
+
+    return !this.valuesFormSolvedOutputVariable(values.slice(0, index - 1))
+  }
+
+  private valueCanStartUnaryOperand(value: string | null | undefined): boolean {
+    if (value === null) {
+      return true
+    }
+
+    if (!value) {
+      return false
+    }
+
+    return (
+      value === '(' ||
+      value === 'sin' ||
+      value === 'π' ||
+      this.valueIsVariable(value) ||
+      this.valueIsNumberText(value)
+    )
+  }
+
+  private valuesFormSolvedOutputVariable(values: Array<string | null>): boolean {
+    const leftValues = values.filter((value): value is string => Boolean(value))
+    return (
+      (leftValues.length === 1 && (leftValues[0] === 'y' || leftValues[0] === 'r')) ||
+      (leftValues.length === 2 &&
+        this.valueIsNumberText(leftValues[0]) &&
+        (leftValues[1] === 'y' || leftValues[1] === 'r'))
+    )
+  }
+
+  private sinArgumentStartValue(values: Array<string | null>, sinIndex: number): string | null | undefined {
+    const next = values[sinIndex + 1]
+    return next === '(' ? values[sinIndex + 2] : next
+  }
+
+  private valueCanStartSinArgument(value: string | null | undefined): boolean {
+    if (value === null) {
+      return true
+    }
+
+    if (!value) {
+      return false
+    }
+
+    return (
+      value === '(' ||
+      value === 'π' ||
+      value === 'x' ||
+      value === 'y' ||
+      value === 'r' ||
+      this.valueIsTheta(value) ||
+      this.valueIsNumberText(value)
+    )
   }
 
   private setActiveSection(sectionId: string): void {
@@ -2057,6 +2422,7 @@ class GraphboundApp {
     }
 
     this.activeSectionId = sectionId
+    this.saveProgress()
   }
 
   private nearestSectionToCenter(): string | null {
@@ -2091,10 +2457,27 @@ class GraphboundApp {
     }
   }
 
+  private unlockScrollSourceSectionId(): string | null {
+    for (const section of this.sections) {
+      const runtime = this.sectionRuntimes.get(section.id)
+      if (!runtime?.animating || !runtime.animatingGoalId || runtime.fuseCameraProgress <= 0) {
+        continue
+      }
+
+      const goal = section.goals.find((candidate) => candidate.id === runtime.animatingGoalId)
+      if (goal?.unlocks.length) {
+        return section.id
+      }
+    }
+
+    return null
+  }
+
   private syncTileFocusSelection(): void {
+    const unlockScrollSourceId = this.unlockScrollSourceSectionId()
     const sectionId = this.tileFocusSectionId
 
-    if (sectionId && (!this.unlockedSections.has(sectionId) || this.completedSections.has(sectionId))) {
+    if (sectionId && (!this.unlockedSections.has(sectionId) || sectionId === unlockScrollSourceId)) {
       this.tileFocusSectionId = null
     }
 
@@ -2106,9 +2489,12 @@ class GraphboundApp {
       return
     }
 
+    if (unlockScrollSourceId) {
+      return
+    }
+
     const visibleSections = [...this.unlockedSections].filter(
-      (candidateId) =>
-        !this.completedSections.has(candidateId) && this.sectionVisibleRatio(candidateId) > 0.2,
+      (candidateId) => this.sectionVisibleRatio(candidateId) > 0.2,
     )
 
     if (visibleSections.length === 1) {
@@ -2868,7 +3254,12 @@ class GraphboundApp {
   }
 
   private focusTilesOnSection(sectionId: string): void {
+    if (this.tileFocusSectionId === sectionId) {
+      return
+    }
+
     this.tileFocusSectionId = sectionId
+    this.saveProgress()
   }
 
   private tileCanStillBePlacedInFocusedPuzzle(tileId: TileId): boolean {
@@ -3104,6 +3495,10 @@ class GraphboundApp {
 
     for (let sectionIndex = orderedSections.length - 1; sectionIndex >= 0; sectionIndex -= 1) {
       const section = orderedSections[sectionIndex]
+      if (!this.unlockedSections.has(section.id)) {
+        continue
+      }
+
       for (let goalIndex = section.goals.length - 1; goalIndex >= 0; goalIndex -= 1) {
         const goal = section.goals[goalIndex]
         if (pointInRect(point, this.goalShapeRect(section.id, goal))) {
@@ -3520,6 +3915,11 @@ class GraphboundApp {
   }
 
   private goalConnectionPoints(sectionId: string, goal: GoalDefinition): Point[] {
+    const targetId = goal.unlocks[0]
+    if (!targetId) {
+      return []
+    }
+
     const cacheKey = this.connectorRouteKey(sectionId, goal.id)
     const cachedWorldRoute = this.connectorRouteWorldCache.get(cacheKey)
     if (cachedWorldRoute) {
@@ -3527,15 +3927,6 @@ class GraphboundApp {
     }
 
     const route = this.goalRoutePoints(sectionId, goal)
-    const targetId = goal.unlocks[0]
-
-    if (!targetId) {
-      this.connectorRouteWorldCache.set(
-        cacheKey,
-        route.map((point) => this.screenToWorld(point)),
-      )
-      return route
-    }
 
     if (route.length === 0) {
       return route
@@ -3663,7 +4054,7 @@ class GraphboundApp {
     }
   }
 
-  private finalizeGoals(sectionId: string): void {
+  private finalizeGoals(sectionId: string, clearSourceSelectionForUnlock = false): void {
     const section = this.sectionById.get(sectionId)
     const runtime = this.sectionRuntimes.get(sectionId)
 
@@ -3679,9 +4070,10 @@ class GraphboundApp {
       this.completedGoals.add(`${sectionId}:${goalId}`)
     }
 
-    if (newGoals.length > 0 && this.tileFocusSectionId === sectionId) {
-      this.tileFocusSectionId = null
-    }
+    const newGoalsUnlockSection = newGoals.some((goalId) => {
+      const goal = section.goals.find((candidate) => candidate.id === goalId)
+      return Boolean(goal?.unlocks.length)
+    })
 
     const newlyUnlockedSections = this.unlockSectionsForGoals(sectionId, newGoals)
     const newlyUnlockedTiles: TileId[] = []
@@ -3750,7 +4142,13 @@ class GraphboundApp {
       runtime.statusMessage = `unlock-${newlyUnlockedSections[0]}`
     }
 
+    if (clearSourceSelectionForUnlock && newGoalsUnlockSection && this.tileFocusSectionId === sectionId) {
+      this.tileFocusSectionId = null
+    }
+
     this.statusMessage = runtime.statusMessage
+    this.saveProgress()
+    this.updateVictoryState(true)
   }
 
   private unlockSectionsForGoals(sectionId: string, goalIds: string[]): string[] {
@@ -4042,13 +4440,21 @@ class GraphboundApp {
         continue
       }
 
-      if (runtime.animatingGoalId && (runtime.fuseProgress < 1 || runtime.fuseCameraProgress < 1)) {
-        const goal = section.goals.find((candidate) => candidate.id === runtime.animatingGoalId)
-        const route = goal ? this.goalConnectionPoints(section.id, goal) : []
+      const animatingGoal = runtime.animatingGoalId
+        ? section.goals.find((candidate) => candidate.id === runtime.animatingGoalId)
+        : null
+      const animatingGoalUnlocksPuzzle = Boolean(animatingGoal?.unlocks.length)
+
+      if (
+        animatingGoalUnlocksPuzzle &&
+        runtime.animatingGoalId &&
+        (runtime.fuseProgress < 1 || runtime.fuseCameraProgress < 1)
+      ) {
+        const route = animatingGoal ? this.goalConnectionPoints(section.id, animatingGoal) : []
         const durationMs =
           route.length > 1 ? this.connectorDurationMs(section.id, route) : FUSE_DURATION_MS
 
-        if (!runtime.unlockRouteSoundPlayed && goal?.unlocks.length) {
+        if (!runtime.unlockRouteSoundPlayed) {
           this.audio.play('puzzle-unlock')
           runtime.unlockRouteSoundPlayed = true
         }
@@ -4087,7 +4493,7 @@ class GraphboundApp {
       }
 
       runtime.animating = false
-      this.finalizeGoals(section.id)
+      this.finalizeGoals(section.id, true)
       keepGoing = keepGoing || this.cameraTween !== null
     }
 
@@ -4115,6 +4521,13 @@ class GraphboundApp {
   private handlePointerDown = (event: PointerEvent): void => {
     void this.audio.unlock()
     const point = this.getPointerPoint(event)
+
+    if (this.victoryScreenVisible) {
+      if (!pointInRect(point, this.victoryScreenRect())) {
+        this.dismissVictoryScreen()
+      }
+      return
+    }
 
     if (event.pointerType === 'touch') {
       this.activeTouchPoints.set(event.pointerId, point)
@@ -4977,6 +5390,164 @@ class GraphboundApp {
     )
   }
 
+  private drawBackgroundMoon(center: Point, size: number, seedKey: string): void {
+    this.roughCanvas.arc(
+      center.x,
+      center.y,
+      size * 0.82,
+      size * 0.82,
+      Math.PI * 0.18,
+      Math.PI * 1.52,
+      false,
+      seeded(`${seedKey}:moon:outer`, {
+        stroke: this.backgroundSketchStroke(0.14),
+        strokeWidth: this.backgroundSketchWidth(size, 0.04),
+        roughness: 1.35,
+        bowing: 1,
+      }),
+    )
+    this.roughCanvas.arc(
+      center.x + size * 0.18,
+      center.y - size * 0.02,
+      size * 0.56,
+      size * 0.74,
+      Math.PI * 0.28,
+      Math.PI * 1.45,
+      false,
+      seeded(`${seedKey}:moon:inner`, {
+        stroke: this.backgroundSketchStroke(0.1),
+        strokeWidth: this.backgroundSketchWidth(size, 0.032),
+        roughness: 1.4,
+        bowing: 1.1,
+      }),
+    )
+  }
+
+  private drawBackgroundPaperPlane(center: Point, size: number, seedKey: string): void {
+    this.drawRoughPolyline(
+      [
+        { x: center.x - size * 0.48, y: center.y - size * 0.04 },
+        { x: center.x + size * 0.48, y: center.y - size * 0.34 },
+        { x: center.x + size * 0.12, y: center.y + size * 0.42 },
+        { x: center.x - size * 0.04, y: center.y + size * 0.12 },
+        { x: center.x - size * 0.48, y: center.y - size * 0.04 },
+      ],
+      `${seedKey}:plane:body`,
+      {
+        stroke: this.backgroundSketchStroke(0.14),
+        strokeWidth: this.backgroundSketchWidth(size, 0.038),
+        roughness: 1.4,
+        bowing: 1.1,
+      },
+    )
+    this.drawRoughPolyline(
+      [
+        { x: center.x - size * 0.04, y: center.y + size * 0.12 },
+        { x: center.x + size * 0.48, y: center.y - size * 0.34 },
+      ],
+      `${seedKey}:plane:fold`,
+      {
+        stroke: this.backgroundSketchStroke(0.1),
+        strokeWidth: this.backgroundSketchWidth(size, 0.03),
+        roughness: 1.45,
+        bowing: 1.15,
+      },
+    )
+  }
+
+  private drawBackgroundLadder(center: Point, size: number, seedKey: string): void {
+    const leftTop = { x: center.x - size * 0.24, y: center.y - size * 0.48 }
+    const leftBottom = { x: center.x - size * 0.34, y: center.y + size * 0.48 }
+    const rightTop = { x: center.x + size * 0.24, y: center.y - size * 0.48 }
+    const rightBottom = { x: center.x + size * 0.34, y: center.y + size * 0.48 }
+    const stroke = this.backgroundSketchStroke(0.13)
+    const strokeWidth = this.backgroundSketchWidth(size, 0.034)
+
+    this.drawRoughPolyline([leftTop, leftBottom], `${seedKey}:ladder:left`, {
+      stroke,
+      strokeWidth,
+      roughness: 1.4,
+      bowing: 1.1,
+    })
+    this.drawRoughPolyline([rightTop, rightBottom], `${seedKey}:ladder:right`, {
+      stroke,
+      strokeWidth,
+      roughness: 1.4,
+      bowing: 1.1,
+    })
+
+    for (let rung = 0; rung < 4; rung += 1) {
+      const progress = (rung + 0.5) / 4
+      this.drawRoughPolyline(
+        [
+          { x: lerp(leftTop.x, leftBottom.x, progress), y: lerp(leftTop.y, leftBottom.y, progress) },
+          { x: lerp(rightTop.x, rightBottom.x, progress), y: lerp(rightTop.y, rightBottom.y, progress) },
+        ],
+        `${seedKey}:ladder:rung:${rung}`,
+        {
+          stroke,
+          strokeWidth,
+          roughness: 1.45,
+          bowing: 1.2,
+        },
+      )
+    }
+  }
+
+  private drawBackgroundCrown(center: Point, size: number, seedKey: string): void {
+    this.drawRoughPolyline(
+      [
+        { x: center.x - size * 0.44, y: center.y + size * 0.22 },
+        { x: center.x - size * 0.34, y: center.y - size * 0.24 },
+        { x: center.x - size * 0.1, y: center.y + size * 0.08 },
+        { x: center.x, y: center.y - size * 0.36 },
+        { x: center.x + size * 0.12, y: center.y + size * 0.08 },
+        { x: center.x + size * 0.36, y: center.y - size * 0.22 },
+        { x: center.x + size * 0.44, y: center.y + size * 0.22 },
+        { x: center.x - size * 0.44, y: center.y + size * 0.22 },
+      ],
+      `${seedKey}:crown`,
+      {
+        stroke: this.backgroundSketchStroke(0.14),
+        strokeWidth: this.backgroundSketchWidth(size, 0.038),
+        roughness: 1.35,
+        bowing: 1,
+      },
+    )
+  }
+
+  private drawBackgroundComet(center: Point, size: number, seedKey: string): void {
+    this.drawBackgroundStar({ x: center.x + size * 0.28, y: center.y - size * 0.18 }, size * 0.74, `${seedKey}:comet:star`)
+    this.drawRoughPolyline(
+      [
+        { x: center.x + size * 0.02, y: center.y },
+        { x: center.x - size * 0.22, y: center.y + size * 0.12 },
+        { x: center.x - size * 0.48, y: center.y + size * 0.16 },
+      ],
+      `${seedKey}:comet:tail-a`,
+      {
+        stroke: this.backgroundSketchStroke(0.1),
+        strokeWidth: this.backgroundSketchWidth(size, 0.032),
+        roughness: 1.55,
+        bowing: 1.35,
+      },
+    )
+    this.drawRoughPolyline(
+      [
+        { x: center.x + size * 0.04, y: center.y - size * 0.14 },
+        { x: center.x - size * 0.18, y: center.y - size * 0.06 },
+        { x: center.x - size * 0.42, y: center.y - size * 0.02 },
+      ],
+      `${seedKey}:comet:tail-b`,
+      {
+        stroke: this.backgroundSketchStroke(0.1),
+        strokeWidth: this.backgroundSketchWidth(size, 0.028),
+        roughness: 1.55,
+        bowing: 1.35,
+      },
+    )
+  }
+
   private drawBackgroundGlyph(kind: string, center: Point, size: number, seedKey: string): void {
     if (kind === 'loop') {
       this.drawBackgroundLoop(center, size, seedKey)
@@ -5030,6 +5601,26 @@ class GraphboundApp {
       this.drawBackgroundBoat(center, size, seedKey)
       return
     }
+    if (kind === 'moon') {
+      this.drawBackgroundMoon(center, size, seedKey)
+      return
+    }
+    if (kind === 'plane') {
+      this.drawBackgroundPaperPlane(center, size, seedKey)
+      return
+    }
+    if (kind === 'ladder') {
+      this.drawBackgroundLadder(center, size, seedKey)
+      return
+    }
+    if (kind === 'crown') {
+      this.drawBackgroundCrown(center, size, seedKey)
+      return
+    }
+    if (kind === 'comet') {
+      this.drawBackgroundComet(center, size, seedKey)
+      return
+    }
 
     this.drawBackgroundUnderline(center, size, seedKey)
   }
@@ -5040,9 +5631,9 @@ class GraphboundApp {
     const artCell = 276
     const doodleCell = 166
     const markCell = 114
-    const artKinds = ['flower', 'cloud', 'kite', 'leaf', 'boat'] as const
-    const doodleKinds = ['arrow', 'smiley', 'spiral', 'squiggle', 'flower'] as const
-    const markKinds = ['tick', 'underline', 'squiggle'] as const
+    const artKinds = ['flower', 'cloud', 'kite', 'leaf', 'boat', 'moon', 'plane', 'crown', 'comet'] as const
+    const doodleKinds = ['arrow', 'smiley', 'spiral', 'squiggle', 'flower', 'ladder', 'plane', 'moon'] as const
+    const markKinds = ['tick', 'underline', 'squiggle', 'cross'] as const
 
     const drawCandidates = (
       cell: number,
@@ -5845,7 +6436,7 @@ class GraphboundApp {
       bowing: 0.8,
     })
 
-    if (active) {
+    if (active && options.showHighlight !== false) {
       this.drawRoughRoundedRect(
         {
           x: rect.x - 4,
@@ -6181,6 +6772,7 @@ class GraphboundApp {
         {
           scale: (hovered ? 1.035 : 1) * arrivalScale,
           rotation: hovered ? (((hashSeed(`tray-hover:${tileId}`) % 9) - 4) * Math.PI) / 900 : 0,
+          showHighlight: arrivalProgress === null,
         },
       )
       this.context.restore()
@@ -6237,7 +6829,6 @@ class GraphboundApp {
       this.context.globalAlpha = clamp(alpha, 0, 1)
 
       if (flyProgress <= 0.001) {
-        const pulse = easeOutCubic(revealProgress)
         this.context.globalAlpha *= 0.64
         this.drawRoughPolyline([source, revealCenter], `tile-unlock-pulse:${animation.tileId}`, {
           stroke: animation.color,
@@ -6246,28 +6837,12 @@ class GraphboundApp {
           bowing: 0.8,
           strokeLineDash: [7 * this.layout.worldScale, 6 * this.layout.worldScale],
         })
-        this.context.globalAlpha = clamp(alpha, 0, 1)
-        this.drawRoughRoundedRect(
-          {
-            x: rect.x - 9 * this.layout.worldScale * pulse,
-            y: rect.y - 9 * this.layout.worldScale * pulse,
-            width: rect.width + 18 * this.layout.worldScale * pulse,
-            height: rect.height + 18 * this.layout.worldScale * pulse,
-          },
-          rect.width * 0.24,
-          `tile-unlock-rim:${animation.tileId}`,
-          {
-            stroke: animation.color,
-            strokeWidth: Math.max(1.2, 1.7 * this.layout.worldScale),
-            roughness: 1.05,
-            bowing: 0.75,
-          },
-        )
       }
 
       this.drawTile(rect, tile, true, `unlock:${animation.tileId}`, {
         scale: flyProgress > 0 ? 1 : 0.9 + easeOutCubic(revealProgress) * 0.1,
         rotation: lerp(-0.08, 0.04, revealProgress) * (1 - flyProgress),
+        showHighlight: false,
       })
       this.context.restore()
     }
@@ -6282,29 +6857,10 @@ class GraphboundApp {
 
       const progress = clamp(ageMs / GRAPH_COMPLETE_DURATION_MS, 0, 1)
       const graph = this.graphRect(sectionId)
-      const pulse = Math.sin(progress * Math.PI)
       const color = section.accent
-      const pad = (10 + pulse * 10) * this.layout.worldScale
 
       this.context.save()
       this.context.globalAlpha = (1 - progress) * 0.42
-      this.drawRoughRoundedRect(
-        {
-          x: graph.x - pad,
-          y: graph.y - pad,
-          width: graph.width + pad * 2,
-          height: graph.height + pad * 2,
-        },
-        12 * this.layout.worldScale,
-        `graph-complete:${sectionId}`,
-        {
-          stroke: color,
-          strokeWidth: Math.max(1.2, (1.6 + pulse) * this.layout.worldScale),
-          roughness: 1.1,
-          bowing: 0.8,
-        },
-      )
-
       const checkStart = {
         x: graph.x + graph.width + 18 * this.layout.worldScale,
         y: graph.y + graph.height + 16 * this.layout.worldScale,
@@ -6331,6 +6887,79 @@ class GraphboundApp {
       )
       this.context.restore()
     }
+  }
+
+  private victoryScreenRect(): Rect {
+    const width = clamp(this.layout.width * 0.72, 320, 580)
+    const height = clamp(this.layout.height * 0.32, 210, 290)
+    return {
+      x: (this.layout.width - width) / 2,
+      y: (this.layout.height - height) / 2,
+      width,
+      height,
+    }
+  }
+
+  private drawVictoryScreen(): void {
+    if (!this.victoryScreenVisible) {
+      return
+    }
+
+    const rect = this.victoryScreenRect()
+    const width = rect.width
+    const height = rect.height
+    const center = this.rectCenter(rect)
+
+    this.context.save()
+    this.context.fillStyle = 'rgba(255, 250, 239, 0.72)'
+    this.context.fillRect(0, 0, this.layout.width, this.layout.height)
+    fillRoundedRect(this.context, rect, 14, 'rgba(255, 250, 239, 0.92)')
+    this.drawRoughRoundedRect(rect, 14, 'victory-panel', {
+      stroke: GOAL,
+      strokeWidth: Math.max(1.4, 2.2 * this.layout.worldScale),
+      roughness: 1.25,
+      bowing: 0.8,
+    })
+
+    const sparkleColor = 'rgba(239, 149, 81, 0.78)'
+    const starCenters = [
+      { x: rect.x + width * 0.18, y: rect.y + height * 0.24 },
+      { x: rect.x + width * 0.82, y: rect.y + height * 0.24 },
+      { x: rect.x + width * 0.28, y: rect.y + height * 0.78 },
+      { x: rect.x + width * 0.72, y: rect.y + height * 0.78 },
+    ]
+    for (const [index, point] of starCenters.entries()) {
+      this.drawRoughPolyline(
+        [
+          { x: point.x, y: point.y - 12 },
+          { x: point.x + 5, y: point.y - 3 },
+          { x: point.x + 14, y: point.y },
+          { x: point.x + 5, y: point.y + 4 },
+          { x: point.x, y: point.y + 13 },
+          { x: point.x - 5, y: point.y + 4 },
+          { x: point.x - 14, y: point.y },
+          { x: point.x - 5, y: point.y - 3 },
+          { x: point.x, y: point.y - 12 },
+        ],
+        `victory-star:${index}`,
+        {
+          stroke: sparkleColor,
+          strokeWidth: 1.8,
+          roughness: 1.15,
+          bowing: 0.8,
+        },
+      )
+    }
+
+    this.context.fillStyle = INK
+    this.context.textAlign = 'center'
+    this.context.textBaseline = 'middle'
+    this.context.font = `${Math.round(clamp(width * 0.09, 28, 46))}px 'Schoolbell', cursive`
+    this.context.fillText('Graphbound complete', center.x, center.y - height * 0.16)
+    this.context.font = `${Math.round(clamp(width * 0.038, 15, 21))}px 'Short Stack', cursive`
+    this.context.fillText('Every puzzle solved', center.x, center.y + height * 0.08)
+    this.context.fillText(`${this.completedPuzzleCount()} / ${this.sections.length}`, center.x, center.y + height * 0.25)
+    this.context.restore()
   }
 
   private drawRewardDoodles(): void {
@@ -6510,6 +7139,7 @@ class GraphboundApp {
     this.drawTray()
     this.drawTileUnlockAnimations()
     this.drawInspectedGoalOverlay()
+    this.drawVictoryScreen()
   }
 
   private renderGameToText(): string {
@@ -6552,12 +7182,14 @@ class GraphboundApp {
 
     return JSON.stringify({
       mode:
-        this.cameraTween ||
-        sections.some((section) => section.reveal < 1) ||
-        this.keyboardVelocity.x !== 0 ||
-        this.keyboardVelocity.y !== 0
-          ? 'animating'
-          : 'explore',
+        this.victoryScreenVisible
+          ? 'victory'
+          : this.cameraTween ||
+              sections.some((section) => section.reveal < 1) ||
+              this.keyboardVelocity.x !== 0 ||
+              this.keyboardVelocity.y !== 0
+            ? 'animating'
+            : 'explore',
       controls:
         'drag or two-finger scroll to pan, pinch or cmd+gesture to zoom, use WASD or arrow keys to glide the camera, use Q/E to zoom, tap a board to center it, drag or tap tiles into slots',
       coordinateSystem:
@@ -6570,6 +7202,9 @@ class GraphboundApp {
       },
       zoom: Number(this.zoomLevel.toFixed(2)),
       inspectedGoal: this.inspectedGoalKey(),
+      victory: this.victoryScreenVisible,
+      completedPuzzles: this.completedPuzzleCount(),
+      totalPuzzles: this.sections.length,
       unlockedTiles: [...this.unlockedTiles],
       trayTiles: this.trayTileRects().map(({ tileId }) => tileId),
       selectedTile: this.selectedTileId,

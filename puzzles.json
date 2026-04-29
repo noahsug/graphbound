@@ -913,7 +913,7 @@
       "axes": {
         "x": {
           "min": 0,
-          "max": 5
+          "max": 9
         },
         "y": {
           "min": -2,
@@ -921,14 +921,14 @@
         }
       },
       "target": {
-        "x": 0.5,
+        "x": 8.5,
         "y": 1
       }
     },
     {
       "id": "31a",
       "name": "Serpentine",
-      "equation": "y = □x / (x ^ 2 + 2) □ □",
+      "equation": "y = □x / (x ^ 2 + □) □ □",
       "intendedSolution": "y = 5x / (x ^ 2 + 2) + 0",
       "unlocksPuzzle": "33 Fermat Spiral",
       "unlocksTile": "none",

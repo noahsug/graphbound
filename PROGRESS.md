@@ -439,3 +439,44 @@ Original prompt: Create a GitHub repo for this web game project, write a detaile
 - Completed Pass 5 music: `AudioManager` now starts a generated sparse calming loop after first interaction, keeps it behind the existing music volume control, and ducks the music briefly during target hits, tile unlocks, puzzle unlock routes, and graph-complete chimes.
 - Verified Pass 5 with `npm run build`, the required Playwright client at `output/web-game/music-pass5-client/`, and a settings/audio-unlock smoke test at `output/web-game/music-pass5/` confirming preference persistence and a clean first-solve path.
 - Final finish-line roadmap verification passed with a fresh `npm run build` and required Playwright client capture at `output/web-game/final-roadmap-client/`; no console error artifact was emitted.
+- Softened the generated music loop by lowering the default music volume, slowing the scheduler, reducing melody density, lengthening/quieting chord tones, and lowering the music low-pass filter.
+- Restricted target-shape hover and pin hit-testing to unlocked sections only, so locked targets remain visible but inert until their puzzle unlocks.
+- Verified the music/hover tuning with `npm run build`, the required Playwright client at `output/web-game/music-hover-tune-client/`, and a focused locked-vs-unlocked target hover/click check at `output/web-game/music-hover-targeted/`.
+- Removed the temporary graph-complete outline around solved graph frames and the temporary extra outline around newly unlocked/flying reward tiles, while keeping the checkmark, route pulse, and tile movement.
+- Verified with `npm run build`, the required Playwright client at `output/web-game/remove-solve-borders-client/`, and focused first-solve captures at `output/web-game/remove-solve-borders-targeted/`.
+- Added versioned local-storage progress persistence for completed goal keys plus the last focused/selected puzzle, restoring unlocked sections, reward tiles, solved goal state, and camera focus on reload.
+- Gated `?level=X` startup overrides behind `import.meta.env.DEV`, so the URL shortcut still works on the dev server but is ignored by production builds.
+- Verified with `npm run build`, save/reload captures at `output/web-game/progress-storage-dev/`, dev level override coverage at `output/web-game/level-gate-dev/`, production level-ignore coverage at `output/web-game/level-gate-prod/`, and the required Playwright client at `output/web-game/progress-storage-client/`.
+- Added an endgame victory screen with a calm happier generated music mode that activates once every puzzle is solved, and included victory/completion fields in `render_game_to_text`.
+- Reworked the audio control into a gear-only settings button with mute and reset-progress controls inside the panel; reset clears the saved progress key and returns the game to Sprout.
+- Made locked target shapes fainter at low zoom and expanded the paper background with more doodle glyphs including moons, paper planes, crowns, ladders, and comets.
+- Verified with `npm run build`, settings/reset captures at `output/web-game/settings-reset-final/`, victory restore captures at `output/web-game/victory-screen/`, and the required Playwright client at `output/web-game/victory-settings-client-final/`.
+- Retuned the ambient background music into a 320-step generated piece, extending the loop to about 48 seconds with a wider chord progression, quieter phrase variations, and small answer motifs.
+- Verified the longer music pass with `npm run build` and the required Playwright client at `output/web-game/music-longer-client/`.
+- Added a Yes/No confirmation dialog to the reset-progress control so progress only clears after the explicit Yes action.
+- Verified with `npm run build`, the required Playwright client at `output/web-game/reset-confirm-client/`, and a focused reset-dialog test/captures at `output/web-game/reset-confirm-focused/`.
+- Retuned the ambient music away from the creepier low overlapping drones into a simpler calm C-major/pentatonic loop with shorter pads, softer accents, and phrase-level variation.
+- Verified with `npm run build` and the required Playwright client at `output/web-game/music-less-creepy-client/`.
+- Tightened `sin` placement validation so `sin` cannot sit before concrete operator tokens like `^` or `+`, while still allowing number/variable/π/θ and parenthesized sine arguments.
+- Added victory overlay backdrop dismissal: clicking outside the victory panel hides the screen while clicks inside the panel are ignored.
+- Verified with `npm run build`, `npm run find-solutions`, the required Playwright client at `output/web-game/sin-victory-client/`, and focused captures/checks at `output/web-game/sin-victory-focused/`.
+- Fixed the Witch Window solution audit after noticing `y = sin(□x)` was undercounting valid target hits: the solver now exhaustively checks single-slot templates instead of only intended slot tiles.
+- Tightened trig argument/operator validation so `sin(+x)` and adjacent variables such as `sin(xx)` are rejected consistently in runtime placement and the solution finder.
+- Moved Witch Window's target to `(8.5, 1)` on a `0..9` x-axis so `sin(πx)` is the only counted solution under the 0.5 target tolerance; regenerated `PUZZLES.md`.
+- Verified with focused `npm run find-solutions -- 30a`, full `npm run find-solutions`, `npm run build`, the required Playwright client at `output/web-game/witch-window-audit-client/`, and runtime checks/captures at `output/web-game/witch-window-audit-focused/`.
+- Added one more empty slot to Serpentine by changing the denominator from fixed `+ 2` to `+ □`, making the intended fill `[5, 2, +, 0]`.
+- Regenerated `PUZZLES.md` and verified Serpentine with `npm run find-solutions -- 31a`, full `npm run find-solutions`, `npm run build`, the required Playwright client at `output/web-game/serpentine-extra-slot-client/`, and focused captures at `output/web-game/serpentine-extra-slot-focused/`.
+- Allowed leading `+`/`-` signs after `=` on implicit equations, so Circle Garden accepts forms like `x ^ 2 + y ^ 2 = + 5` and `= - 5` without turning the sign tile gray.
+- Mirrored the signed-RHS validation in the solution finder while keeping function-style puzzles such as `y = ...` from gaining unary-plus no-op solution variants.
+- Verified with `npm run build`, full `npm run find-solutions`, the required Playwright client at `output/web-game/unary-signs-client/`, and focused Circle Garden captures/checks at `output/web-game/unary-signs-focused/`.
+- Updated puzzle selection so clicked/focused puzzles immediately drive tray tile opacity, completed puzzles can remain selected, and completed puzzles are eligible for auto-selection when they are the only board more than 20% visible.
+- Kept solved source puzzles selected after tile-only solves, while animated puzzle-unlock solves stop the old puzzle from driving opacity once the unlock scroll begins and hand selection to the newly unlocked puzzle.
+- Verified with `npm run build`, the required Playwright client at `output/web-game/puzzle-selection-client/`, and focused selection captures/checks at `output/web-game/puzzle-selection-focused/`.
+- Stopped target-only and tile-only goal solves from drawing connector routes; connector paths are now only generated and animated for goals that unlock another puzzle.
+- Verified with `npm run build`, the required Playwright client at `output/web-game/connector-gate-client/`, and focused tile-only vs puzzle-unlock captures/checks at `output/web-game/connector-gate-focused/`.
+- Replaced the single ambient background loop with three selectable generated tracks: Meadow, Lantern, and Paper Boat, each with its own calm chord/melody pattern while preserving the separate victory music.
+- Added a settings-menu track button that cycles tracks, resets the music phrase on change, and persists the selected track in local storage.
+- Verified with `npm run build`, the required Playwright client at `output/web-game/music-tracks-client/`, and focused settings cycle/persistence captures at `output/web-game/music-tracks-focused/`.
+
+- Differentiated the three selectable music tracks by giving Lantern a glassy layered bell/glow voice and Paper Boat a short plucked voice with a quiet papery transient, leaving Meadow as the plain soft synth track.
+- Verified with `npm run build`, the required Playwright client at `output/web-game/music-instruments-client/`, and a focused settings track-cycle/persistence check at `output/web-game/music-instruments-focused/`.

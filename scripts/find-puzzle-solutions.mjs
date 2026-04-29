@@ -501,7 +501,7 @@ function slotCandidateLists(row, availableTiles, intendedRows = [row]) {
     return []
   }
 
-  if (blankOnlyRightSide(row.equation) || allTokensBlank(row.equation)) {
+  if (count === 1 || blankOnlyRightSide(row.equation) || allTokensBlank(row.equation)) {
     return Array.from({ length: count }, () => availableTiles)
   }
 
@@ -1603,6 +1603,15 @@ function tokensWithoutSolvedOutputVariable(tokens) {
   return leftIsOutput ? tokens.slice(equalsIndex + 1) : tokens
 }
 
+function tokensFormSolvedOutputVariable(tokens) {
+  return (
+    (tokens.length === 1 && (tokenIsIdentifier(tokens[0], 'y') || tokenIsIdentifier(tokens[0], 'r'))) ||
+    (tokens.length === 2 &&
+      tokenIsNumber(tokens[0]) &&
+      (tokenIsIdentifier(tokens[1], 'y') || tokenIsIdentifier(tokens[1], 'r')))
+  )
+}
+
 function hasRequiredVariablePairs(equation) {
   const relevantTokens = tokensWithoutSolvedOutputVariable(tokenize(equation))
   const hasX = relevantTokens.some((token) => tokenIsIdentifier(token, 'x'))
@@ -1619,6 +1628,61 @@ function isExpressionOperator(token) {
 
 function isStrictBinaryOperator(token) {
   return token?.type === 'operator' && ['+', '/', '^', '='].includes(token.value)
+}
+
+function tokenIsVariable(token) {
+  return token?.type === 'identifier' && ['x', 'y', 'r', 'theta'].includes(token.value)
+}
+
+function tokenCanStartSinArgument(token) {
+  if (!token) {
+    return false
+  }
+
+  if (token.type === 'number') {
+    return true
+  }
+
+  if (token.type === 'identifier') {
+    return ['x', 'y', 'r', 'theta', 'pi'].includes(token.value)
+  }
+
+  return token.type === 'operator' && token.value === '('
+}
+
+function tokenCanStartUnaryOperand(token) {
+  if (!token) {
+    return false
+  }
+
+  if (token.type === 'number') {
+    return true
+  }
+
+  if (token.type === 'identifier') {
+    return ['x', 'y', 'r', 'theta', 'sin', 'pi'].includes(token.value)
+  }
+
+  return token.type === 'operator' && token.value === '('
+}
+
+function sinArgumentStartToken(tokens, sinIndex) {
+  const next = tokens[sinIndex + 1]
+  return next?.type === 'operator' && next.value === '(' ? tokens[sinIndex + 2] : next
+}
+
+function tokenIsUnarySign(tokens, index) {
+  const token = tokens[index]
+  if (token?.type !== 'operator' || (token.value !== '+' && token.value !== '-')) {
+    return false
+  }
+
+  const previous = tokens[index - 1]
+  return (
+    previous?.type === 'operator' &&
+    previous.value === '=' &&
+    !tokensFormSolvedOutputVariable(tokens.slice(0, index - 1))
+  )
 }
 
 function hasValidOperatorPlacement(equation, row) {
@@ -1667,14 +1731,27 @@ function hasValidOperatorPlacement(equation, row) {
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index]
 
+    if (token.type === 'identifier' && token.value === 'sin' && !tokenCanStartSinArgument(sinArgumentStartToken(tokens, index))) {
+      return false
+    }
+
+    if (tokenIsVariable(token) && tokenIsVariable(tokens[index + 1])) {
+      return false
+    }
+
     if (token.type !== 'operator') {
       continue
     }
 
     const previous = tokens[index - 1]
     const next = tokens[index + 1]
+    const unarySign = tokenIsUnarySign(tokens, index)
 
-    if (['+', '/', '^', '='].includes(token.value) && (index === 0 || index === tokens.length - 1)) {
+    if (unarySign && !tokenCanStartUnaryOperand(next)) {
+      return false
+    }
+
+    if (!unarySign && ['+', '/', '^', '='].includes(token.value) && (index === 0 || index === tokens.length - 1)) {
       return false
     }
 
@@ -1683,16 +1760,16 @@ function hasValidOperatorPlacement(equation, row) {
     }
 
     if (token.value === '^' || token.value === '=') {
-      if (isExpressionOperator(previous) || isExpressionOperator(next)) {
+      if (isExpressionOperator(previous) || (isExpressionOperator(next) && !tokenIsUnarySign(tokens, index + 1))) {
         return false
       }
     }
 
-    if (isStrictBinaryOperator(token) && isExpressionOperator(previous)) {
+    if (!unarySign && isStrictBinaryOperator(token) && isExpressionOperator(previous)) {
       return false
     }
 
-    if (token.value === '+' && isExpressionOperator(next)) {
+    if (!unarySign && token.value === '+' && isExpressionOperator(next)) {
       return false
     }
   }
