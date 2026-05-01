@@ -23,8 +23,8 @@ interface AudioManagerOptions {
 const STORAGE_KEY = 'graphbound-audio-preferences'
 const DEFAULT_PREFERENCES: AudioPreferences = {
   muted: false,
-  musicVolume: 0.18,
-  sfxVolume: 0.58,
+  musicVolume: 0.5,
+  sfxVolume: 0.5,
   musicTrack: 'meadow',
 }
 const MUSIC_STEP_DELAY_MS = 150
@@ -99,6 +99,8 @@ export class AudioManager {
   private musicStep = 0
   private victoryMode = false
   private musicTimeout: number | null = null
+  private audioUnlocked = false
+  private pageAudioPaused = false
 
   constructor(options: AudioManagerOptions = {}) {
     this.onResetProgress = options.onResetProgress
@@ -230,12 +232,22 @@ export class AudioManager {
         this.setPanelOpen(false)
       }
     })
+    document.addEventListener('visibilitychange', this.handleVisibilityChange)
+    window.addEventListener('pagehide', this.handlePageHide)
+    window.addEventListener('pageshow', this.handlePageShow)
 
     this.syncControls()
   }
 
   async unlock(): Promise<void> {
     const context = this.audioContext()
+    this.audioUnlocked = true
+
+    if (this.isPageHidden()) {
+      this.pauseForPageHidden()
+      return
+    }
+
     if (context.state === 'suspended') {
       await context.resume()
     }
@@ -257,7 +269,7 @@ export class AudioManager {
   }
 
   play(name: SfxName): void {
-    if (this.preferences.muted || this.preferences.sfxVolume <= 0) {
+    if (this.preferences.muted || this.preferences.sfxVolume <= 0 || this.isPageHidden()) {
       return
     }
 
@@ -318,6 +330,82 @@ export class AudioManager {
   private closeResetConfirmation(): void {
     if (this.resetDialog.open) {
       this.resetDialog.close()
+    }
+  }
+
+  private isPageHidden(): boolean {
+    return document.hidden || document.visibilityState === 'hidden'
+  }
+
+  private clearMusicTimer(): void {
+    if (this.musicTimeout === null) {
+      return
+    }
+
+    window.clearTimeout(this.musicTimeout)
+    this.musicTimeout = null
+  }
+
+  private pauseForPageHidden(): void {
+    this.clearMusicTimer()
+
+    if (!this.context || !this.audioUnlocked) {
+      return
+    }
+
+    this.pageAudioPaused = true
+    if (this.context.state !== 'running') {
+      return
+    }
+
+    const context = this.context
+    void context.suspend().then(() => {
+      if (!this.isPageHidden() && this.audioUnlocked) {
+        void this.resumeAfterPageVisible(true)
+      }
+    }).catch(() => {
+      // Browsers can reject suspend/resume while a page is changing lifecycle state.
+    })
+  }
+
+  private async resumeAfterPageVisible(force = false): Promise<void> {
+    if (!force && !this.pageAudioPaused) {
+      return
+    }
+
+    this.pageAudioPaused = false
+
+    if (!this.context || !this.audioUnlocked || this.preferences.muted) {
+      return
+    }
+
+    if (this.context.state === 'suspended') {
+      try {
+        await this.context.resume()
+      } catch {
+        return
+      }
+    }
+
+    this.ensureMusicStarted()
+  }
+
+  private handleVisibilityChange = (): void => {
+    if (this.isPageHidden()) {
+      this.pauseForPageHidden()
+      return
+    }
+
+    void this.resumeAfterPageVisible()
+  }
+
+  private handlePageHide = (): void => {
+    this.pauseForPageHidden()
+  }
+
+  private handlePageShow = (): void => {
+    if (!this.isPageHidden()) {
+      void this.resumeAfterPageVisible()
     }
   }
 
@@ -406,6 +494,7 @@ export class AudioManager {
       this.context.state !== 'running' ||
       this.preferences.muted ||
       this.preferences.musicVolume <= 0 ||
+      this.isPageHidden() ||
       this.musicTimeout !== null
     ) {
       return
@@ -415,6 +504,10 @@ export class AudioManager {
   }
 
   private scheduleMusicTick(delayMs: number): void {
+    if (this.isPageHidden()) {
+      return
+    }
+
     this.musicTimeout = window.setTimeout(() => {
       this.musicTimeout = null
       this.playMusicStep()
@@ -423,7 +516,13 @@ export class AudioManager {
   }
 
   private playMusicStep(): void {
-    if (!this.context || !this.musicGain || this.preferences.muted || this.preferences.musicVolume <= 0) {
+    if (
+      !this.context ||
+      !this.musicGain ||
+      this.preferences.muted ||
+      this.preferences.musicVolume <= 0 ||
+      this.isPageHidden()
+    ) {
       return
     }
 

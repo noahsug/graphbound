@@ -74,6 +74,99 @@ body {
   cursor: default;
 }
 
+.zoom-control {
+  position: fixed;
+  left: 16px;
+  top: 14px;
+  z-index: 4;
+  color: #2d2620;
+}
+
+.zoom-control__button {
+  appearance: none;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(255, 250, 239, 0.76);
+  color: inherit;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 30px;
+  padding: 0;
+  box-shadow: 0 5px 16px rgba(75, 60, 44, 0.1);
+  touch-action: manipulation;
+}
+
+.zoom-control__button:focus-visible,
+.audio-settings__button:focus-visible,
+.audio-settings__menu-button:focus-visible,
+.audio-settings__confirm-button:focus-visible {
+  outline: 2px solid rgba(45, 38, 32, 0.72);
+  outline-offset: 3px;
+}
+
+.zoom-control__icon {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  display: block;
+}
+
+.zoom-control__icon::after {
+  content: '';
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 9px;
+  height: 2.25px;
+  border-radius: 999px;
+  background: currentColor;
+  transform: rotate(45deg);
+  transform-origin: center;
+  z-index: 0;
+}
+
+.zoom-control__lens {
+  position: absolute;
+  left: 2px;
+  top: 3px;
+  width: 15px;
+  height: 15px;
+  border: 2px solid currentColor;
+  border-radius: 999px;
+  z-index: 1;
+}
+
+.zoom-control__mark {
+  position: absolute;
+  left: 6px;
+  top: 7px;
+  width: 8px;
+  height: 8px;
+  z-index: 3;
+}
+
+.zoom-control__mark::before,
+.zoom-control__mark::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 3px;
+  width: 8px;
+  height: 2.2px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.zoom-control__button--in .zoom-control__mark::after {
+  transform: rotate(90deg);
+}
+
+.zoom-control__button--out .zoom-control__mark::after {
+  display: none;
+}
+
 .audio-settings {
   position: fixed;
   right: 16px;
@@ -85,13 +178,15 @@ body {
 
 .audio-settings__button {
   appearance: none;
-  border: 1.5px dashed rgba(45, 38, 32, 0.55);
+  border: 0;
   border-radius: 6px;
   background: rgba(255, 250, 239, 0.76);
   color: inherit;
   cursor: pointer;
+  display: grid;
+  place-items: center;
   font: inherit;
-  font-size: 18px;
+  font-size: 23px;
   line-height: 1;
   width: 34px;
   height: 30px;

@@ -67,6 +67,8 @@ const GOAL_GLOW_MAX_ALPHA = 0.32
 const LOCKED_GOAL_ZOOM_THRESHOLD = 0.5
 const LOCKED_GOAL_MIN_ALPHA = 0.035
 const LOCKED_GOAL_MAX_ALPHA = 0.34
+const GOAL_VISUAL_BOOST_ZOOM_THRESHOLD = 0.55
+const GOAL_VISUAL_MAX_BOOST = 3.2
 const SOLVED_GOAL_ALPHA = 0.52
 const SOLVED_GOAL_LIGHTEN = 0.64
 const DIMMED_TRAY_TILE_ALPHA = 0.38
@@ -707,6 +709,8 @@ class GraphboundApp {
   private readonly unlockedSections = new Set<string>()
   private readonly unlockedTiles = new Set<TileId>(['x'])
   private readonly audio: AudioManager
+  private readonly zoomRoot: HTMLDivElement
+  private readonly zoomButton: HTMLButtonElement
   private readonly sectionRevealProgress = new Map<string, number>()
   private readonly connectorRouteWorldCache = new Map<string, Point[]>()
   private readonly activeTouchPoints = new Map<number, Point>()
@@ -769,6 +773,10 @@ class GraphboundApp {
     this.roughCanvas = rough.canvas(canvas)
     this.audio = new AudioManager({ onResetProgress: () => this.resetStoredProgress() })
     this.layout = createLayout(960, 720, this.zoomLevel)
+    const zoomControl = this.createZoomControl()
+    this.zoomRoot = zoomControl.root
+    this.zoomButton = zoomControl.button
+    document.body.append(this.zoomRoot)
 
     for (const section of this.sections) {
       const placements: Record<string, TileId | null> = {}
@@ -822,6 +830,31 @@ class GraphboundApp {
 
     this.attachDebugHooks()
     this.resize()
+  }
+
+  private createZoomControl(): { root: HTMLDivElement; button: HTMLButtonElement } {
+    const root = document.createElement('div')
+    root.className = 'zoom-control'
+
+    const button = document.createElement('button')
+    button.className = 'zoom-control__button'
+    button.type = 'button'
+    button.addEventListener('click', this.handleZoomButtonClick)
+
+    const icon = document.createElement('span')
+    icon.className = 'zoom-control__icon'
+    icon.setAttribute('aria-hidden', 'true')
+
+    const lens = document.createElement('span')
+    lens.className = 'zoom-control__lens'
+
+    const mark = document.createElement('span')
+    mark.className = 'zoom-control__mark'
+
+    icon.append(lens, mark)
+    button.append(icon)
+    root.append(button)
+    return { root, button }
   }
 
   private attachDebugHooks(): void {
@@ -2641,6 +2674,34 @@ class GraphboundApp {
     this.render()
   }
 
+  private zoomButtonAction(): 'in' | 'out' {
+    const distanceToMin = Math.abs(this.zoomLevel - MIN_ZOOM_LEVEL)
+    const distanceToMax = Math.abs(MAX_ZOOM_LEVEL - this.zoomLevel)
+    return distanceToMin >= distanceToMax ? 'out' : 'in'
+  }
+
+  private syncZoomButton(): void {
+    const action = this.zoomButtonAction()
+    const label = action === 'out' ? 'Zoom all the way out' : 'Zoom all the way in'
+    this.zoomButton.classList.toggle('zoom-control__button--out', action === 'out')
+    this.zoomButton.classList.toggle('zoom-control__button--in', action === 'in')
+    this.zoomButton.setAttribute('aria-label', label)
+    this.zoomButton.title = label
+  }
+
+  private handleZoomButtonClick = (): void => {
+    const action = this.zoomButtonAction()
+    const targetZoomLevel = action === 'out' ? MIN_ZOOM_LEVEL : MAX_ZOOM_LEVEL
+    this.moveCameraAndScaleTo(
+      { ...this.camera },
+      this.layout.baseWorldScale * targetZoomLevel,
+      true,
+      0,
+      this.layout.worldCenter,
+    )
+    this.syncZoomButton()
+  }
+
   private cancelDragForGesture(): void {
     if (this.drag?.kind === 'tile' && this.drag.sourceSlotId) {
       this.activeRuntime.placements[this.drag.sourceSlotId] = this.drag.tileId
@@ -3480,6 +3541,19 @@ class GraphboundApp {
       width: radius * 2,
       height: radius * 2,
     }
+  }
+
+  private goalVisualScale(): number {
+    if (this.zoomLevel >= GOAL_VISUAL_BOOST_ZOOM_THRESHOLD) {
+      return 1
+    }
+
+    const progress = 1 - clamp(
+      (this.zoomLevel - MIN_ZOOM_LEVEL) / (GOAL_VISUAL_BOOST_ZOOM_THRESHOLD - MIN_ZOOM_LEVEL),
+      0,
+      1,
+    )
+    return lerp(1, GOAL_VISUAL_MAX_BOOST, easeOutCubic(progress))
   }
 
   private goalAtPoint(point: Point): { sectionId: string; goal: GoalDefinition } | null {
@@ -6108,7 +6182,9 @@ class GraphboundApp {
   ): void {
     const color = colorOverride ?? this.goalColor(sectionId, goal)
     const center = this.goalShapeCenter(sectionId, goal)
-    const size = 18 * this.layout.worldScale
+    const visualScale = this.goalVisualScale()
+    const size = 18 * this.layout.worldScale * visualScale
+    const strokeWidth = Math.max(2.2, this.layout.worldScale * 2.15 * visualScale)
     const alpha = clamp(progress, 0, 1)
     const fillAlpha = clamp(fillProgress, 0, 1)
     const fillColor = mixColors(color, color, 0, 0.28 + fillAlpha * 0.24)
@@ -6135,7 +6211,7 @@ class GraphboundApp {
         points.map((point) => [point.x, point.y]),
         seeded(key, {
           stroke: color,
-          strokeWidth: Math.max(2.2, this.layout.worldScale * 2.15),
+          strokeWidth,
           roughness,
           bowing,
           ...fillOptions,
@@ -6150,7 +6226,7 @@ class GraphboundApp {
         size * 1.75,
         seeded(`goal-shape:${sectionId}:${goal.id}`, {
           stroke: color,
-          strokeWidth: Math.max(2.2, this.layout.worldScale * 2.15),
+          strokeWidth,
           roughness: 1.1,
           bowing: 1.1,
           ...fillOptions,
@@ -6219,7 +6295,7 @@ class GraphboundApp {
           size * 0.95,
           seeded(`goal-shape:${sectionId}:${goal.id}:petal:${index}`, {
             stroke: color,
-            strokeWidth: Math.max(2.2, this.layout.worldScale * 2.15),
+            strokeWidth,
             roughness: 1.08,
             bowing: 1,
             ...fillOptions,
@@ -6255,7 +6331,7 @@ class GraphboundApp {
         `goal-shape:${sectionId}:${goal.id}:a`,
         {
           stroke: color,
-          strokeWidth: Math.max(2.2, this.layout.worldScale * 2.15),
+          strokeWidth,
           roughness: 1.1,
           bowing: 0.9,
         },
@@ -6268,7 +6344,7 @@ class GraphboundApp {
         `goal-shape:${sectionId}:${goal.id}:b`,
         {
           stroke: color,
-          strokeWidth: Math.max(2.2, this.layout.worldScale * 2.15),
+          strokeWidth,
           roughness: 1.1,
           bowing: 0.9,
         },
@@ -6828,17 +6904,6 @@ class GraphboundApp {
       this.context.save()
       this.context.globalAlpha = clamp(alpha, 0, 1)
 
-      if (flyProgress <= 0.001) {
-        this.context.globalAlpha *= 0.64
-        this.drawRoughPolyline([source, revealCenter], `tile-unlock-pulse:${animation.tileId}`, {
-          stroke: animation.color,
-          strokeWidth: Math.max(1.2, 2.2 * this.layout.worldScale),
-          roughness: 1,
-          bowing: 0.8,
-          strokeLineDash: [7 * this.layout.worldScale, 6 * this.layout.worldScale],
-        })
-      }
-
       this.drawTile(rect, tile, true, `unlock:${animation.tileId}`, {
         scale: flyProgress > 0 ? 1 : 0.9 + easeOutCubic(revealProgress) * 0.1,
         rotation: lerp(-0.08, 0.04, revealProgress) * (1 - flyProgress),
@@ -7114,6 +7179,7 @@ class GraphboundApp {
   }
 
   private render(): void {
+    this.syncZoomButton()
     this.syncSelectedSectionToCenter()
     this.syncTileFocusSelection()
     this.drawBackground()

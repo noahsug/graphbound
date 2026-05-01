@@ -480,3 +480,26 @@ Original prompt: Create a GitHub repo for this web game project, write a detaile
 
 - Differentiated the three selectable music tracks by giving Lantern a glassy layered bell/glow voice and Paper Boat a short plucked voice with a quiet papery transient, leaving Meadow as the plain soft synth track.
 - Verified with `npm run build`, the required Playwright client at `output/web-game/music-instruments-client/`, and a focused settings track-cycle/persistence check at `output/web-game/music-instruments-focused/`.
+
+- Removed the dashed tile-unlock pulse line from target shapes to newly unlocked reward tiles; tile unlocks now reveal/fly without drawing a connector.
+- Verified with `npm run build`, the required Playwright client at `output/web-game/tile-unlock-line-client/`, and a focused Ridge tile-unlock capture at `output/web-game/tile-unlock-line-focused/`.
+
+- Centered the default music and SFX volume sliders by setting both default audio preferences to 0.5 for clean/new player loads.
+- Verified with `npm run build`, the required Playwright client at `output/web-game/volume-defaults-client/`, and a focused clean-storage settings capture at `output/web-game/volume-defaults-focused/`.
+
+- Added a top-left one-tap zoom control with a magnifier-minus icon when it will zoom all the way out and a magnifier-plus icon when it will zoom all the way in.
+- The zoom control targets whichever endpoint the current zoom is farther from, using the existing animated camera/scale transition.
+- Verified with `npm run build`, the required Playwright client at `output/web-game/zoom-button-client/`, and a focused touch/tap cycle check at `output/web-game/zoom-button-focused/`.
+
+- Made target shapes visually scale up at far zoom-out so they stay readable, while leaving `goalShapeRect()` unchanged so hover/click hit areas and solution behavior are unaffected.
+- Verified with `npm run build`, the required Playwright client at `output/web-game/goal-visual-boost-client/`, and a focused zoomed-out capture/geometry check at `output/web-game/goal-visual-boost-focused/`.
+
+- Paused audio when the page is hidden or pagehide fires by clearing the music timer and suspending the AudioContext, then resumed previously unlocked audio on visible/pageshow.
+- Guarded music and SFX startup while the page is hidden so background tabs/mobile app switches do not schedule new sound.
+- Verified with `npm run build`, the required Playwright client at `output/web-game/audio-visibility-client/`, and a focused AudioContext suspend/resume visibility-cycle test at `output/web-game/audio-visibility-focused/`.
+
+- Moved the zoom button's plus/minus into a larger paper-backed badge so it does not sit directly over the magnifier lens/handle.
+- Verified with `npm run build`, the required Playwright client at `output/web-game/zoom-icon-badge-client/`, and focused minus/plus captures at `output/web-game/zoom-icon-badge-focused/`.
+
+- Removed the dashed borders from the top zoom/settings icon buttons, enlarged the settings gear, and moved the zoom plus/minus back inside the magnifier lens circle.
+- Verified with `npm run build`, the required Playwright client at `output/web-game/top-icon-cleanup-client/`, and focused top-control captures/style checks at `output/web-game/top-icon-cleanup-focused/`.
