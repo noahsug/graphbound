@@ -51,7 +51,7 @@ Authoring requirements live in `REQUIREMENTS.md`.
 | 31a | Serpentine | y = □x / (x ^ 2 + □) □ □ | y = 5x / (x ^ 2 + 2) + 0 | 33 Fermat Spiral | none | -3 to 2 | -3 to 2 | (1.5, 1.5) |
 | 32a | Spiral Loft | r = □ | r = 5 | 35 Sine Dial | none | -5 to 5 | -5 to 5 | (-5, 0) |
 | 33a | Fermat Spiral | r ^ 2 = □ | r ^ 2 = theta | 35 Sine Dial | none | -2 to 4 | -3 to 3 | (-2, 0) |
-| 35a | Sine Dial | □ □ □(□x) / 2 | y = sin(pi x) / 2 | 36 Pi Vault | none | 0 to 5 | -5 to 0 | (0, 0) |
+| 35a | Sine Dial | □ □ □(□x) / 2 | y = sin(pi x) / 2 | 36 Pi Vault | none | 0 to 5 | -2 to 3 | (0, 0) |
 | 36a | Pi Vault | □ □ x □ 2 □ □ | y = x ^ 2 / pi | 37 Half Gate | none | 0 to 5 | 0 to 10 | (5, 8) |
 | 37a | Half Gate | y = 5x □ □2□ □ □ | y = 5x / (2) - 5 | 38 Paren Echo | none | 0 to 5 | 0 to 15 | (5, 7.5) |
 | 38a | Paren Echo | y = □x - 5□ ^ 2 | y = (x - 5)^2 | victory | none | 0 to 5 | 0 to 20 | (0.5, 20) |

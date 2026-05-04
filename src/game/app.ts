@@ -122,6 +122,11 @@ interface StoredProgress {
   tileFocusSectionId: string | null
 }
 
+interface InferredFunctionParens {
+  startIndex: number
+  endIndex: number
+}
+
 type RewardDoodleKind = 'check' | 'flower' | 'spark' | 'spiral' | 'pie' | 'crease'
 
 interface RewardDoodle {
@@ -2287,11 +2292,7 @@ class GraphboundApp {
     for (let index = 0; index < values.length; index += 1) {
       const value = values[index]
 
-      if (value === 'sin' && !this.valueCanStartSinArgument(this.sinArgumentStartValue(values, index))) {
-        return false
-      }
-
-      if (this.valueIsVariable(value) && this.valueIsVariable(values[index + 1])) {
+      if (value === 'sin' && !this.sinArgumentCanBeValid(values, index)) {
         return false
       }
 
@@ -2424,9 +2425,23 @@ class GraphboundApp {
     )
   }
 
-  private sinArgumentStartValue(values: Array<string | null>, sinIndex: number): string | null | undefined {
+  private sinArgumentCanBeValid(values: Array<string | null>, sinIndex: number): boolean {
     const next = values[sinIndex + 1]
-    return next === '(' ? values[sinIndex + 2] : next
+
+    if (next === null || next === '(') {
+      return true
+    }
+
+    if (!next) {
+      return false
+    }
+
+    if (next === '+' || next === '-') {
+      const operand = values[sinIndex + 2]
+      return operand === null || this.valueCanStartSinArgument(operand)
+    }
+
+    return this.valueCanStartSinArgument(next)
   }
 
   private valueCanStartSinArgument(value: string | null | undefined): boolean {
@@ -3036,6 +3051,117 @@ class GraphboundApp {
     return EQUATION_GAP * this.layout.worldScale
   }
 
+  private equationLayoutValue(sectionId: string, layout: TokenLayout): string | null {
+    return this.equationPartValue(sectionId, layout.part)
+  }
+
+  private layoutIsSuperscript(layout: TokenLayout | undefined): boolean {
+    return layout?.part.displayStyle === 'superscript'
+  }
+
+  private bareFunctionPrimaryEnd(
+    values: Array<string | null>,
+    tokenLayouts: TokenLayout[],
+    index: number,
+  ): number | null {
+    const value = values[index]
+
+    if (!value || value === '(') {
+      return null
+    }
+
+    if (value === 'sin') {
+      return this.inferredBareFunctionArgumentRange(values, tokenLayouts, index)?.endIndex ?? null
+    }
+
+    return this.valueCanStartUnaryOperand(value) ? index : null
+  }
+
+  private bareFunctionUnaryEnd(
+    values: Array<string | null>,
+    tokenLayouts: TokenLayout[],
+    startIndex: number,
+  ): number | null {
+    let index = startIndex
+
+    while (values[index] === '+' || values[index] === '-') {
+      index += 1
+    }
+
+    return this.bareFunctionPrimaryEnd(values, tokenLayouts, index)
+  }
+
+  private bareFunctionPowerEnd(
+    values: Array<string | null>,
+    tokenLayouts: TokenLayout[],
+    startIndex: number,
+  ): number | null {
+    const initialEndIndex = this.bareFunctionUnaryEnd(values, tokenLayouts, startIndex)
+
+    if (initialEndIndex === null) {
+      return null
+    }
+
+    let endIndex: number = initialEndIndex
+
+    while (true) {
+      const nextIndex = endIndex + 1
+      if (this.layoutIsSuperscript(tokenLayouts[nextIndex])) {
+        endIndex = nextIndex
+        continue
+      }
+
+      if (values[nextIndex] !== '^') {
+        return endIndex
+      }
+
+      const exponentEnd = this.bareFunctionUnaryEnd(values, tokenLayouts, nextIndex + 1)
+      if (exponentEnd === null) {
+        return null
+      }
+      endIndex = exponentEnd
+    }
+  }
+
+  private inferredBareFunctionArgumentRange(
+    values: Array<string | null>,
+    tokenLayouts: TokenLayout[],
+    functionIndex: number,
+  ): InferredFunctionParens | null {
+    const startIndex = functionIndex + 1
+    const firstValue = values[startIndex]
+
+    if (!firstValue || firstValue === '(') {
+      return null
+    }
+
+    if (firstValue === '+' || firstValue === '-') {
+      const endIndex = this.bareFunctionPowerEnd(values, tokenLayouts, startIndex + 1)
+      return endIndex === null ? null : { startIndex, endIndex }
+    }
+
+    const endIndex = this.bareFunctionPowerEnd(values, tokenLayouts, startIndex)
+    return endIndex === null ? null : { startIndex, endIndex }
+  }
+
+  private inferredFunctionParens(sectionId: string, tokenLayouts: TokenLayout[]): InferredFunctionParens[] {
+    const values = tokenLayouts.map((layout) => this.equationLayoutValue(sectionId, layout))
+    const ranges: InferredFunctionParens[] = []
+
+    values.forEach((value, index) => {
+      if (value !== 'sin') {
+        return
+      }
+
+      const range = this.inferredBareFunctionArgumentRange(values, tokenLayouts, index)
+      if (range) {
+        ranges.push(range)
+      }
+    })
+
+    return ranges
+  }
+
   private equationConnectorCollision(sectionId: string, rect: Rect): boolean {
     const section = this.sectionById.get(sectionId)
     const runtime = this.sectionRuntimes.get(sectionId)
@@ -3543,8 +3669,8 @@ class GraphboundApp {
     }
   }
 
-  private goalVisualScale(): number {
-    if (this.zoomLevel >= GOAL_VISUAL_BOOST_ZOOM_THRESHOLD) {
+  private goalVisualScale(boosted: boolean): number {
+    if (!boosted || this.zoomLevel >= GOAL_VISUAL_BOOST_ZOOM_THRESHOLD) {
       return 1
     }
 
@@ -6179,10 +6305,11 @@ class GraphboundApp {
     progress = 1,
     fillProgress = 0,
     colorOverride?: string,
+    boosted = true,
   ): void {
     const color = colorOverride ?? this.goalColor(sectionId, goal)
     const center = this.goalShapeCenter(sectionId, goal)
-    const visualScale = this.goalVisualScale()
+    const visualScale = this.goalVisualScale(boosted)
     const size = 18 * this.layout.worldScale * visualScale
     const strokeWidth = Math.max(2.2, this.layout.worldScale * 2.15 * visualScale)
     const alpha = clamp(progress, 0, 1)
@@ -6453,6 +6580,64 @@ class GraphboundApp {
     }
     roundRectPath(this.context, rect, radius)
     this.context.stroke()
+    this.context.restore()
+  }
+
+  private drawInferredFunctionParens(sectionId: string, tokenLayouts: TokenLayout[]): void {
+    const ranges = this.inferredFunctionParens(sectionId, tokenLayouts)
+    if (ranges.length === 0) {
+      return
+    }
+
+    const pad = Math.max(7 * this.layout.worldScale, EQUATION_FONT_SIZE * this.layout.worldScale * 0.24)
+
+    this.context.save()
+    this.context.lineCap = 'round'
+    this.context.lineJoin = 'round'
+
+    const traceParen = (x: number, top: number, bottom: number, side: 'left' | 'right') => {
+      const height = bottom - top
+      const width = Math.max(4.5 * this.layout.worldScale, height * 0.13)
+      const direction = side === 'left' ? 1 : -1
+      this.context.beginPath()
+      this.context.moveTo(x + direction * width, top)
+      this.context.bezierCurveTo(
+        x - direction * width * 0.75,
+        top + height * 0.18,
+        x - direction * width * 0.75,
+        bottom - height * 0.18,
+        x + direction * width,
+        bottom,
+      )
+      this.context.stroke()
+    }
+
+    for (const range of ranges) {
+      const rangeLayouts = tokenLayouts.slice(range.startIndex, range.endIndex + 1)
+      const start = tokenLayouts[range.startIndex]
+      const end = tokenLayouts[range.endIndex]
+
+      if (!start || !end || rangeLayouts.length === 0) {
+        continue
+      }
+
+      const minY = Math.min(...rangeLayouts.map((layout) => layout.rect.y))
+      const maxY = Math.max(...rangeLayouts.map((layout) => layout.rect.y + layout.rect.height))
+      const top = minY - 4 * this.layout.worldScale
+      const bottom = maxY + 4 * this.layout.worldScale
+
+      const leftX = start.rect.x - pad
+      const rightX = end.rect.x + end.rect.width + pad
+      this.context.strokeStyle = 'rgba(246, 237, 223, 0.82)'
+      this.context.lineWidth = Math.max(2.4, this.layout.worldScale * 3.2)
+      traceParen(leftX, top, bottom, 'left')
+      traceParen(rightX, top, bottom, 'right')
+      this.context.strokeStyle = 'rgba(45, 38, 32, 0.9)'
+      this.context.lineWidth = Math.max(1.15, this.layout.worldScale * 1.55)
+      traceParen(leftX, top, bottom, 'left')
+      traceParen(rightX, top, bottom, 'right')
+    }
+
     this.context.restore()
   }
 
@@ -6775,6 +6960,7 @@ class GraphboundApp {
         `slot:${sectionId}:${token.part.slotId}`,
       )
     }
+    this.drawInferredFunctionParens(sectionId, tokenLayouts)
     this.context.restore()
   }
 
@@ -6794,6 +6980,7 @@ class GraphboundApp {
             : baseColor
           : `rgba(45, 38, 32, ${this.lockedGoalAlpha()})`
         const alpha = unlocked && solved ? SOLVED_GOAL_ALPHA : 1
+        const boosted = !solved && fillProgress < 0.999
 
         if (unlocked && !solved && fillProgress < 0.999) {
           this.drawGoalGlow(section.id, goal, color)
@@ -6805,6 +6992,7 @@ class GraphboundApp {
           alpha,
           fillProgress,
           color,
+          boosted,
         )
       }
     }

@@ -176,19 +176,34 @@ function formatDisplayExpression(tokens: ResolvedToken[]): string {
   }
 
   const parts: string[] = []
+  const { openBefore, closeAfter } = inferredFunctionParenInsertions(tokens)
 
-  for (const token of tokens) {
+  for (const [index, token] of tokens.entries()) {
+    if (openBefore.has(index)) {
+      parts.push('(')
+    }
+
     if (token.style === 'superscript' && parts.length > 0) {
       parts[parts.length - 1] = `${parts[parts.length - 1]}^${token.text}`
+      if (closeAfter.has(index)) {
+        parts.push(')')
+      }
       continue
     }
 
     if (token.style === 'subscript' && parts.length > 0) {
       parts[parts.length - 1] = `${parts[parts.length - 1]}_${token.text}`
+      if (closeAfter.has(index)) {
+        parts.push(')')
+      }
       continue
     }
 
     parts.push(token.text)
+
+    if (closeAfter.has(index)) {
+      parts.push(')')
+    }
   }
 
   return parts
@@ -242,6 +257,105 @@ function isPrimaryToken(token: ResolvedToken | undefined): boolean {
     token.text === 'π' ||
     token.text === 'pi'
   )
+}
+
+function functionPrimaryEnd(tokens: ResolvedToken[], index: number): number | null {
+  const token = tokens[index]
+
+  if (!token || (token.style === 'normal' && token.text === '(')) {
+    return null
+  }
+
+  if (token.style === 'normal' && ['sin', 'cos', 'ln', 'log'].includes(token.text)) {
+    return inferredFunctionArgumentRange(tokens, index)?.endIndex ?? null
+  }
+
+  return isPrimaryToken(token) ? index : null
+}
+
+function functionUnaryEnd(tokens: ResolvedToken[], startIndex: number): number | null {
+  let index = startIndex
+
+  while (
+    tokens[index]?.style === 'normal' &&
+    (tokens[index].text === '+' || tokens[index].text === '-')
+  ) {
+    index += 1
+  }
+
+  return functionPrimaryEnd(tokens, index)
+}
+
+function functionPowerEnd(tokens: ResolvedToken[], startIndex: number): number | null {
+  const initialEndIndex = functionUnaryEnd(tokens, startIndex)
+
+  if (initialEndIndex === null) {
+    return null
+  }
+
+  let endIndex: number = initialEndIndex
+
+  while (true) {
+    const next = tokens[endIndex + 1]
+    if (next?.style === 'superscript') {
+      endIndex += 1
+      continue
+    }
+
+    if (next?.style !== 'normal' || next.text !== '^') {
+      return endIndex
+    }
+
+    const exponentEnd = functionUnaryEnd(tokens, endIndex + 2)
+    if (exponentEnd === null) {
+      return null
+    }
+    endIndex = exponentEnd
+  }
+}
+
+function inferredFunctionArgumentRange(
+  tokens: ResolvedToken[],
+  functionIndex: number,
+): { startIndex: number; endIndex: number } | null {
+  const startIndex = functionIndex + 1
+  const first = tokens[startIndex]
+
+  if (!first || first.style !== 'normal' || first.text === '(') {
+    return null
+  }
+
+  if (first.text === '+' || first.text === '-') {
+    const endIndex = functionPowerEnd(tokens, startIndex + 1)
+    return endIndex === null ? null : { startIndex, endIndex }
+  }
+
+  const endIndex = functionPowerEnd(tokens, startIndex)
+  return endIndex === null ? null : { startIndex, endIndex }
+}
+
+function inferredFunctionParenInsertions(tokens: ResolvedToken[]): {
+  openBefore: Set<number>
+  closeAfter: Set<number>
+} {
+  const openBefore = new Set<number>()
+  const closeAfter = new Set<number>()
+
+  tokens.forEach((token, index) => {
+    if (token.style !== 'normal' || !['sin', 'cos', 'ln', 'log'].includes(token.text)) {
+      return
+    }
+
+    const range = inferredFunctionArgumentRange(tokens, index)
+    if (!range) {
+      return
+    }
+
+    openBefore.add(range.startIndex)
+    closeAfter.add(range.endIndex)
+  })
+
+  return { openBefore, closeAfter }
 }
 
 function splitPiecewiseSegments(tokens: ResolvedToken[]): ResolvedToken[][] {
@@ -437,6 +551,16 @@ class TokenParser {
     }
   }
 
+  private parseFunctionArgument(): string {
+    if (this.matchNormal('(')) {
+      const expression = this.parseAdditive()
+      this.expectNormal(')')
+      return expression
+    }
+
+    return this.parsePower()
+  }
+
   private parseAdditive(): string {
     let expression = this.parseMultiplicative()
 
@@ -528,23 +652,17 @@ class TokenParser {
     }
 
     if (this.matchNormal('sin')) {
-      this.expectNormal('(')
-      const expression = this.parseAdditive()
-      this.expectNormal(')')
+      const expression = this.parseFunctionArgument()
       return `Math.sin(${expression})`
     }
 
     if (this.matchNormal('cos')) {
-      this.expectNormal('(')
-      const expression = this.parseAdditive()
-      this.expectNormal(')')
+      const expression = this.parseFunctionArgument()
       return `Math.cos(${expression})`
     }
 
     if (this.matchNormal('ln')) {
-      this.expectNormal('(')
-      const expression = this.parseAdditive()
-      this.expectNormal(')')
+      const expression = this.parseFunctionArgument()
       return `Math.log(${expression})`
     }
 
@@ -553,9 +671,7 @@ class TokenParser {
       if (this.current()?.style === 'subscript') {
         base = this.parseStyledAtom('subscript')
       }
-      this.expectNormal('(')
-      const expression = this.parseAdditive()
-      this.expectNormal(')')
+      const expression = this.parseFunctionArgument()
       return `(Math.log(${expression}) / Math.log(${base}))`
     }
 
@@ -716,13 +832,23 @@ function polarSampleStep(domain: AxisDefinition): number {
   return Math.max(0.02, (domain.max - domain.min) / 260)
 }
 
-function visibleCartesianPoints(expression: string, axes: GraphAxes): PlotPoint[] {
+function visibleCartesianSegments(expression: string, axes: GraphAxes): PlotPoint[][] {
   const evaluator = new Function('x', 'theta', `return ${expression}`) as (
     x: number,
     theta: number,
   ) => number
   const step = cartesianSampleStep(axes)
-  const rawSamples: PlotPoint[] = []
+  const rawSegments: PlotPoint[][] = []
+  let currentRawSegment: PlotPoint[] = []
+  const pushRawSample = (point: PlotPoint) => {
+    currentRawSegment.push(point)
+  }
+  const finishRawSegment = () => {
+    if (currentRawSegment.length > 0) {
+      rawSegments.push(currentRawSegment)
+      currentRawSegment = []
+    }
+  }
 
   for (let x = axes.x.min; x <= axes.x.max + step * 0.25; x += step) {
     const roundedX = Number(x.toFixed(4))
@@ -731,6 +857,7 @@ function visibleCartesianPoints(expression: string, axes: GraphAxes): PlotPoint[
     try {
       y = evaluator(roundedX, roundedX)
     } catch {
+      finishRawSegment()
       continue
     }
 
@@ -743,46 +870,116 @@ function visibleCartesianPoints(expression: string, axes: GraphAxes): PlotPoint[
             : null
 
       if (edgeX !== null && (y === Infinity || y === -Infinity)) {
-        rawSamples.push({
+        pushRawSample({
           x: edgeX,
           y: y === Infinity ? axes.y.max : axes.y.min,
         })
       }
 
+      finishRawSegment()
       continue
     }
 
-    rawSamples.push({
+    pushRawSample({
       x: roundedX,
       y,
     })
   }
 
-  if (rawSamples.length === 0) {
+  finishRawSegment()
+
+  if (rawSegments.length === 0) {
     return []
   }
 
-  const points: PlotPoint[] = []
-  const pushPoint = (point: PlotPoint) => {
-    const clamped = {
-      x: clamp(Number(point.x.toFixed(4)), axes.x.min, axes.x.max),
-      y: clamp(Number(point.y.toFixed(4)), axes.y.min, axes.y.max),
-    }
-    const last = points.at(-1)
-    if (
-      last &&
-      Math.abs(last.x - clamped.x) <= EDGE_EPSILON &&
-      Math.abs(last.y - clamped.y) <= EDGE_EPSILON
-    ) {
-      return
-    }
-    points.push(clamped)
-  }
   const inside = (point: PlotPoint) =>
     point.x >= axes.x.min - EDGE_EPSILON &&
     point.x <= axes.x.max + EDGE_EPSILON &&
     point.y >= axes.y.min - EDGE_EPSILON &&
     point.y <= axes.y.max + EDGE_EPSILON
+  const edgeForOutsidePoint = (point: PlotPoint, edges: GoalEdge[]): GoalEdge | null => {
+    if (edges.includes('top') && point.y > axes.y.max + EDGE_EPSILON) {
+      return 'top'
+    }
+    if (edges.includes('right') && point.x > axes.x.max + EDGE_EPSILON) {
+      return 'right'
+    }
+    if (edges.includes('bottom') && point.y < axes.y.min - EDGE_EPSILON) {
+      return 'bottom'
+    }
+    if (edges.includes('left') && point.x < axes.x.min - EDGE_EPSILON) {
+      return 'left'
+    }
+    return null
+  }
+  const boundaryContactGuidePoint = (
+    contact: PlotPoint,
+    outside: PlotPoint,
+  ): PlotPoint | null => {
+    const edges = pointEdges(contact, axes)
+    const edge = edgeForOutsidePoint(outside, edges) ?? edges[0]
+    const guideLength = Math.max(0.25, Math.min(axes.x.max - axes.x.min, axes.y.max - axes.y.min) * 0.08)
+
+    if (edge === 'top' || edge === 'bottom') {
+      const direction =
+        contact.x <= axes.x.min + EDGE_EPSILON
+          ? 1
+          : contact.x >= axes.x.max - EDGE_EPSILON
+            ? -1
+            : outside.x < contact.x
+              ? -1
+              : 1
+      const x = clamp(contact.x + direction * guideLength, axes.x.min, axes.x.max)
+      if (Math.abs(x - contact.x) <= EDGE_EPSILON) {
+        return null
+      }
+      return { x, y: edge === 'top' ? axes.y.max : axes.y.min }
+    }
+
+    if (edge === 'right' || edge === 'left') {
+      const direction =
+        contact.y <= axes.y.min + EDGE_EPSILON
+          ? 1
+          : contact.y >= axes.y.max - EDGE_EPSILON
+            ? -1
+            : outside.y < contact.y
+              ? -1
+              : 1
+      const y = clamp(contact.y + direction * guideLength, axes.y.min, axes.y.max)
+      if (Math.abs(y - contact.y) <= EDGE_EPSILON) {
+        return null
+      }
+      return { x: edge === 'right' ? axes.x.max : axes.x.min, y }
+    }
+
+    return null
+  }
+  const fallbackBoundaryGuidePoint = (contact: PlotPoint): PlotPoint | null => {
+    const edge = pointEdges(contact, axes)[0]
+    const guideLength = Math.max(0.25, Math.min(axes.x.max - axes.x.min, axes.y.max - axes.y.min) * 0.08)
+
+    if (edge === 'top' || edge === 'bottom') {
+      const direction = contact.x >= axes.x.max - EDGE_EPSILON ? -1 : 1
+      const x = clamp(contact.x + direction * guideLength, axes.x.min, axes.x.max)
+      if (Math.abs(x - contact.x) <= EDGE_EPSILON) {
+        return null
+      }
+      return { x, y: edge === 'top' ? axes.y.max : axes.y.min }
+    }
+
+    if (edge === 'right' || edge === 'left') {
+      const direction = contact.y >= axes.y.max - EDGE_EPSILON ? -1 : 1
+      const y = clamp(contact.y + direction * guideLength, axes.y.min, axes.y.max)
+      if (Math.abs(y - contact.y) <= EDGE_EPSILON) {
+        return null
+      }
+      return { x: edge === 'right' ? axes.x.max : axes.x.min, y }
+    }
+
+    return null
+  }
+  const clippedSegmentIsContact = (clipped: { start: PlotPoint; end: PlotPoint }) =>
+    distanceBetween(clipped.start, clipped.end) <= EDGE_EPSILON
 
   const clipSegmentToBounds = (
     start: PlotPoint,
@@ -832,53 +1029,167 @@ function visibleCartesianPoints(expression: string, axes: GraphAxes): PlotPoint[
       },
     }
   }
-
-  let previous = rawSamples[0]
-  let previousInside = inside(previous)
-
-  if (previousInside) {
-    pushPoint(previous)
-  }
-
-  for (let index = 1; index < rawSamples.length; index += 1) {
-    const current = rawSamples[index]
-    const currentInside = inside(current)
-    const clipped = clipSegmentToBounds(previous, current)
-
-    if (previousInside && currentInside) {
-      pushPoint(current)
-    } else if (previousInside && !currentInside) {
-      if (clipped) {
-        pushPoint(clipped.end)
+  const clippedVisibleSegment = (rawSamples: PlotPoint[]): PlotPoint[] => {
+    const points: PlotPoint[] = []
+    const pushPoint = (point: PlotPoint) => {
+      const clamped = {
+        x: clamp(Number(point.x.toFixed(4)), axes.x.min, axes.x.max),
+        y: clamp(Number(point.y.toFixed(4)), axes.y.min, axes.y.max),
       }
-    } else if (!previousInside && currentInside) {
-      if (clipped) {
-        pushPoint(clipped.start)
+      const last = points.at(-1)
+      if (
+        last &&
+        Math.abs(last.x - clamped.x) <= EDGE_EPSILON &&
+        Math.abs(last.y - clamped.y) <= EDGE_EPSILON
+      ) {
+        return
       }
-      pushPoint(current)
-    } else if (clipped) {
-      pushPoint(clipped.start)
-      pushPoint(clipped.end)
+      points.push(clamped)
+    }
+    const pushBoundaryContact = (
+      contact: PlotPoint,
+      outside: PlotPoint,
+      contactIsEnd: boolean,
+    ) => {
+      const guide = boundaryContactGuidePoint(contact, outside)
+      if (!guide) {
+        pushPoint(contact)
+        return
+      }
+
+      if (contactIsEnd) {
+        pushPoint(guide)
+        pushPoint(contact)
+        return
+      }
+
+      pushPoint(contact)
+      pushPoint(guide)
     }
 
-    previous = current
-    previousInside = currentInside
+    let previous = rawSamples[0]
+    let previousInside = inside(previous)
+
+    if (previousInside) {
+      pushPoint(previous)
+    }
+
+    for (let index = 1; index < rawSamples.length; index += 1) {
+      const current = rawSamples[index]
+      const currentInside = inside(current)
+      const clipped = clipSegmentToBounds(previous, current)
+
+      if (previousInside && currentInside) {
+        pushPoint(current)
+      } else if (previousInside && !currentInside) {
+        if (clipped) {
+          if (clippedSegmentIsContact(clipped)) {
+            pushBoundaryContact(clipped.end, current, false)
+          } else {
+            pushPoint(clipped.end)
+          }
+        }
+      } else if (!previousInside && currentInside) {
+        if (clipped) {
+          if (clippedSegmentIsContact(clipped)) {
+            pushBoundaryContact(clipped.start, previous, true)
+          } else {
+            pushPoint(clipped.start)
+          }
+        }
+        pushPoint(current)
+      } else if (clipped) {
+        if (clippedSegmentIsContact(clipped)) {
+          pushBoundaryContact(clipped.start, previous, true)
+        } else {
+          pushPoint(clipped.start)
+          pushPoint(clipped.end)
+        }
+      }
+
+      previous = current
+      previousInside = currentInside
+    }
+
+    if (points.length === 1 && pointEdges(points[0], axes).length > 0) {
+      const guide = fallbackBoundaryGuidePoint(points[0])
+      if (guide) {
+        points.unshift(guide)
+      }
+    }
+
+    return points
   }
 
-  return points
+  return rawSegments
+    .map(clippedVisibleSegment)
+    .filter((points) => points.length > 1)
 }
 
-function visiblePolarPoints(
+function visiblePolarSegments(
   expression: string,
   axes: GraphAxes,
   domain: AxisDefinition,
-): PlotPoint[] {
+): PlotPoint[][] {
   const evaluator = new Function('x', 'theta', `return ${expression}`) as (
     x: number,
     theta: number,
   ) => number
-  const points: PlotPoint[] = []
+  const segments: PlotPoint[][] = []
+  const currentSegment: PlotPoint[] = []
   const step = polarSampleStep(domain)
+  const inside = (point: PlotPoint) =>
+    point.x >= axes.x.min - EDGE_EPSILON &&
+    point.x <= axes.x.max + EDGE_EPSILON &&
+    point.y >= axes.y.min - EDGE_EPSILON &&
+    point.y <= axes.y.max + EDGE_EPSILON
+  const pushPoint = (point: PlotPoint) => {
+    const clamped = {
+      x: clamp(Number(point.x.toFixed(4)), axes.x.min, axes.x.max),
+      y: clamp(Number(point.y.toFixed(4)), axes.y.min, axes.y.max),
+    }
+    const last = currentSegment.at(-1)
+    if (last && distanceBetween(last, clamped) <= EDGE_EPSILON) {
+      return
+    }
+    currentSegment.push(clamped)
+  }
+  const clipSegmentToBounds = (start: PlotPoint, end: PlotPoint): PlotPoint | null => {
+    const dx = end.x - start.x
+    const dy = end.y - start.y
+    let t = 1
+    const checks: Array<[number, number]> = [
+      [-dx, start.x - axes.x.min],
+      [dx, axes.x.max - start.x],
+      [-dy, start.y - axes.y.min],
+      [dy, axes.y.max - start.y],
+    ]
+
+    for (const [p, q] of checks) {
+      if (Math.abs(p) <= EDGE_EPSILON) {
+        if (q < 0) {
+          return null
+        }
+        continue
+      }
+
+      const ratio = q / p
+      if (p > 0) {
+        t = Math.min(t, ratio)
+      }
+    }
+
+    if (t < 0 || t > 1) {
+      return null
+    }
+
+    return {
+      x: start.x + dx * t,
+      y: start.y + dy * t,
+    }
+  }
+  let previous: PlotPoint | null = null
+  let previousInside = false
 
   for (let theta = domain.min; theta <= domain.max + step * 0.25; theta += step) {
     const roundedTheta = Number(theta.toFixed(4))
@@ -896,23 +1207,43 @@ function visiblePolarPoints(
 
     const x = radius * Math.cos(roundedTheta)
     const y = radius * Math.sin(roundedTheta)
+    const point = { x, y }
+    const pointInside = inside(point)
 
-    if (
-      x < axes.x.min - EDGE_EPSILON ||
-      x > axes.x.max + EDGE_EPSILON ||
-      y < axes.y.min - EDGE_EPSILON ||
-      y > axes.y.max + EDGE_EPSILON
-    ) {
+    if (!previous) {
+      if (pointInside) {
+        pushPoint(point)
+      }
+      previous = point
+      previousInside = pointInside
       continue
     }
 
-    points.push({
-      x: clamp(Number(x.toFixed(4)), axes.x.min, axes.x.max),
-      y: clamp(Number(y.toFixed(4)), axes.y.min, axes.y.max),
-    })
+    if (previousInside && pointInside) {
+      pushPoint(point)
+    } else if (previousInside && !pointInside) {
+      const clipped = clipSegmentToBounds(previous, point)
+      if (clipped) {
+        pushPoint(clipped)
+      }
+      break
+    } else if (!previousInside && pointInside) {
+      const clipped = clipSegmentToBounds(point, previous)
+      if (clipped) {
+        pushPoint(clipped)
+      }
+      pushPoint(point)
+    }
+
+    previous = point
+    previousInside = pointInside
   }
 
-  return points
+  if (currentSegment.length > 1) {
+    segments.push(currentSegment)
+  }
+
+  return segments
 }
 
 type ImplicitEvaluator = (x: number, y: number, r: number, theta: number) => number
@@ -1193,6 +1524,101 @@ function matchesGoalByTarget(goal: GoalDefinition, segments: PlotPoint[][]): boo
   return Boolean(goal.target && targetHitForSegments(goal.target, segments))
 }
 
+function targetBoundaryContactSegment(target: PlotPoint, axes: GraphAxes): PlotPoint[] | null {
+  const edges = pointEdges(target, axes)
+  const edge = edges[0]
+  const guideLength = Math.max(0.25, Math.min(axes.x.max - axes.x.min, axes.y.max - axes.y.min) * 0.08)
+
+  if (!edge) {
+    return null
+  }
+
+  if (edge === 'top' || edge === 'bottom') {
+    const direction = target.x >= axes.x.max - EDGE_EPSILON ? -1 : 1
+    const x = clamp(target.x + direction * guideLength, axes.x.min, axes.x.max)
+    if (Math.abs(x - target.x) <= EDGE_EPSILON) {
+      return null
+    }
+    return [{ x, y: target.y }, target]
+  }
+
+  const direction = target.y >= axes.y.max - EDGE_EPSILON ? -1 : 1
+  const y = clamp(target.y + direction * guideLength, axes.y.min, axes.y.max)
+  if (Math.abs(y - target.y) <= EDGE_EPSILON) {
+    return null
+  }
+  return [{ x: target.x, y }, target]
+}
+
+function implicitTargetIsOnCurve(expression: string, target: PlotPoint): boolean {
+  const evaluator = createImplicitEvaluator(expression)
+  const value = safeImplicitValue(evaluator, target.x, target.y)
+  return value !== null && Math.abs(value) <= TARGET_TOLERANCE
+}
+
+function normalizeTheta(theta: number): number {
+  const tau = Math.PI * 2
+  return ((theta % tau) + tau) % tau
+}
+
+function explicitPolarTargetIsOnCurve(expression: string, target: PlotPoint): boolean {
+  const theta = normalizeTheta(Math.atan2(target.y, target.x))
+  const evaluator = new Function('x', 'theta', `return ${expression}`) as (
+    x: number,
+    theta: number,
+  ) => number
+  let radius: number
+
+  try {
+    radius = evaluator(theta, theta)
+  } catch {
+    return false
+  }
+
+  if (!Number.isFinite(radius)) {
+    return false
+  }
+
+  return distanceBetween(target, {
+    x: radius * Math.cos(theta),
+    y: radius * Math.sin(theta),
+  }) <= TARGET_TOLERANCE
+}
+
+function addBoundaryTargetSegments(
+  kind: BuiltExpressionKind,
+  expression: string,
+  axes: GraphAxes,
+  goals: GoalDefinition[],
+  segments: PlotPoint[][],
+): PlotPoint[][] {
+  const additions: PlotPoint[][] = []
+
+  for (const goal of goals) {
+    if (!goal.target || matchesGoalByTarget(goal, segments)) {
+      continue
+    }
+
+    const targetIsOnCurve =
+      kind === 'implicit-cartesian'
+        ? implicitTargetIsOnCurve(expression, goal.target)
+        : kind === 'explicit-polar'
+          ? explicitPolarTargetIsOnCurve(expression, goal.target)
+          : false
+
+    if (!targetIsOnCurve) {
+      continue
+    }
+
+    const contactSegment = targetBoundaryContactSegment(goal.target, axes)
+    if (contactSegment) {
+      additions.push(contactSegment)
+    }
+  }
+
+  return additions.length > 0 ? [...segments, ...additions] : segments
+}
+
 export function evaluateSectionPlot(
   section: SectionDefinition,
   placements: Record<string, TileId | null>,
@@ -1206,19 +1632,23 @@ export function evaluateSectionPlot(
   const axes = resolveAxes(section)
   const segments =
     builtExpression.kind === 'implicit-cartesian'
-      ? visibleImplicitCartesianSegments(builtExpression.expression, axes)
-      : builtExpression.kind === 'implicit-polar'
-        ? visibleImplicitPolarSegments(builtExpression.expression, axes, resolveParameterDomain(section))
-        : builtExpression.kind === 'explicit-polar'
-          ? [visiblePolarPoints(builtExpression.expression, axes, resolveParameterDomain(section))]
-          : [visibleCartesianPoints(builtExpression.expression, axes)]
-  const points = flattenSegments(segments)
+        ? visibleImplicitCartesianSegments(builtExpression.expression, axes)
+        : builtExpression.kind === 'implicit-polar'
+          ? visibleImplicitPolarSegments(builtExpression.expression, axes, resolveParameterDomain(section))
+          : builtExpression.kind === 'explicit-polar'
+            ? visiblePolarSegments(builtExpression.expression, axes, resolveParameterDomain(section))
+            : visibleCartesianSegments(builtExpression.expression, axes)
+  const targetAwareSegments =
+    builtExpression.kind === 'implicit-cartesian' || builtExpression.kind === 'explicit-polar'
+      ? addBoundaryTargetSegments(builtExpression.kind, builtExpression.expression, axes, section.goals, segments)
+      : segments
+  const points = flattenSegments(targetAwareSegments)
   const hits = collectBoundaryHits(points, axes)
   const achievedGoalIds = section.goals
     .filter(
       (goal) =>
         goal.target
-          ? matchesGoalByTarget(goal, segments)
+          ? matchesGoalByTarget(goal, targetAwareSegments)
           : hits.some((hit) => matchesGoal(goal, hit)),
     )
     .map((goal) => goal.id)
@@ -1227,7 +1657,7 @@ export function evaluateSectionPlot(
     expression: builtExpression.expression,
     screenLabel: formatEquationLabel(section, placements, false),
     points,
-    segments,
+    segments: targetAwareSegments,
     hits,
     achievedGoalIds,
     hasVisiblePath: points.length > 1,

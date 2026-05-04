@@ -526,6 +526,21 @@ function visualForGroup(group: PuzzleGroup): SectionVisualDefinition {
   }
 }
 
+function axesForGroup(group: PuzzleGroup): GraphAxes {
+  return {
+    x: {
+      min: Math.min(...group.rows.map((row) => row.axes.x.min)),
+      max: Math.max(...group.rows.map((row) => row.axes.x.max)),
+      tickStep: 1,
+    },
+    y: {
+      min: Math.min(...group.rows.map((row) => row.axes.y.min)),
+      max: Math.max(...group.rows.map((row) => row.axes.y.max)),
+      tickStep: 1,
+    },
+  }
+}
+
 function buildSection(group: PuzzleGroup, index: number): SectionDefinition {
   const representative = group.rows[0]
   const equation = equationPartsForRow(representative)
@@ -538,10 +553,7 @@ function buildSection(group: PuzzleGroup, index: number): SectionDefinition {
     blurb: `Solve ${representative.name}.`,
     accent: sectionAccent(index),
     world: sectionWorld(index),
-    axes: {
-      x: { ...representative.axes.x, tickStep: 1 },
-      y: { ...representative.axes.y, tickStep: 1 },
-    },
+    axes: axesForGroup(group),
     coordinateMode,
     parameterDomain:
       coordinateMode === 'polar' ? { min: 0, max: TAU, tickStep: Math.PI / 4 } : undefined,

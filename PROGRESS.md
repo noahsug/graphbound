@@ -503,3 +503,35 @@ Original prompt: Create a GitHub repo for this web game project, write a detaile
 
 - Removed the dashed borders from the top zoom/settings icon buttons, enlarged the settings gear, and moved the zoom plus/minus back inside the magnifier lens circle.
 - Verified with `npm run build`, the required Playwright client at `output/web-game/top-icon-cleanup-client/`, and focused top-control captures/style checks at `output/web-game/top-icon-cleanup-focused/`.
+
+- Limited the low-zoom target-shape boost to unsolved targets, so completed targets remain at normal visual size when zoomed out.
+- Raised the Music/SFX max-output gain curve to make full-volume settings louder while keeping the stored slider range normalized from `0` to `1`.
+- Verified with `npm run build`, the required Playwright client at `output/web-game/zoom-volume-client/`, and focused low-zoom/settings captures at `output/web-game/zoom-volume-targeted/`.
+
+- Allowed adjacent variable tokens such as `x x 2` and `sin(x x)` to remain playable implicit multiplication instead of being rejected by the slot-compatibility guard.
+- Updated the solution audit expectation for Witch Window so `sin(x x)` and `sin(y x)` are counted as allowed extra solutions alongside the intended `sin(pi x)`.
+- Added a boundary-contact plot segment for explicit cartesian functions that only touch the graph window at one target edge/corner, fixing `y = 25 - x` on Eastreach.
+- Verified with `npm run build`, full `npm run find-solutions`, the required Playwright client at `output/web-game/boundary-contact-client/`, and focused captures/checks at `output/web-game/adjacent-variable-focused/` and `output/web-game/boundary-contact-focused/`.
+
+- Changed explicit polar rendering to clip the plotted curve to the graph bounds and stop the theta sweep at the first boundary exit, so spiral solutions like `r = theta` stop at the target shape instead of reconnecting to later offscreen/reentry samples.
+- Verified the polar clipping pass with `npm run build`, full `npm run find-solutions`, the required Playwright client at `output/web-game/polar-exit-client/`, and focused polar runtime checks/captures at `output/web-game/polar-exit-focused/`.
+
+- Captured a complete intended-solution screenshot gallery for all 49 authored puzzle rows at `output/web-game/intended-solutions-20260503-v2/`, including `index.html` and `manifest.json`.
+- The capture pass reported no console errors; rows `26a`, `27b`, and `27c` were placed successfully but not marked solved by the live runtime, so the gallery flags them as warnings.
+
+- Changed explicit Cartesian plotting to split raw sample runs whenever evaluation returns `NaN` or infinity, so functions such as `y = 2 / x ^ x` no longer connect isolated negative-domain samples across invalid gaps.
+- Verified with `npm run build`, full `npm run find-solutions`, the required Playwright client at `output/web-game/nan-gap-client/`, a focused Crossroads screenshot at `output/web-game/nan-gap-crossroads/crossroads-2-over-x-pow-x.png`, and regression checks at `output/web-game/nan-gap-regression/`.
+
+- Fixed the intended-solution gallery warnings for `26a`, `27b`, and `27c`: multi-row puzzle sections now use axes spanning every authored row target, and boundary target contacts are added when implicit cartesian or explicit polar curves mathematically hit a target only at the graph edge.
+- Verified with `npm run build`, full `npm run find-solutions`, the required Playwright client at `output/web-game/intended-warning-client/`, focused captures at `output/web-game/intended-warning-fix-v2/`, and a refreshed all-49 intended screenshot gallery at `output/web-game/intended-solutions-20260503-v3/` with zero unsolved rows and zero console errors.
+
+- Fixed bare trig/function parsing so accepted placements such as `y = x sin x + 2` draw as `x * sin(x) + 2` instead of failing expression construction because `sin` lacked parentheses.
+- Mirrored the bare function-argument parsing in `scripts/find-puzzle-solutions.mjs`.
+- Verified with `npm run build`, full `npm run find-solutions`, the required Playwright client at `output/web-game/bare-sin-argument-client/`, and a focused Crossroads capture at `output/web-game/bare-sin-argument-focused/crossroads-x-sin-x-plus-2.png`.
+
+- Added inferred visual parentheses for bare `sin` arguments without inserting layout tokens, so slots stay fixed while displays like `sin x` render as `sin(x)` and `sin + 2` renders as `sin(+ 2)`.
+- Kept explicit parenthesis starts such as `sin (` untouched, and allowed partial unary-sign arguments like `sin + _ _` to remain placeable until the operand appears.
+- Verified with `npm run build`, full `npm run find-solutions`, the required Playwright client at `output/web-game/sin-auto-parens-client/`, focused scenario captures at `output/web-game/sin-auto-parens-focused-v3/`, a Crossroads capture at `output/web-game/sin-auto-parens-crossroads/crossroads-x-sin-x-plus-2.png`, and a slot-geometry check confirming inferred parens do not move blanks.
+
+- Changed Sine Dial's y-axis from `-5..0` to `-2..3`, so `y = sin(pi x) / 2` no longer clips its positive half against the top of the graph while keeping the target at `(0, 0)`.
+- Regenerated `PUZZLES.md` and verified with `npm run build`, full `npm run find-solutions`, the required Playwright client at `output/web-game/sine-dial-axis-client/`, and a focused intended-solution capture at `output/web-game/sine-dial-axis-focused/sine-dial-intended.png`.

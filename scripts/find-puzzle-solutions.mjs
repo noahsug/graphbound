@@ -659,6 +659,16 @@ class TokenParser {
     }
   }
 
+  parseFunctionArgument() {
+    if (this.matchOperator('(')) {
+      const expression = this.parseAdditive()
+      this.expectOperator(')')
+      return expression
+    }
+
+    return this.parsePower()
+  }
+
   matchIdentifier(value) {
     const token = this.current()
     if (token?.type !== 'identifier' || token.value !== value) {
@@ -751,30 +761,22 @@ class TokenParser {
     }
 
     if (this.matchIdentifier('sin')) {
-      this.expectOperator('(')
-      const expression = this.parseAdditive()
-      this.expectOperator(')')
+      const expression = this.parseFunctionArgument()
       return `Math.sin(${expression})`
     }
 
     if (this.matchIdentifier('cos')) {
-      this.expectOperator('(')
-      const expression = this.parseAdditive()
-      this.expectOperator(')')
+      const expression = this.parseFunctionArgument()
       return `Math.cos(${expression})`
     }
 
     if (this.matchIdentifier('ln')) {
-      this.expectOperator('(')
-      const expression = this.parseAdditive()
-      this.expectOperator(')')
+      const expression = this.parseFunctionArgument()
       return `Math.log(${expression})`
     }
 
     if (this.matchIdentifier('log')) {
-      this.expectOperator('(')
-      const expression = this.parseAdditive()
-      this.expectOperator(')')
+      const expression = this.parseFunctionArgument()
       return `Math.log10(${expression})`
     }
 
@@ -855,6 +857,16 @@ class AstParser {
     if (!this.matchOperator(value)) {
       throw new Error(`Expected ${value}`)
     }
+  }
+
+  parseFunctionArgument() {
+    if (this.matchOperator('(')) {
+      const expression = this.parseAdditive()
+      this.expectOperator(')')
+      return expression
+    }
+
+    return this.parsePower()
   }
 
   matchIdentifier(value) {
@@ -950,9 +962,7 @@ class AstParser {
 
     for (const name of ['sin', 'cos', 'ln', 'log']) {
       if (this.matchIdentifier(name)) {
-        this.expectOperator('(')
-        const expression = this.parseAdditive()
-        this.expectOperator(')')
+        const expression = this.parseFunctionArgument()
         return { type: 'fn', name, arg: expression }
       }
     }
@@ -1630,10 +1640,6 @@ function isStrictBinaryOperator(token) {
   return token?.type === 'operator' && ['+', '/', '^', '='].includes(token.value)
 }
 
-function tokenIsVariable(token) {
-  return token?.type === 'identifier' && ['x', 'y', 'r', 'theta'].includes(token.value)
-}
-
 function tokenCanStartSinArgument(token) {
   if (!token) {
     return false
@@ -1666,9 +1672,18 @@ function tokenCanStartUnaryOperand(token) {
   return token.type === 'operator' && token.value === '('
 }
 
-function sinArgumentStartToken(tokens, sinIndex) {
+function tokensCanStartSinArgument(tokens, sinIndex) {
   const next = tokens[sinIndex + 1]
-  return next?.type === 'operator' && next.value === '(' ? tokens[sinIndex + 2] : next
+
+  if (next?.type === 'operator' && next.value === '(') {
+    return true
+  }
+
+  if (next?.type === 'operator' && (next.value === '+' || next.value === '-')) {
+    return tokenCanStartSinArgument(tokens[sinIndex + 2])
+  }
+
+  return tokenCanStartSinArgument(next)
 }
 
 function tokenIsUnarySign(tokens, index) {
@@ -1731,11 +1746,7 @@ function hasValidOperatorPlacement(equation, row) {
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index]
 
-    if (token.type === 'identifier' && token.value === 'sin' && !tokenCanStartSinArgument(sinArgumentStartToken(tokens, index))) {
-      return false
-    }
-
-    if (tokenIsVariable(token) && tokenIsVariable(tokens[index + 1])) {
+    if (token.type === 'identifier' && token.value === 'sin' && !tokensCanStartSinArgument(tokens, index)) {
       return false
     }
 
@@ -1877,7 +1888,10 @@ function solvePuzzleGroup(group, rowContexts) {
   const representative = group.rows[0]
   const representativeEquation = representative.equation
   const allowedNonIntendedCount =
-    representative.name === 'Finale' && allTokensBlank(representativeEquation) ? 2 : 1
+    (representative.name === 'Finale' && allTokensBlank(representativeEquation)) ||
+    representative.name === 'Witch Window'
+      ? 4
+      : 1
   const equationIssues = group.rows
     .filter((row) => row.equation.trim() !== representativeEquation.trim())
     .map((row) => ({

@@ -21,6 +21,8 @@ interface AudioManagerOptions {
 }
 
 const STORAGE_KEY = 'graphbound-audio-preferences'
+const MAX_VOLUME_SETTING = 1
+const MAX_VOLUME_GAIN = 1.6
 const DEFAULT_PREFERENCES: AudioPreferences = {
   muted: false,
   musicVolume: 0.5,
@@ -41,6 +43,11 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value))
 }
 
+function gainForVolumeSetting(volume: number): number {
+  const normalized = clamp(volume, 0, MAX_VOLUME_SETTING)
+  return normalized * (1 + (MAX_VOLUME_GAIN - 1) * normalized ** 2)
+}
+
 function loadPreferences(): AudioPreferences {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY)
@@ -51,8 +58,16 @@ function loadPreferences(): AudioPreferences {
     const parsed = JSON.parse(raw) as Partial<AudioPreferences>
     return {
       muted: Boolean(parsed.muted),
-      musicVolume: clamp(Number(parsed.musicVolume ?? DEFAULT_PREFERENCES.musicVolume), 0, 1),
-      sfxVolume: clamp(Number(parsed.sfxVolume ?? DEFAULT_PREFERENCES.sfxVolume), 0, 1),
+      musicVolume: clamp(
+        Number(parsed.musicVolume ?? DEFAULT_PREFERENCES.musicVolume),
+        0,
+        MAX_VOLUME_SETTING,
+      ),
+      sfxVolume: clamp(
+        Number(parsed.sfxVolume ?? DEFAULT_PREFERENCES.sfxVolume),
+        0,
+        MAX_VOLUME_SETTING,
+      ),
       musicTrack: validMusicTrack(parsed.musicTrack),
     }
   } catch {
@@ -214,7 +229,7 @@ export class AudioManager {
 
     this.musicSlider.addEventListener('input', () => {
       void this.unlock()
-      this.preferences.musicVolume = clamp(Number(this.musicSlider.value), 0, 1)
+      this.preferences.musicVolume = clamp(Number(this.musicSlider.value), 0, MAX_VOLUME_SETTING)
       this.applyPreferences()
       savePreferences(this.preferences)
       this.ensureMusicStarted()
@@ -222,7 +237,7 @@ export class AudioManager {
 
     this.sfxSlider.addEventListener('input', () => {
       void this.unlock()
-      this.preferences.sfxVolume = clamp(Number(this.sfxSlider.value), 0, 1)
+      this.preferences.sfxVolume = clamp(Number(this.sfxSlider.value), 0, MAX_VOLUME_SETTING)
       this.applyPreferences()
       savePreferences(this.preferences)
     })
@@ -441,7 +456,7 @@ export class AudioManager {
     const slider = document.createElement('input')
     slider.type = 'range'
     slider.min = '0'
-    slider.max = '1'
+    slider.max = String(MAX_VOLUME_SETTING)
     slider.step = '0.01'
     slider.value = String(value)
     wrapper.append(text, slider)
@@ -478,10 +493,10 @@ export class AudioManager {
       this.masterGain.gain.value = this.preferences.muted ? 0 : 1
     }
     if (this.sfxGain) {
-      this.sfxGain.gain.value = this.preferences.sfxVolume
+      this.sfxGain.gain.value = gainForVolumeSetting(this.preferences.sfxVolume)
     }
     if (this.musicGain) {
-      this.musicGain.gain.value = this.preferences.musicVolume
+      this.musicGain.gain.value = gainForVolumeSetting(this.preferences.musicVolume)
     }
     if (this.musicDuckGain) {
       this.musicDuckGain.gain.value = 1
