@@ -535,3 +535,124 @@ Original prompt: Create a GitHub repo for this web game project, write a detaile
 
 - Changed Sine Dial's y-axis from `-5..0` to `-2..3`, so `y = sin(pi x) / 2` no longer clips its positive half against the top of the graph while keeping the target at `(0, 0)`.
 - Regenerated `PUZZLES.md` and verified with `npm run build`, full `npm run find-solutions`, the required Playwright client at `output/web-game/sine-dial-axis-client/`, and a focused intended-solution capture at `output/web-game/sine-dial-axis-focused/sine-dial-intended.png`.
+
+- Tightened the low-zoom target-shape boost so it applies only to targets that are both unlocked and unsolved; locked future targets now stay at normal size even when zoomed all the way out.
+- Verified with `npm run build`, the required Playwright client at `output/web-game/unlocked-unsolved-target-boost-client/`, and focused zoomed-out captures at `output/web-game/unlocked-unsolved-target-boost/`.
+
+- Reworked the target-shape zoom boost curve so unlocked unsolved targets stay unboosted until the camera is at least 50% zoomed out, then smoothly ramp apparent screen size to its maximum at full zoom-out.
+- Verified with `npm run build`, the required Playwright client at `output/web-game/target-boost-smooth-zoom-client/`, and staged zoom captures at `output/web-game/target-boost-smooth-zoom/`.
+
+- Split explicit Cartesian plot strokes whenever the curve leaves the graph window and later re-enters, so out-of-bounds gaps no longer render as connecting lines along the graph boundary.
+- Verified with `npm run build`, full `npm run find-solutions`, the required Playwright client at `output/web-game/out-of-bounds-reentry-client/`, and a focused Crossroads capture at `output/web-game/out-of-bounds-reentry/crossroads-2xx-minus-5.png`.
+
+- Removed the artificial boundary guide stubs from normal explicit Cartesian line entry/exit, so clipped lines end at their real boundary intersection instead of drawing short flat starts or caps.
+- Verified with `npm run build`, full `npm run find-solutions`, the required Playwright client at `output/web-game/no-boundary-stubs-client/`, and a focused Crossroads capture at `output/web-game/no-boundary-stubs/crossroads-5-plus-x-minus-2.png`.
+
+- Replaced the two boring late linear puzzles: South Vault is now a shifted reciprocal `y = 5 / (x - 2) + 5`, and Half Gate is now a sine half-wave `y = 5sin(pi x / 2) + 5`.
+- Kept both replacements single-use-tile compatible by fixing one `5` in each template; the intended slots are South Vault `[(, 2, ), 5]` and Half Gate `[2, +, 5]`.
+- Tightened explicit Cartesian clipping once more so outside-to-outside sample pairs only draw boundary contacts, preventing reciprocal/asymptote jumps from drawing fake vertical bridges while preserving edge-touch solves.
+- Verified with `npm run build`, full `npm run find-solutions`, the required Playwright client at `output/web-game/reworked-boring-puzzles-client/`, focused intended-solution screenshots at `output/web-game/reworked-boring-puzzles/`, and regression captures for Eastreach boundary contact plus Crossroads out-of-bounds/no-stub cases.
+
+- Replaced Anvil's old straight-line `y = 2 - 5x` puzzle with an absolute-value V: `y = |5x - 2| - 2`, keeping the `^` reward tile unlock intact.
+- Verified with `npm run generate-puzzles`, full `npm run find-solutions`, `npm run build`, the required Playwright client at `output/web-game/reworked-anvil-client/`, and the focused intended-solution screenshot `output/web-game/reworked-anvil/anvil-absolute-v.png`.
+
+- Matched the reserved `r =` equation prefix width to the existing `y =` prefix width so polar equation slots no longer sit too close to the equals sign.
+- Verified with `npm run build`, full `npm run find-solutions`, focused spacing captures at `output/web-game/r-prefix-spacing/`, and the required Playwright client at `output/web-game/r-prefix-spacing-client/`.
+
+- Updated Weave to solve with `r = -theta`, moved its target to `(0, -8)`, widened its axes to `-8..8`, and gave it a custom polar parameter domain so the spiral reaches the new bottom target.
+- Added per-puzzle polar domains to generated content and taught the solver to check equivalent polar angle/radius representations within each row's domain; unary `-` immediately after `=` is now valid for rows like `r = -theta`.
+- Verified with `npm run generate-puzzles`, full `npm run find-solutions`, `npm run build`, the required Playwright client at `output/web-game/weave-negative-theta-client/`, and the focused intended-solution screenshot `output/web-game/weave-negative-theta/weave-r-negative-theta.png`.
+
+- Tightened inferred bare-`sin` argument grouping so `sin x ^ _` displays as `sin(x)^_`, with the exponent outside the auto-added parentheses instead of becoming part of the sine argument.
+- Matched the parser and solution audit to the display: bare function calls now consume a single unary operand unless explicit parentheses are provided, so `sin x ^ 5` evaluates as `sin(x)^5`.
+- Verified with `npm run build`, full `npm run find-solutions`, the required Playwright client at `output/web-game/sin-power-parens-client/`, and focused captures/checks at `output/web-game/sin-power-parens/`.
+
+- Reworked Spiral Step from `r = theta + □` into `r = □ □ □`, with intended solution `r = 5 / theta`, axes `x: -5..10`, `y: -5..5`, and the target at `(10, 5)`.
+- Verified with `npm run generate-puzzles`, full `npm run find-solutions`, `npm run build`, the required Playwright client at `output/web-game/spiral-step-reciprocal-client/`, and the focused intended-solution screenshot `output/web-game/spiral-step-reciprocal/spiral-step-r-5-over-theta.png`.
+
+- Moved Spiral Step's target to `(12, 5)` and changed its x-axis to `-3..12`, removing the previous extra `r = 25theta` solution while preserving `r = 5 / theta` as the only solver-found solution.
+- Verified with `npm run generate-puzzles`, full `npm run find-solutions`, `npm run build`, the required Playwright client at `output/web-game/spiral-step-target-12-client/`, and the focused intended-solution screenshot `output/web-game/spiral-step-reciprocal-target-12/spiral-step-r-5-over-theta-target-12-5.png`.
+
+- Replaced Paren Echo's shifted parabola `y = (x - 5)^2` with a wavy rising curve: `y = 5sin(pi x) + (x ^ 2) / pi`.
+- The new template is `y = □sin(pi x) + □x ^ 2□ / □`, preserving late-game parenthesis tile usage while making the shape distinct from `y = (2 + x)^2`; axes are now `x: 0..5`, `y: 0..12`, with target `(4.5, 11.5)`.
+- Verified with `npm run generate-puzzles`, full `npm run find-solutions`, `npm run build`, the required Playwright client at `output/web-game/paren-echo-wave-parabola-client/`, and focused captures at `output/web-game/paren-echo-wave-parabola/`.
+
+- Blocked invalid right-parenthesis adjacency in live placement: a right paren can no longer follow `+`, `-`, `/`, `^`, `=`, `(`, or `sin`, and operator/function starters can no longer be placed immediately before an existing right paren.
+- Mirrored the right-paren adjacency rule in the solution audit so full candidate equations like `+)`, `^)`, `sin)`, and `()` are rejected by the solver too.
+- Kept left parens legal after operators/functions, so forms like `+(` and `sin(` remain placeable; Paren Echo stays on the wavy solution `y = 5sin(pi x) + (x ^ 2) / pi`.
+- Verified with `npm run generate-puzzles`, full `npm run find-solutions`, `npm run build`, the required Playwright client at `output/web-game/paren-syntax-right-only-client/`, and focused browser captures/checks at `output/web-game/paren-syntax-right-only-focused/`.
+
+- Reworked Southreach away from the Paren Grove-style shifted square. It now solves as the inverted absolute-value cap `y = 5 - |(x - 2)|`, with template `y = 5 - |(x □ 2□|`, axes `x: -3..7`, `y: 0..5`, and target `(7, 0)`.
+- Verified with `npm run generate-puzzles`, full `npm run find-solutions`, `npm run build`, the required Playwright client at `output/web-game/southreach-inverted-v-client/`, and focused intended-solution captures at `output/web-game/southreach-inverted-v-focused/`.
+
+- Retuned Weir's target from `(4.5, 20)` to `(4, 18)` and y-axis from `0..20` to `0..18`, so `y = 5x - 2` remains the only accepted solve while nearby clipped lines such as `y = 5x - 5` no longer fall within the target tolerance.
+- Verified with `npm run generate-puzzles`, full `npm run find-solutions`, `npm run build`, the required Playwright client at `output/web-game/weir-single-solution-client/`, and focused runtime checks/captures at `output/web-game/weir-single-solution-focused/`.
+
+- Added a solved-target celebration phase between target fill and puzzle-unlock scrolling: a deterministic burst of rough hand-drawn confetti now launches from the solved target, then the connector/camera scroll begins after the celebration finishes.
+- Exposed `celebrationProgress` and `confettiBursts` in the debug text state to make this timing easy to verify.
+- Verified with `npm run build`, full `npm run find-solutions`, the required Playwright client at `output/celebration-smoke/`, and focused solve/scroll captures at `output/celebration-focused/`.
+
+- Fixed implicit multi-segment graph draw-in, including Parabola Gate's `y ^ 2 = 2x`: plot progress now advances across the total visible path length instead of applying the same progress to every tiny marching-squares segment.
+- Updated plot-speed measurement to use the summed segment length, and made debug text report `animating` while any puzzle plot animation is active.
+- Verified with `npm run build`, full `npm run find-solutions`, the required Playwright client at `output/implicit-plot-progress-client/`, and focused Parabola Gate captures at `output/implicit-plot-progress-focused-v2/`.
+
+- Allowed unary `+` after `=` with the same placement constraints as unary `-`, so partial forms like `= + _` and complete forms like `= + 5` are valid tile placements.
+- Mirrored the unary-plus rule in the solution audit and updated the known extra-solution allowances for Hollow and Finale, where unary plus creates benign extra solves.
+- Verified with `npm run build`, full `npm run find-solutions`, the required Playwright client at `output/unary-plus-placement-client/`, and a focused Hyperbola Door `x ^ 2 - y ^ 2 = + 5` browser capture at `output/unary-plus-placement-focused/`.
+
+- Removed the authoring requirement that target shapes must sit on a graph edge; targets now only need to be rounded and inside their graph axes.
+- Updated Hyperbola Door's x-axis from `-5..5` to `-5..10`, leaving its target at `(5, 0)` so the target is an interior point on the graph.
+- Regenerated `PUZZLES.md` and verified with `npm run build`, full `npm run find-solutions`, the required Playwright client at `output/interior-target-req-client/`, and focused Hyperbola Door captures/state at `output/interior-target-req-focused/`.
+
+- Replaced Rose Garden 27c's hard-to-read `r = 5sin(2theta) + 2` solve with `r = theta sin(2theta) + 2`, keeping the shared `r = □ □(2theta) + □` template and moving the target to `(-4, -4)` on the lower-left lobe.
+- Verified with `npm run generate-puzzles`, `npm run build`, full `npm run find-solutions`, the required Playwright client at `output/rose-garden-theta-sin-client/`, and focused Rose Garden captures/state at `output/rose-garden-theta-sin-focused/`.
+
+- Reworked Lemniscate from the loose `r ^ 2 = 5□(□theta) + □` template into a larger two-tile coefficient puzzle: `r ^ 2 = □□sin(2theta) + 0`, intended as `r ^ 2 = 25sin(2theta) + 0`, with axes `-5..5` and target `(4, 3.5)`.
+- Made the solution audit exhaustively search Lemniscate's coefficient slots so alternates like the old `sin(5theta)`/wrong-coefficient solves are caught, while keeping the broader audit behavior for the rest of the puzzle set.
+- Verified with `npm run generate-puzzles`, `npm run build`, focused `npm run find-solutions -- 29`, full `npm run find-solutions`, the required Playwright client at `output/lemniscate-single-solution-client/`, and focused intended/alternate runtime captures at `output/lemniscate-single-solution-focused/`.
+
+- Reworked Finale away from the old seven all-empty slots into `2 ^ x + □ - □ □ □`, intended as the implicit solve `2 ^ x + 5 - y = 0`, so the four blanks require `5`, `y`, `=`, and `0` without starting with `y =` or ending with `= y`.
+- Moved Finale's target to `(2, 9)` and y-axis to `0..10`, giving the new implicit exponential exactly one solver-found solution.
+- Removed the authoring requirement that Finale be all blanks; the audit now enforces exactly four Finale blanks, mandatory `y`/`=`, no leading `y =`, no trailing `= y`, and exhaustive Finale slot search.
+- Verified with `npm run build`, focused `npm run find-solutions -- 20`, the required Playwright client at `output/finale-four-slot-client/`, and a focused browser solve capture at `output/finale-four-slot-focused/finale-implicit-solution.png`.
+
+- Reworked Witch Window from the one-slot `y = sin(□x)` frequency puzzle into the two-slot sine-tail puzzle `y = 2sin(x) □ □`, intended as `y = 2sin(x) + 5`.
+- Moved Witch Window's target to `(4, 3.5)` on axes `x: 0..5`, `y: -2..8`, keeping the visual theme as a sine of `x` while moving the target away from generic low-amplitude sine crossings.
+- Removed Witch Window's old four-extra-solution audit exception and made the solver search its two blanks exhaustively; the row now has exactly one solver-found solution.
+- Verified with `npm run generate-puzzles`, focused `npm run find-solutions -- 30`, full `npm run find-solutions`, `npm run build`, the required Playwright client at `output/witch-window-two-slot-client/`, and focused runtime capture `output/witch-window-two-slot-focused/witch-window-2sin-plus-5.png`.
+
+- Reworked Spiral Loft away from the repeated circle `r = 5` into the two-slot cartesian curve `□ = x sin(x) + □`, intended as `y = x sin(x) + 2`, so the player must place the `y` tile.
+- Retargeted Spiral Loft to `(2, 4)` on axes `x: 0..5`, `y: -2..5`; exhaustive solver search finds the intended solution plus one accepted extra, `y = x sin(x) + x`.
+- Added Spiral Loft to the exhaustive slot-search list in the solution audit so future two-slot retunes there do not hide alternate solves behind intended-tile inference.
+- Verified with `npm run generate-puzzles`, focused `npm run find-solutions -- 32`, full `npm run find-solutions`, `npm run build`, the required Playwright client at `output/spiral-loft-y-slot-client/`, and focused runtime capture `output/spiral-loft-y-slot-focused/spiral-loft-y-plus-2.png`.
+
+- Swapped the late-game order so Spiral Loft/Fermat Spiral unlock Pi Vault first, then Pi Vault unlocks Sine Dial, and Sine Dial unlocks Half Gate.
+- Reworked Sine Dial into the three-slot equals-placement puzzle `y □ □sin(x) + 5 □ 0`, intended as `y = pi sin(x) + 5 + 0`, with target `(1, 7.5)`.
+- Added Sine Dial to exhaustive solution search and tightened live/audit syntax rules so solved-output equations do not accept odd left-side products like `y x = ...` or recursive RHS forms like `y = ... + y`.
+- Verified with `npm run generate-puzzles`, focused `npm run find-solutions -- 35 36`, full `npm run find-solutions`, `npm run build`, the required Playwright client at `output/sine-dial-equals-placement-client/`, and focused runtime capture `output/sine-dial-equals-placement-focused/sine-dial-equals-pi-plus-zero.png`.
+
+- Widened Ellipse Hall's axes from `x: -2..3`, `y: -4..2` to `x: -5..5`, `y: -3..3`, so the full `x ^ 2 / 25 + y ^ 2 = 1` ellipse is visible instead of clipped at the sides.
+- Verified with `npm run generate-puzzles`, focused `npm run find-solutions -- 24`, full `npm run find-solutions`, `npm run build`, the required Playwright client at `output/ellipse-hall-axis-bounds-client/`, and focused runtime capture `output/ellipse-hall-axis-bounds-focused/ellipse-hall-wide-axes.png`.
+
+- Reworked Paren Echo so its quadratic term starts with a fixed right paren at the very end: `y = □sin(pi x) □ □x ^ 2 / □)`, intended as `y = 5sin(pi x) + (x ^ 2 / pi)`.
+- Moved Half Gate's sine closing paren into a tile slot (`y = 5sin(pi x / □□ □ □`) so right-paren tile usage stays covered after Paren Echo no longer asks the player to place that closing paren.
+- Verified with `npm run generate-puzzles`, focused `npm run find-solutions -- 37 38`, full `npm run find-solutions`, `npm run build`, the required Playwright client at `output/paren-echo-final-paren-client/`, and focused Paren Echo captures at `output/paren-echo-final-paren-focused/`.
+
+- Replaced 33a Fermat Spiral with Sine Mirror, a four-slot puzzle `□ ( □ ) □ □` intended as `sin(y) = x`, with axes `x: -2..3`, `y: -5..5`, and target `(1, 1.5)`.
+- Relaxed the output-variable implicit-product guard so equations like `sin(y) = x` and `(y) = x` remain legal while direct products like `xy = ...` still get rejected.
+- Made variable tiles read visually as variables instead of operators by giving them a distinct pale-blue fill and rendering `x`, `y`, `r`, and `theta` with math-italic glyphs in tiles, fixed equation text, and equation prefixes.
+- Verified with `npm run generate-puzzles`, focused `npm run find-solutions -- 33`, full `npm run find-solutions`, `npm run build`, the required Playwright client at `output/variable-glyphs-client-v3/`, and focused Sine Mirror captures at `output/sine-mirror-sin-y-variable-glyphs-v2/`.
+
+- Recreated the intended-solutions website at `solutions.html`, backed by a new `src/solutions.ts` gallery that uses the real game renderer to preview every authored row at its intended tile placement.
+- Added a silent `previewIntendedSolution(sectionId, goalId)` hook on the game app so the gallery can render a single solved row without bootstrapping earlier levels, writing progress, or triggering audio.
+- Added `npm run solutions` to open the gallery and included it in the Vite multi-page build.
+- Verified the gallery renders 49/49 cards with zero problem rows, including `45. 33a Sine Mirror`, with `npm run build`, Playwright page/state checks at `output/solutions-gallery-page-ready.png`, and the required web-game client at `output/solutions-gallery-client-ready/`.
+
+- Added a reusable large preview modal to the intended-solutions gallery so clicking any rendered solution image opens it at a much easier-to-read size, with backdrop, close button, Escape-key dismissal, and focus return to the opened preview.
+- Verified with `npm run build`, the required Playwright game client at `output/solutions-modal-client/`, and a focused browser modal test/screenshot at `output/solutions-modal-focused/modal-open.png`.
+
+- Removed Lemniscate's trailing `+ 0`, changing the row to `r ^ 2 = □□sin(2theta)` with intended solution `r ^ 2 = 25sin(2theta)`.
+- Expanded Rose Garden's shared y-axis to `-7..7`, changed Serpentine's axes to `x: -2..4`, `y: -2..4`, and made Pi Vault start with a fixed `y =` so its slots are now only `^`, `/`, and `pi`.
+- Updated the intended-solutions gallery search so it matches only authored intended solution text, while still handling compact searches like `r=`, `sin(x)`, `pi`, and `theta`; Ctrl-A/Cmd-A now selects the search contents cleanly.
+- Persisted a `victoryScreenShown` flag so the “Graphbound complete” panel appears once, can be dismissed, and does not reappear after reload or later completion checks.
+- Regenerated `PUZZLES.md` and verified with focused `npm run find-solutions -- 27 29 31 36`, full `npm run find-solutions`, `npm run build`, the required Playwright client at `output/batch-polish-client/`, solutions search checks at `output/solutions-search-focused/`, and victory persistence checks at `output/victory-once-focused/`.

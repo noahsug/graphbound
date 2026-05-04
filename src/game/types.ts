@@ -146,6 +146,8 @@ export interface SectionRuntime {
   plotResult: PlotResult | null
   plotProgress: number
   targetFillProgress: number
+  targetCelebrationProgress: number
+  targetCelebrationQueued: boolean
   fuseProgress: number
   fuseCameraProgress: number
   fuseCameraFrom: Point | null

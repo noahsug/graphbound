@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "solutions": "vite --host 127.0.0.1 --open /solutions.html",
     "build": "tsc && vite build",
     "generate-puzzles": "node scripts/generate-puzzles-md.mjs",
     "find-solutions": "node scripts/find-puzzle-solutions.mjs",

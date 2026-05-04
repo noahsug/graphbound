@@ -30,6 +30,12 @@ npm run dev
 
 Deep-link QA is supported with `?level=N`, for example `http://localhost:5173/?level=4`. That boot mode marks earlier levels as solved, unlocks their rewards, and starts the camera on the requested board.
 
+To review every authored row at its intended solution:
+
+```bash
+npm run solutions
+```
+
 ## Build
 
 ```bash

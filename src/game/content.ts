@@ -1,5 +1,6 @@
 import puzzlesData from '../../puzzles.json'
 import type {
+  AxisDefinition,
   EquationPart,
   GoalEdge,
   GoalShapeKind,
@@ -37,7 +38,7 @@ export const DEFAULT_SECTION_VISUAL: Required<SectionVisualDefinition> = {
 }
 
 const TILE_ROLE_FILLS = {
-  variable: '#f9d36d',
+  variable: '#d9e3ff',
   number: '#ffd3aa',
   operator: '#f2dd9c',
 } as const
@@ -71,7 +72,7 @@ const RUNTIME_TILE_IDS = [
 export const TILE_DEFINITIONS: Record<TileId, TileDefinition> = {
   x: { id: 'x', label: 'x', fill: TILE_ROLE_FILLS.variable, text: PENCIL, role: 'variable' },
   y: { id: 'y', label: 'y', fill: TILE_ROLE_FILLS.variable, text: PENCIL, role: 'variable' },
-  'θ': { id: 'θ', label: 'Θ', fill: TILE_ROLE_FILLS.variable, text: PENCIL, role: 'variable' },
+  'θ': { id: 'θ', label: 'θ', fill: TILE_ROLE_FILLS.variable, text: PENCIL, role: 'variable' },
   'π': { id: 'π', label: 'π', fill: TILE_ROLE_FILLS.number, text: PENCIL, role: 'number' },
   '2': { id: '2', label: '2', fill: TILE_ROLE_FILLS.number, text: PENCIL, role: 'number' },
   '5': { id: '5', label: '5', fill: TILE_ROLE_FILLS.number, text: PENCIL, role: 'number' },
@@ -98,6 +99,7 @@ interface PuzzleRowJson {
   unlocksPuzzle?: string
   unlocksTile?: string
   axes: GraphAxes
+  parameterDomain?: AxisDefinition
   target: Point
 }
 
@@ -541,6 +543,17 @@ function axesForGroup(group: PuzzleGroup): GraphAxes {
   }
 }
 
+function parameterDomainForGroup(group: PuzzleGroup): AxisDefinition {
+  const defaultDomain = { min: 0, max: TAU, tickStep: Math.PI / 4 }
+  const domains = group.rows.map((row) => row.parameterDomain ?? defaultDomain)
+
+  return {
+    min: Math.min(...domains.map((domain) => domain.min)),
+    max: Math.max(...domains.map((domain) => domain.max)),
+    tickStep: domains.find((domain) => domain.tickStep !== undefined)?.tickStep ?? Math.PI / 4,
+  }
+}
+
 function buildSection(group: PuzzleGroup, index: number): SectionDefinition {
   const representative = group.rows[0]
   const equation = equationPartsForRow(representative)
@@ -555,8 +568,7 @@ function buildSection(group: PuzzleGroup, index: number): SectionDefinition {
     world: sectionWorld(index),
     axes: axesForGroup(group),
     coordinateMode,
-    parameterDomain:
-      coordinateMode === 'polar' ? { min: 0, max: TAU, tickStep: Math.PI / 4 } : undefined,
+    parameterDomain: coordinateMode === 'polar' ? parameterDomainForGroup(group) : undefined,
     equationPrefix: equation.equationPrefix,
     visual: visualForGroup(group),
     initialUnlocked: index === 0,

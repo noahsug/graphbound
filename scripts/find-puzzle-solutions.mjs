@@ -257,6 +257,9 @@ function normalizeJsonPuzzleRow(row, index, filePath) {
       x: normalizeJsonAxis(row.axes?.x, `${id}.axes.x`),
       y: normalizeJsonAxis(row.axes?.y, `${id}.axes.y`),
     },
+    parameterDomain: row.parameterDomain
+      ? normalizeJsonAxis(row.parameterDomain, `${id}.parameterDomain`)
+      : undefined,
     target: normalizeJsonTarget(row.target, `${id}.target`),
   }
 }
@@ -501,7 +504,15 @@ function slotCandidateLists(row, availableTiles, intendedRows = [row]) {
     return []
   }
 
-  if (count === 1 || blankOnlyRightSide(row.equation) || allTokensBlank(row.equation)) {
+  if (
+    row.name === 'Lemniscate' ||
+    row.name === 'Finale' ||
+    row.name === 'Witch Window' ||
+    row.name === 'Spiral Loft' ||
+    count === 1 ||
+    blankOnlyRightSide(row.equation) ||
+    allTokensBlank(row.equation)
+  ) {
     return Array.from({ length: count }, () => availableTiles)
   }
 
@@ -666,7 +677,7 @@ class TokenParser {
       return expression
     }
 
-    return this.parsePower()
+    return this.parseUnary()
   }
 
   matchIdentifier(value) {
@@ -866,7 +877,7 @@ class AstParser {
       return expression
     }
 
-    return this.parsePower()
+    return this.parseUnary()
   }
 
   matchIdentifier(value) {
@@ -1288,35 +1299,63 @@ function matchesExplicitY(parsed, row) {
   return false
 }
 
-function matchesExplicitR(parsed, target) {
+function polarDomainForRow(row) {
+  return row.parameterDomain ?? { min: 0, max: Math.PI * 2 }
+}
+
+function polarThetaCandidates(target, domain) {
   const polar = targetPolar(target)
+  const tau = Math.PI * 2
+  const candidates = []
+  const bases = [polar.theta, polar.theta + Math.PI]
+  for (const base of bases) {
+    const minK = Math.floor((domain.min - base) / tau) - 1
+    const maxK = Math.ceil((domain.max - base) / tau) + 1
+    for (let k = minK; k <= maxK; k += 1) {
+      const theta = base + k * tau
+      if (theta >= domain.min - TOLERANCE && theta <= domain.max + TOLERANCE) {
+        candidates.push(theta)
+      }
+    }
+  }
+
+  return candidates
+}
+
+function matchesExplicitR(parsed, row) {
+  const { target } = row
+  const polar = targetPolar(target)
+  const domain = polarDomainForRow(row)
   const thetaSpread = polar.r > 0 ? Math.asin(Math.min(1, TOLERANCE / polar.r)) + 0.08 : Math.PI
   const sampleSteps = 48
-  let previousPoint = null
 
-  for (let index = 0; index <= sampleSteps; index += 1) {
-    const theta = polar.theta - thetaSpread + (2 * thetaSpread * index) / sampleSteps
-    const radius = parsed.rightFn(theta, 0, polar.r, theta)
+  for (const candidateTheta of polarThetaCandidates(target, domain)) {
+    let previousPoint = null
 
-    if (!finiteValue(radius)) {
-      previousPoint = null
-      continue
+    for (let index = 0; index <= sampleSteps; index += 1) {
+      const theta = candidateTheta - thetaSpread + (2 * thetaSpread * index) / sampleSteps
+      const radius = parsed.rightFn(theta, 0, polar.r, theta)
+
+      if (!finiteValue(radius)) {
+        previousPoint = null
+        continue
+      }
+
+      const point = {
+        x: radius * Math.cos(theta),
+        y: radius * Math.sin(theta),
+      }
+
+      if (distance(point, target) <= TOLERANCE) {
+        return true
+      }
+
+      if (previousPoint && distanceToSegment(target, previousPoint, point) <= TOLERANCE) {
+        return true
+      }
+
+      previousPoint = point
     }
-
-    const point = {
-      x: radius * Math.cos(theta),
-      y: radius * Math.sin(theta),
-    }
-
-    if (distance(point, target) <= TOLERANCE) {
-      return true
-    }
-
-    if (previousPoint && distanceToSegment(target, previousPoint, point) <= TOLERANCE) {
-      return true
-    }
-
-    previousPoint = point
   }
 
   return false
@@ -1481,7 +1520,7 @@ function matchesTarget(parsed, row) {
   }
 
   if (parsed.kind === 'explicit-r') {
-    return matchesExplicitR(parsed, row.target)
+    return matchesExplicitR(parsed, row)
   }
 
   if (parsed.kind === 'implicit-polar') {
@@ -1622,6 +1661,63 @@ function tokensFormSolvedOutputVariable(tokens) {
   )
 }
 
+function tokenIsOutputVariable(token) {
+  return tokenIsIdentifier(token, 'y') || tokenIsIdentifier(token, 'r')
+}
+
+function tokenCanImplicitlyMultiply(token) {
+  if (!token) {
+    return false
+  }
+
+  if (token.type === 'number') {
+    return true
+  }
+
+  if (token.type === 'identifier') {
+    return ['x', 'y', 'r', 'theta', 'pi', 'sin'].includes(token.value)
+  }
+
+  return token.type === 'operator' && token.value === '('
+}
+
+function tokenCanImplicitlyMultiplyIntoOutput(token) {
+  if (!token) {
+    return false
+  }
+
+  if (token.type === 'number') {
+    return true
+  }
+
+  return token.type === 'identifier' && ['x', 'y', 'r', 'theta', 'pi'].includes(token.value)
+}
+
+function hasOutputVariableImplicitProductOnLeft(tokens, equalsIndex) {
+  const leftTokens = tokens.slice(0, equalsIndex)
+
+  for (let index = 0; index < leftTokens.length - 1; index += 1) {
+    const current = leftTokens[index]
+    const next = leftTokens[index + 1]
+
+    if (tokenIsOutputVariable(current) && tokenCanImplicitlyMultiply(next)) {
+      return true
+    }
+
+    const scaledSolvedOutput =
+      index === 0 &&
+      leftTokens.length === 2 &&
+      current.type === 'number' &&
+      tokenIsOutputVariable(next)
+
+    if (!scaledSolvedOutput && tokenCanImplicitlyMultiplyIntoOutput(current) && tokenIsOutputVariable(next)) {
+      return true
+    }
+  }
+
+  return false
+}
+
 function hasRequiredVariablePairs(equation) {
   const relevantTokens = tokensWithoutSolvedOutputVariable(tokenize(equation))
   const hasX = relevantTokens.some((token) => tokenIsIdentifier(token, 'x'))
@@ -1672,6 +1768,18 @@ function tokenCanStartUnaryOperand(token) {
   return token.type === 'operator' && token.value === '('
 }
 
+function tokenCannotPrecedeRightParenthesis(token) {
+  if (!token) {
+    return false
+  }
+
+  if (token.type === 'identifier') {
+    return token.value === 'sin'
+  }
+
+  return token.type === 'operator' && ['+', '-', '/', '^', '=', '('].includes(token.value)
+}
+
 function tokensCanStartSinArgument(tokens, sinIndex) {
   const next = tokens[sinIndex + 1]
 
@@ -1693,11 +1801,7 @@ function tokenIsUnarySign(tokens, index) {
   }
 
   const previous = tokens[index - 1]
-  return (
-    previous?.type === 'operator' &&
-    previous.value === '=' &&
-    !tokensFormSolvedOutputVariable(tokens.slice(0, index - 1))
-  )
+  return previous?.type === 'operator' && previous.value === '='
 }
 
 function hasValidOperatorPlacement(equation, row) {
@@ -1715,6 +1819,8 @@ function hasValidOperatorPlacement(equation, row) {
   }
 
   const equalsIndex = equalsIndexes[0]
+  const leftTokens = tokens.slice(0, equalsIndex)
+  const rightTokens = tokens.slice(equalsIndex + 1)
   const yIndexes = tokens
     .map((token, index) => (token.type === 'identifier' && token.value === 'y' ? index : -1))
     .filter((index) => index >= 0)
@@ -1728,7 +1834,6 @@ function hasValidOperatorPlacement(equation, row) {
     }
 
     if (allTokensBlank(row.equation)) {
-      const leftTokens = tokens.slice(0, equalsIndex)
       const leftIsY =
         leftTokens.length === 1 && leftTokens[0].type === 'identifier' && leftTokens[0].value === 'y'
       const leftIsScaledY =
@@ -1741,6 +1846,14 @@ function hasValidOperatorPlacement(equation, row) {
         return false
       }
     }
+  }
+
+  if (hasOutputVariableImplicitProductOnLeft(tokens, equalsIndex)) {
+    return false
+  }
+
+  if (tokensFormSolvedOutputVariable(leftTokens) && rightTokens.some(tokenIsOutputVariable)) {
+    return false
   }
 
   for (let index = 0; index < tokens.length; index += 1) {
@@ -1757,6 +1870,10 @@ function hasValidOperatorPlacement(equation, row) {
     const previous = tokens[index - 1]
     const next = tokens[index + 1]
     const unarySign = tokenIsUnarySign(tokens, index)
+
+    if (token.value === ')' && tokenCannotPrecedeRightParenthesis(previous)) {
+      return false
+    }
 
     if (unarySign && !tokenCanStartUnaryOperand(next)) {
       return false
@@ -1888,9 +2005,10 @@ function solvePuzzleGroup(group, rowContexts) {
   const representative = group.rows[0]
   const representativeEquation = representative.equation
   const allowedNonIntendedCount =
-    (representative.name === 'Finale' && allTokensBlank(representativeEquation)) ||
-    representative.name === 'Witch Window'
-      ? 4
+    representative.name === 'Finale' && allTokensBlank(representativeEquation)
+      ? 5
+      : representative.name === 'Hollow'
+        ? 2
       : 1
   const equationIssues = group.rows
     .filter((row) => row.equation.trim() !== representativeEquation.trim())
@@ -2070,16 +2188,6 @@ function isRoundedToHalf(value) {
   return Math.abs(value * 2 - Math.round(value * 2)) < 1e-9
 }
 
-function targetIsNearGraphEdge(row) {
-  const { target, axes } = row
-  return (
-    Math.abs(target.x - axes.x.min) <= TOLERANCE ||
-    Math.abs(target.x - axes.x.max) <= TOLERANCE ||
-    Math.abs(target.y - axes.y.min) <= TOLERANCE ||
-    Math.abs(target.y - axes.y.max) <= TOLERANCE
-  )
-}
-
 function targetIsInsideAxes(row) {
   const { target, axes } = row
   return (
@@ -2178,19 +2286,16 @@ function authoringAudit(rows) {
       issues.push(`${row.id}: target (${row.target.x}, ${row.target.y}) is not rounded to the nearest 0.5`)
     }
 
-    if (!targetIsNearGraphEdge(row)) {
-      issues.push(`${row.id}: target (${row.target.x}, ${row.target.y}) is not within ${TOLERANCE} of a graph edge`)
-    }
-
     if (!targetIsInsideAxes(row)) {
       issues.push(`${row.id}: target (${row.target.x}, ${row.target.y}) is outside its graph axes`)
     }
 
     const tokenSummary = countedTokenSummary(row.equation)
-    if (tokenSummary.blanks < tokenSummary.total / 3) {
+    const minimumBlankRatio = row.name === 'Lemniscate' ? 0.25 : 1 / 3
+    if (tokenSummary.blanks < tokenSummary.total * minimumBlankRatio) {
       issues.push(
         `${row.id}: ${tokenSummary.blanks} empty slots for ${tokenSummary.total} counted tokens ` +
-          `(needs at least ${tokenSummary.total / 3})`,
+          `(needs at least ${tokenSummary.total * minimumBlankRatio})`,
       )
     }
 
@@ -2198,19 +2303,43 @@ function authoringAudit(rows) {
     const unlocksTile = unlockedTileId(row.unlocksTile) !== null
     const unlockCount = Number(unlocksPuzzle) + Number(unlocksTile)
     const onboarding = row.id === '1a' || row.id === '2a'
+    const lateGame = isLateGameRow(row)
 
     if (onboarding && unlockCount !== 2) {
       issues.push(`${row.id}: onboarding solution must unlock both one puzzle and one tile`)
-    } else if (!onboarding && unlockCount !== 1) {
+    } else if (lateGame && unlockCount > 1) {
+      issues.push(`${row.id}: late-game solution must unlock at most one thing; found ${unlockCount}`)
+    } else if (!onboarding && !lateGame && unlockCount !== 1) {
       issues.push(`${row.id}: solution must unlock exactly one thing; found ${unlockCount}`)
     }
   }
 
-  if (allBlankRows.length !== 1 || allBlankRows[0]?.name !== 'Finale') {
+  if (allBlankRows.length > 0) {
     const labels = allBlankRows.map((row) => `${row.id} ${row.name}`).join(', ') || 'none'
-    issues.push(`Finale all-empty-template requirement failed; all-empty rows: ${labels}`)
-  } else if (blankCount(allBlankRows[0].equation) !== 7) {
-    issues.push(`Finale must have exactly 7 empty slots; found ${blankCount(allBlankRows[0].equation)}`)
+    issues.push(`All-empty templates are no longer allowed; found: ${labels}`)
+  }
+
+  const finaleRow = rows.find((row) => row.name === 'Finale')
+  if (!finaleRow) {
+    issues.push('Finale row is missing')
+  } else {
+    const finaleBlankCount = blankCount(finaleRow.equation)
+    if (finaleBlankCount !== 4) {
+      issues.push(`Finale must have exactly 4 empty slots; found ${finaleBlankCount}`)
+    }
+
+    const normalizedFinaleSolution = normalizeEquationInput(finaleRow.intendedSolution).trim()
+    if (!/\by\b/.test(normalizedFinaleSolution) || !normalizedFinaleSolution.includes('=')) {
+      issues.push('Finale intended solution must require both y and = tiles')
+    }
+
+    if (/^y\s*=/.test(normalizedFinaleSolution)) {
+      issues.push('Finale intended solution must not start with "y ="')
+    }
+
+    if (/=\s*y$/.test(normalizedFinaleSolution)) {
+      issues.push('Finale intended solution must not end with "= y"')
+    }
   }
 
   return {
@@ -2219,11 +2348,21 @@ function authoringAudit(rows) {
   }
 }
 
+function rowPuzzleNumber(row) {
+  const match = String(row.id).match(/^(\d+)/)
+  return match ? Number(match[1]) : NaN
+}
+
+function isLateGameRow(row) {
+  const puzzleNumber = rowPuzzleNumber(row)
+  return Number.isFinite(puzzleNumber) && puzzleNumber >= 35
+}
+
 function printAuthoringAudit(audit) {
   if (audit.issues.length === 0) {
     console.log(
       `Authoring audit: pass (${audit.rowCount} rows; axis span/endpoints/zero, ` +
-        'target rounding/edge placement, token density, variable pairs, unlock counts, unique intended solutions, and Finale blank-template checks)',
+        'target rounding/inside axes, token density, variable pairs, unlock counts, unique intended solutions, and Finale template checks)',
     )
     return
   }

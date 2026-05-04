@@ -187,7 +187,7 @@
       "axes": {
         "x": {
           "min": -5,
-          "max": 5
+          "max": 10
         },
         "y": {
           "min": -5,
@@ -356,23 +356,23 @@
     {
       "id": "12a",
       "name": "Southreach",
-      "equation": "y = (x □ 2 □^2",
-      "intendedSolution": "y = (x - 2)^2",
+      "equation": "y = 5 - |(x □ 2□|",
+      "intendedSolution": "y = 5 - |(x - 2)|",
       "unlocksPuzzle": "14 Forge",
       "unlocksTile": "none",
       "axes": {
         "x": {
-          "min": -2,
-          "max": 4
+          "min": -3,
+          "max": 7
         },
         "y": {
           "min": 0,
-          "max": 9
+          "max": 5
         }
       },
       "target": {
-        "x": -1,
-        "y": 9
+        "x": 7,
+        "y": 0
       }
     },
     {
@@ -389,12 +389,12 @@
         },
         "y": {
           "min": 0,
-          "max": 20
+          "max": 18
         }
       },
       "target": {
-        "x": 4.5,
-        "y": 20
+        "x": 4,
+        "y": 18
       }
     },
     {
@@ -444,45 +444,45 @@
     {
       "id": "15a",
       "name": "South Vault",
-      "equation": "y = □x / □",
-      "intendedSolution": "y = 5x / 2",
+      "equation": "y = 5 / □x - □□ + □",
+      "intendedSolution": "y = 5 / (x - 2) + 5",
       "unlocksPuzzle": "17 Cellar",
       "unlocksTile": "none",
       "axes": {
         "x": {
           "min": 0,
-          "max": 8
+          "max": 5
         },
         "y": {
-          "min": 0,
-          "max": 20
+          "min": -5,
+          "max": 15
         }
       },
       "target": {
-        "x": 8,
-        "y": 20
+        "x": 2.5,
+        "y": 15
       }
     },
     {
       "id": "16a",
       "name": "Anvil",
-      "equation": "y = 2 □ □x",
-      "intendedSolution": "y = 2 - 5x",
+      "equation": "y = |□x - □| - 2",
+      "intendedSolution": "y = |5x - 2| - 2",
       "unlocksPuzzle": "none",
       "unlocksTile": "^",
       "axes": {
         "x": {
-          "min": -3,
-          "max": 2
+          "min": -2,
+          "max": 4
         },
         "y": {
-          "min": -8,
-          "max": 12
+          "min": -2,
+          "max": 16
         }
       },
       "target": {
-        "x": 2,
-        "y": -8
+        "x": 4,
+        "y": 16
       }
     },
     {
@@ -664,8 +664,8 @@
     {
       "id": "20a",
       "name": "Finale",
-      "equation": "□ □ □ □ □ □ □",
-      "intendedSolution": "y = 2 ^ x + 5",
+      "equation": "2 ^ x + □ - □ □ □",
+      "intendedSolution": "2 ^ x + 5 - y = 0",
       "unlocksPuzzle": "22 Circle Garden",
       "unlocksTile": "none",
       "axes": {
@@ -675,34 +675,38 @@
         },
         "y": {
           "min": 0,
-          "max": 17
+          "max": 10
         }
       },
       "target": {
-        "x": 3.5,
-        "y": 17
+        "x": 2,
+        "y": 9
       }
     },
     {
       "id": "21a",
       "name": "Weave",
       "equation": "r = □ □",
-      "intendedSolution": "r = 2theta",
+      "intendedSolution": "r = -theta",
       "unlocksPuzzle": "23 Spiral Step",
       "unlocksTile": "none",
       "axes": {
         "x": {
-          "min": -7,
-          "max": 7
+          "min": -8,
+          "max": 8
         },
         "y": {
-          "min": -7,
-          "max": 7
+          "min": -8,
+          "max": 8
         }
       },
+      "parameterDomain": {
+        "min": 0,
+        "max": 8
+      },
       "target": {
-        "x": -6.5,
-        "y": 0
+        "x": 0,
+        "y": -8
       }
     },
     {
@@ -730,14 +734,14 @@
     {
       "id": "23a",
       "name": "Spiral Step",
-      "equation": "r = theta + □",
-      "intendedSolution": "r = theta + 2",
+      "equation": "r = □ □ □",
+      "intendedSolution": "r = 5 / theta",
       "unlocksPuzzle": "25 Parabola Gate",
       "unlocksTile": "none",
       "axes": {
         "x": {
-          "min": -5,
-          "max": 5
+          "min": -3,
+          "max": 12
         },
         "y": {
           "min": -5,
@@ -745,8 +749,8 @@
         }
       },
       "target": {
-        "x": -5,
-        "y": 0
+        "x": 12,
+        "y": 5
       }
     },
     {
@@ -758,12 +762,12 @@
       "unlocksTile": "none",
       "axes": {
         "x": {
-          "min": -2,
-          "max": 3
+          "min": -5,
+          "max": 5
         },
         "y": {
-          "min": -4,
-          "max": 2
+          "min": -3,
+          "max": 3
         }
       },
       "target": {
@@ -803,7 +807,7 @@
       "axes": {
         "x": {
           "min": -5,
-          "max": 5
+          "max": 10
         },
         "y": {
           "min": -5,
@@ -863,7 +867,7 @@
       "id": "27c",
       "name": "Rose Garden",
       "equation": "r = □ □(2theta) + □",
-      "intendedSolution": "r = 5sin(2theta) + 2",
+      "intendedSolution": "r = theta sin(2theta) + 2",
       "unlocksPuzzle": "none",
       "unlocksTile": "pi",
       "axes": {
@@ -872,57 +876,57 @@
           "max": 5
         },
         "y": {
-          "min": -5,
-          "max": 5
+          "min": -7,
+          "max": 7
         }
       },
       "target": {
-        "x": 5,
-        "y": 5
+        "x": -4,
+        "y": -4
       }
     },
     {
       "id": "29a",
       "name": "Lemniscate",
-      "equation": "r ^ 2 = 5□(□theta) + □",
-      "intendedSolution": "r ^ 2 = 5sin(2theta) + 0",
+      "equation": "r ^ 2 = □□sin(2theta)",
+      "intendedSolution": "r ^ 2 = 25sin(2theta)",
       "unlocksPuzzle": "31 Serpentine",
       "unlocksTile": "none",
       "axes": {
         "x": {
-          "min": -3,
-          "max": 2
+          "min": -5,
+          "max": 5
         },
         "y": {
-          "min": -3,
-          "max": 2
+          "min": -5,
+          "max": 5
         }
       },
       "target": {
-        "x": 2,
-        "y": 0.5
+        "x": 4,
+        "y": 3.5
       }
     },
     {
       "id": "30a",
       "name": "Witch Window",
-      "equation": "y = sin(□x)",
-      "intendedSolution": "y = sin(pi x)",
+      "equation": "y = 2sin(x) □ □",
+      "intendedSolution": "y = 2sin(x) + 5",
       "unlocksPuzzle": "32 Spiral Loft",
       "unlocksTile": "none",
       "axes": {
         "x": {
           "min": 0,
-          "max": 9
+          "max": 5
         },
         "y": {
           "min": -2,
-          "max": 3
+          "max": 8
         }
       },
       "target": {
-        "x": 8.5,
-        "y": 1
+        "x": 4,
+        "y": 3.5
       }
     },
     {
@@ -930,16 +934,16 @@
       "name": "Serpentine",
       "equation": "y = □x / (x ^ 2 + □) □ □",
       "intendedSolution": "y = 5x / (x ^ 2 + 2) + 0",
-      "unlocksPuzzle": "33 Fermat Spiral",
+      "unlocksPuzzle": "33 Sine Mirror",
       "unlocksTile": "none",
       "axes": {
         "x": {
-          "min": -3,
-          "max": 2
+          "min": -2,
+          "max": 4
         },
         "y": {
-          "min": -3,
-          "max": 2
+          "min": -2,
+          "max": 4
         }
       },
       "target": {
@@ -950,52 +954,8 @@
     {
       "id": "32a",
       "name": "Spiral Loft",
-      "equation": "r = □",
-      "intendedSolution": "r = 5",
-      "unlocksPuzzle": "35 Sine Dial",
-      "unlocksTile": "none",
-      "axes": {
-        "x": {
-          "min": -5,
-          "max": 5
-        },
-        "y": {
-          "min": -5,
-          "max": 5
-        }
-      },
-      "target": {
-        "x": -5,
-        "y": 0
-      }
-    },
-    {
-      "id": "33a",
-      "name": "Fermat Spiral",
-      "equation": "r ^ 2 = □",
-      "intendedSolution": "r ^ 2 = theta",
-      "unlocksPuzzle": "35 Sine Dial",
-      "unlocksTile": "none",
-      "axes": {
-        "x": {
-          "min": -2,
-          "max": 4
-        },
-        "y": {
-          "min": -3,
-          "max": 3
-        }
-      },
-      "target": {
-        "x": -2,
-        "y": 0
-      }
-    },
-    {
-      "id": "35a",
-      "name": "Sine Dial",
-      "equation": "□ □ □(□x) / 2",
-      "intendedSolution": "y = sin(pi x) / 2",
+      "equation": "□ = x sin(x) + □",
+      "intendedSolution": "y = x sin(x) + 2",
       "unlocksPuzzle": "36 Pi Vault",
       "unlocksTile": "none",
       "axes": {
@@ -1005,20 +965,42 @@
         },
         "y": {
           "min": -2,
-          "max": 3
+          "max": 5
         }
       },
       "target": {
-        "x": 0,
-        "y": 0
+        "x": 2,
+        "y": 4
+      }
+    },
+    {
+      "id": "33a",
+      "name": "Sine Mirror",
+      "equation": "□ ( □ ) □ □",
+      "intendedSolution": "sin(y) = x",
+      "unlocksPuzzle": "36 Pi Vault",
+      "unlocksTile": "none",
+      "axes": {
+        "x": {
+          "min": -2,
+          "max": 3
+        },
+        "y": {
+          "min": -5,
+          "max": 5
+        }
+      },
+      "target": {
+        "x": 1,
+        "y": 1.5
       }
     },
     {
       "id": "36a",
       "name": "Pi Vault",
-      "equation": "□ □ x □ 2 □ □",
+      "equation": "y = x □ 2 □ □",
       "intendedSolution": "y = x ^ 2 / pi",
-      "unlocksPuzzle": "37 Half Gate",
+      "unlocksPuzzle": "35 Sine Dial",
       "unlocksTile": "none",
       "axes": {
         "x": {
@@ -1036,10 +1018,54 @@
       }
     },
     {
+      "id": "35a",
+      "name": "Sine Dial",
+      "equation": "y □ □sin(x) + 5 □ 0",
+      "intendedSolution": "y = pi sin(x) + 5 + 0",
+      "unlocksPuzzle": "37 Half Gate",
+      "unlocksTile": "none",
+      "axes": {
+        "x": {
+          "min": 0,
+          "max": 5
+        },
+        "y": {
+          "min": -8,
+          "max": 8
+        }
+      },
+      "target": {
+        "x": 1,
+        "y": 7.5
+      }
+    },
+    {
+      "id": "35b",
+      "name": "Sine Dial",
+      "equation": "y □ □sin(x) + 5 □ 0",
+      "intendedSolution": "y + pi sin(x) + 5 = 0",
+      "unlocksPuzzle": "37 Half Gate",
+      "unlocksTile": "none",
+      "axes": {
+        "x": {
+          "min": 0,
+          "max": 5
+        },
+        "y": {
+          "min": -8,
+          "max": 8
+        }
+      },
+      "target": {
+        "x": 1,
+        "y": -7.5
+      }
+    },
+    {
       "id": "37a",
       "name": "Half Gate",
-      "equation": "y = 5x □ □2□ □ □",
-      "intendedSolution": "y = 5x / (2) - 5",
+      "equation": "y = 5sin(pi x / □□ □ □",
+      "intendedSolution": "y = 5sin(pi x / 2) + 5",
       "unlocksPuzzle": "38 Paren Echo",
       "unlocksTile": "none",
       "axes": {
@@ -1049,19 +1075,19 @@
         },
         "y": {
           "min": 0,
-          "max": 15
+          "max": 10
         }
       },
       "target": {
-        "x": 5,
-        "y": 7.5
+        "x": 1,
+        "y": 10
       }
     },
     {
       "id": "38a",
       "name": "Paren Echo",
-      "equation": "y = □x - 5□ ^ 2",
-      "intendedSolution": "y = (x - 5)^2",
+      "equation": "y = □sin(pi x) □ □x ^ 2 / □)",
+      "intendedSolution": "y = 5sin(pi x) + (x ^ 2 / pi)",
       "unlocksPuzzle": "victory",
       "unlocksTile": "none",
       "axes": {
@@ -1071,12 +1097,12 @@
         },
         "y": {
           "min": 0,
-          "max": 20
+          "max": 12
         }
       },
       "target": {
-        "x": 0.5,
-        "y": 20
+        "x": 4.5,
+        "y": 11.5
       }
     }
   ]

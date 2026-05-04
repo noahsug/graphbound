@@ -67,15 +67,15 @@ const GOAL_GLOW_MAX_ALPHA = 0.32
 const LOCKED_GOAL_ZOOM_THRESHOLD = 0.5
 const LOCKED_GOAL_MIN_ALPHA = 0.035
 const LOCKED_GOAL_MAX_ALPHA = 0.34
-const GOAL_VISUAL_BOOST_ZOOM_THRESHOLD = 0.55
-const GOAL_VISUAL_MAX_BOOST = 3.2
+const GOAL_VISUAL_BOOST_START_ZOOM_OUT = 0.5
+const GOAL_VISUAL_MAX_SCREEN_SCALE = 0.82
 const SOLVED_GOAL_ALPHA = 0.52
 const SOLVED_GOAL_LIGHTEN = 0.64
 const DIMMED_TRAY_TILE_ALPHA = 0.38
 const EQUATION_FONT_SIZE = 23
 const EQUATION_TOKEN_SIZE = 38
 const EQUATION_PREFIX_WIDTH_Y = 40
-const EQUATION_PREFIX_WIDTH_R = 34
+const EQUATION_PREFIX_WIDTH_R = EQUATION_PREFIX_WIDTH_Y
 const EQUATION_GAP = 10
 const EQUATION_PAREN_GAP = 4
 const EQUATION_SUPERSCRIPT_OVERLAP = -4
@@ -91,6 +91,8 @@ const TRAY_ARRIVAL_DURATION_MS = 760
 const TILE_UNLOCK_DURATION_MS = 1400
 const TILE_UNLOCK_REVEAL_END = 0.58
 const GRAPH_COMPLETE_DURATION_MS = 940
+const TARGET_CELEBRATION_DURATION_MS = 920
+const CONFETTI_PARTICLE_COUNT = 28
 const REWARD_DOODLE_LIFETIME_MS = 5600
 const GRAPHITE_DUST_LIFETIME_MS = 1250
 const GOAL_GUIDE_MAJOR_TICK_SIZE = 16
@@ -101,6 +103,14 @@ const PROGRESS_STORAGE_KEY = 'graphbound-progress-v1'
 const PROGRESS_STORAGE_VERSION = 1
 
 type RoughCanvas = ReturnType<typeof rough.canvas>
+
+export interface IntendedPreviewResult {
+  achievedGoalIds: string[]
+  expression: string | null
+  sectionId: string
+  solved: boolean
+  statusMessage: string
+}
 
 interface TileDrawOptions {
   scale?: number
@@ -120,6 +130,7 @@ interface StoredProgress {
   completedGoals: string[]
   activeSectionId: string | null
   tileFocusSectionId: string | null
+  victoryScreenShown: boolean
 }
 
 interface InferredFunctionParens {
@@ -136,6 +147,27 @@ interface RewardDoodle {
   color: string
   ageMs: number
   lifetimeMs: number
+}
+
+interface CelebrationConfettiParticle {
+  color: string
+  shape: 'dash' | 'box' | 'spark'
+  vx: number
+  vy: number
+  gravity: number
+  size: number
+  angle: number
+  spin: number
+  wobble: number
+  delayMs: number
+}
+
+interface CelebrationConfetti {
+  id: string
+  world: Point
+  ageMs: number
+  lifetimeMs: number
+  particles: CelebrationConfettiParticle[]
 }
 
 interface GraphiteDust {
@@ -164,6 +196,11 @@ function easeOutCubic(value: number): number {
 
 function easeInOutCubic(value: number): number {
   return value < 0.5 ? 4 * value ** 3 : 1 - (-2 * value + 2) ** 3 / 2
+}
+
+function smoothStep(value: number): number {
+  const progress = clamp(value, 0, 1)
+  return progress * progress * (3 - 2 * progress)
 }
 
 function smoothApproach(current: number, target: number, rate: number, deltaMs: number): number {
@@ -407,6 +444,48 @@ function partialPolyline(points: Point[], progress: number): Point[] {
   }
 
   return partial
+}
+
+function polylineSegmentsLength(segments: Point[][]): number {
+  return segments.reduce((total, segment) => total + polylineLength(segment), 0)
+}
+
+function progressivePolylineSegments(segments: Point[][], progress: number): Point[][] {
+  const clampedProgress = clamp(progress, 0, 1)
+  if (clampedProgress >= 1) {
+    return segments
+  }
+
+  const totalLength = polylineSegmentsLength(segments)
+  if (totalLength <= 0) {
+    return []
+  }
+
+  const targetLength = totalLength * clampedProgress
+  const visibleSegments: Point[][] = []
+  let coveredLength = 0
+
+  for (const segment of segments) {
+    const segmentLength = polylineLength(segment)
+    if (segmentLength <= 0) {
+      continue
+    }
+
+    if (coveredLength + segmentLength <= targetLength) {
+      visibleSegments.push(segment)
+      coveredLength += segmentLength
+      continue
+    }
+
+    const segmentProgress = (targetLength - coveredLength) / segmentLength
+    const partialSegment = partialPolyline(segment, segmentProgress)
+    if (partialSegment.length > 1) {
+      visibleSegments.push(partialSegment)
+    }
+    break
+  }
+
+  return visibleSegments
 }
 
 function traceSmoothPath(context: CanvasRenderingContext2D, points: Point[]): void {
@@ -742,6 +821,7 @@ class GraphboundApp {
   private readonly tileUnlockAnimations: TileUnlockAnimation[] = []
   private readonly graphCompleteAnimations = new Map<string, number>()
   private readonly rewardDoodles: RewardDoodle[] = []
+  private readonly celebrationConfetti: CelebrationConfetti[] = []
   private readonly graphiteDust: GraphiteDust[] = []
   private activeSectionId = this.sections[0].id
   private camera: Point = { ...this.sections[0].world }
@@ -749,6 +829,7 @@ class GraphboundApp {
   private statusMessage = 'world-ready'
   private startLevelOverride: number | null = null
   private victoryScreenVisible = false
+  private victoryScreenShown = false
   private petDogTimer = 0
   private animationFrame: number | null = null
   private lastFrameTime: number | null = null
@@ -794,6 +875,8 @@ class GraphboundApp {
         plotResult: null,
         plotProgress: 0,
         targetFillProgress: 0,
+        targetCelebrationProgress: 0,
+        targetCelebrationQueued: false,
         fuseProgress: 0,
         fuseCameraProgress: 0,
         fuseCameraFrom: null,
@@ -871,9 +954,95 @@ class GraphboundApp {
       placeTile: (tileId: TileId, slotId: string) => this.debugPlaceTile(tileId, slotId),
       animatePlaceTile: (tileId: TileId, slotId: string) => this.debugAnimatePlaceTile(tileId, slotId),
       startAtLevel: (levelNumber: number) => this.debugStartAtLevel(levelNumber),
+      previewIntendedSolution: (sectionId: string, goalId: string) =>
+        this.previewIntendedSolution(sectionId, goalId),
       getState: () => JSON.parse(this.renderGameToText()),
       getInteractionRects: () => this.debugInteractionRects(),
       getLayoutIssues: () => this.layoutOverlapIssues(),
+    }
+  }
+
+  previewIntendedSolution(sectionId: string, goalId: string): IntendedPreviewResult {
+    const section = this.sectionById.get(sectionId)
+    const sectionIndex = this.sectionIndexById.get(sectionId)
+    const goal = section?.goals.find((candidate) => candidate.id === goalId)
+
+    if (!section || sectionIndex === undefined || !goal?.solutionTiles) {
+      return {
+        achievedGoalIds: [],
+        expression: null,
+        sectionId,
+        solved: false,
+        statusMessage: 'missing-intended-solution',
+      }
+    }
+
+    this.resetProgressionState()
+    this.startLevelOverride = sectionIndex + 1
+    this.unlockedSections.add(section.id)
+    this.sectionRevealProgress.set(section.id, 1)
+    this.setActiveSection(section.id)
+    const focus = this.sectionComfortableFocus(section.id)
+    this.layout.worldScale = focus.scale
+    this.zoomLevel = this.layout.worldScale / this.layout.baseWorldScale
+    this.camera = focus.camera
+
+    const runtime = this.sectionRuntimes.get(sectionId)
+    if (!runtime || goal.solutionTiles.length !== section.slots.length) {
+      return {
+        achievedGoalIds: [],
+        expression: null,
+        sectionId,
+        solved: false,
+        statusMessage: 'invalid-intended-solution-slots',
+      }
+    }
+
+    runtime.placements = this.createEmptyPlacements(section)
+    for (const [index, tileId] of goal.solutionTiles.entries()) {
+      runtime.placements[section.slots[index].id] = tileId
+    }
+
+    const result = evaluateSectionPlot(section, runtime.placements)
+    runtime.plotResult = result
+    runtime.pendingGoalIds = result?.achievedGoalIds ?? []
+    runtime.solvedGoalIds = result?.achievedGoalIds ?? []
+    runtime.plotProgress = result?.hasVisiblePath ? 1 : 0
+    runtime.targetFillProgress = result?.achievedGoalIds.includes(goalId) ? 1 : 0
+    runtime.targetCelebrationProgress = runtime.targetFillProgress
+    runtime.targetCelebrationQueued = false
+    runtime.fuseProgress = runtime.targetFillProgress
+    runtime.fuseCameraProgress = runtime.targetFillProgress
+    runtime.fuseCameraFrom = null
+    runtime.fuseCameraTo = null
+    runtime.fuseCameraFromScale = null
+    runtime.fuseCameraToScale = null
+    runtime.animating = false
+    runtime.animatingGoalId = null
+    runtime.statusMessage = result?.achievedGoalIds.includes(goalId)
+      ? 'goal-lined-up'
+      : result?.hasVisiblePath
+        ? 'line-drawn'
+        : result
+          ? 'no-visible-line'
+          : 'awaiting-tiles'
+
+    for (const achievedGoalId of runtime.solvedGoalIds) {
+      this.completedGoals.add(`${section.id}:${achievedGoalId}`)
+    }
+
+    this.pinnedGoalKey = null
+    this.hoveredGoalKey = null
+    this.selectedTileId = null
+    this.statusMessage = runtime.statusMessage
+    this.render()
+
+    return {
+      achievedGoalIds: [...runtime.solvedGoalIds],
+      expression: result?.screenLabel ?? null,
+      sectionId,
+      solved: runtime.solvedGoalIds.includes(goalId),
+      statusMessage: runtime.statusMessage,
     }
   }
 
@@ -899,6 +1068,8 @@ class GraphboundApp {
     runtime.plotResult = null
     runtime.plotProgress = 0
     runtime.targetFillProgress = 0
+    runtime.targetCelebrationProgress = 0
+    runtime.targetCelebrationQueued = false
     runtime.fuseProgress = 0
     runtime.fuseCameraProgress = 0
     runtime.fuseCameraFrom = null
@@ -931,6 +1102,7 @@ class GraphboundApp {
     this.tileUnlockAnimations.length = 0
     this.graphCompleteAnimations.clear()
     this.rewardDoodles.length = 0
+    this.celebrationConfetti.length = 0
     this.graphiteDust.length = 0
     this.drag = null
     this.cameraTween = null
@@ -939,6 +1111,7 @@ class GraphboundApp {
     this.petDogTimer = 0
     this.startLevelOverride = null
     this.victoryScreenVisible = false
+    this.victoryScreenShown = false
     this.audio.setVictoryMusic(false)
 
     for (const section of this.sections) {
@@ -1016,6 +1189,7 @@ class GraphboundApp {
         completedGoals,
         activeSectionId,
         tileFocusSectionId,
+        victoryScreenShown: parsed.victoryScreenShown === true,
       }
     } catch {
       return null
@@ -1040,6 +1214,7 @@ class GraphboundApp {
       completedGoals: this.completedGoalKeysInOrder(),
       activeSectionId: this.activeSectionId,
       tileFocusSectionId: this.tileFocusSectionId,
+      victoryScreenShown: this.victoryScreenShown,
     }
 
     try {
@@ -1071,6 +1246,8 @@ class GraphboundApp {
     runtime.plotResult = showcase ? evaluateSectionPlot(section, runtime.placements) : null
     runtime.plotProgress = runtime.plotResult?.hasVisiblePath ? 1 : 0
     runtime.targetFillProgress = solvedGoalIds.length > 0 ? 1 : 0
+    runtime.targetCelebrationProgress = solvedGoalIds.length > 0 ? 1 : 0
+    runtime.targetCelebrationQueued = false
     runtime.fuseProgress = solvedGoalIds.length > 0 ? 1 : 0
     runtime.fuseCameraProgress = solvedGoalIds.length > 0 ? 1 : 0
     runtime.animating = false
@@ -1136,6 +1313,7 @@ class GraphboundApp {
     }
 
     this.resetProgressionState()
+    this.victoryScreenShown = stored.victoryScreenShown
     this.applyStoredSolvedGoals(stored.completedGoals)
 
     const focusSectionId =
@@ -1178,18 +1356,36 @@ class GraphboundApp {
       if (this.victoryScreenVisible) {
         this.victoryScreenVisible = false
       }
+      this.victoryScreenShown = false
+      this.audio.setVictoryMusic(false)
+      return
+    }
+
+    if (this.victoryScreenVisible) {
+      this.statusMessage = 'victory'
+      if (playMusic) {
+        this.audio.playVictoryMusic()
+      } else {
+        this.audio.setVictoryMusic(true)
+      }
+      return
+    }
+
+    if (this.victoryScreenShown) {
       this.audio.setVictoryMusic(false)
       return
     }
 
     const newlyVictorious = !this.victoryScreenVisible
     this.victoryScreenVisible = true
+    this.victoryScreenShown = true
     this.statusMessage = 'victory'
     if (playMusic && newlyVictorious) {
       this.audio.playVictoryMusic()
     } else {
       this.audio.setVictoryMusic(true)
     }
+    this.saveProgress()
   }
 
   private dismissVictoryScreen(): void {
@@ -1198,6 +1394,7 @@ class GraphboundApp {
     }
 
     this.victoryScreenVisible = false
+    this.saveProgress()
     this.render()
   }
 
@@ -1352,6 +1549,8 @@ class GraphboundApp {
     runtime.plotResult = showcase ? evaluateSectionPlot(section, runtime.placements) : null
     runtime.plotProgress = runtime.plotResult?.hasVisiblePath ? 1 : 0
     runtime.targetFillProgress = runtime.plotResult?.achievedGoalIds.length ? 1 : 0
+    runtime.targetCelebrationProgress = runtime.plotResult?.achievedGoalIds.length ? 1 : 0
+    runtime.targetCelebrationQueued = false
     runtime.fuseProgress = runtime.plotResult?.achievedGoalIds.length ? 1 : 0
     runtime.fuseCameraProgress = runtime.plotResult?.achievedGoalIds.length ? 1 : 0
     runtime.animating = false
@@ -2049,6 +2248,46 @@ class GraphboundApp {
     this.ensureAnimation()
   }
 
+  private queueGoalCelebration(sectionId: string, goalId: string): void {
+    const section = this.sectionById.get(sectionId)
+    const goal = section?.goals.find((candidate) => candidate.id === goalId)
+    if (!section || !goal) {
+      return
+    }
+
+    const source = this.goalShapeCenter(sectionId, goal)
+    const baseColor = this.goalColor(sectionId, goal)
+    const palette = [baseColor, '#e99b52', '#e176a8', '#6f9fe8', '#72b986', '#a17ee6']
+    const particles: CelebrationConfettiParticle[] = []
+
+    for (let index = 0; index < CONFETTI_PARTICLE_COUNT; index += 1) {
+      const spread = seededUnit(`confetti-spread:${sectionId}:${goalId}:${index}`)
+      const launch = seededUnit(`confetti-launch:${sectionId}:${goalId}:${index}`)
+      const side = seededUnit(`confetti-side:${sectionId}:${goalId}:${index}`) < 0.5 ? -1 : 1
+      particles.push({
+        color: palette[index % palette.length],
+        shape: index % 5 === 0 ? 'spark' : index % 3 === 0 ? 'box' : 'dash',
+        vx: side * (32 + spread * 142),
+        vy: -(145 + launch * 172),
+        gravity: 315 + seededUnit(`confetti-gravity:${sectionId}:${goalId}:${index}`) * 96,
+        size: 4.5 + seededUnit(`confetti-size:${sectionId}:${goalId}:${index}`) * 5.5,
+        angle: seededUnit(`confetti-angle:${sectionId}:${goalId}:${index}`) * Math.PI * 2,
+        spin: (seededUnit(`confetti-spin:${sectionId}:${goalId}:${index}`) - 0.5) * Math.PI * 3.8,
+        wobble: (seededUnit(`confetti-wobble:${sectionId}:${goalId}:${index}`) - 0.5) * 28,
+        delayMs: seededUnit(`confetti-delay:${sectionId}:${goalId}:${index}`) * 110,
+      })
+    }
+
+    this.celebrationConfetti.push({
+      id: `confetti:${sectionId}:${goalId}:${this.celebrationConfetti.length}`,
+      world: this.screenToWorld(source),
+      ageMs: 0,
+      lifetimeMs: TARGET_CELEBRATION_DURATION_MS,
+      particles,
+    })
+    this.ensureAnimation()
+  }
+
   private doodleKindForReward(section: SectionDefinition, tileId: TileId | null): RewardDoodleKind {
     if (tileId === 'π') {
       return 'pie'
@@ -2243,6 +2482,18 @@ class GraphboundApp {
       return false
     }
 
+    const previousValue = this.equationPartValue(sectionId, parts[slotIndex - 1], placementsOverride)
+    const nextValue = this.equationPartValue(sectionId, parts[slotIndex + 1], placementsOverride)
+    const tileValue = TILE_DEFINITIONS[tileId].label
+
+    if (tileId === ')' && this.valueCannotPrecedeRightParenthesis(previousValue)) {
+      return false
+    }
+
+    if (nextValue === ')' && this.valueCannotPrecedeRightParenthesis(tileValue)) {
+      return false
+    }
+
     if (!this.tileIsOperator(tileId)) {
       return true
     }
@@ -2250,9 +2501,6 @@ class GraphboundApp {
     if (slotIndex >= parts.length - 1) {
       return false
     }
-
-    const previousValue = this.equationPartValue(sectionId, parts[slotIndex - 1], placementsOverride)
-    const nextValue = this.equationPartValue(sectionId, parts[slotIndex + 1], placementsOverride)
 
     if (
       (tileId === '+' && (previousValue === '-' || nextValue === '-')) ||
@@ -2289,10 +2537,34 @@ class GraphboundApp {
       return false
     }
 
+    for (const equalsIndex of equalsIndexes) {
+      const leftValues = values.slice(0, equalsIndex)
+      const rightValues = values.slice(equalsIndex + 1)
+
+      if (this.valuesHaveOutputVariableImplicitProductOnLeft(values, equalsIndex)) {
+        return false
+      }
+
+      if (
+        this.valuesFormSolvedOutputVariable(leftValues) &&
+        rightValues.some((value) => this.valueIsOutputVariable(value))
+      ) {
+        return false
+      }
+    }
+
     for (let index = 0; index < values.length; index += 1) {
       const value = values[index]
 
       if (value === 'sin' && !this.sinArgumentCanBeValid(values, index)) {
+        return false
+      }
+
+      if (value === ')' && this.valueCannotPrecedeRightParenthesis(values[index - 1])) {
+        return false
+      }
+
+      if (values[index + 1] === ')' && this.valueCannotPrecedeRightParenthesis(value)) {
         return false
       }
 
@@ -2367,6 +2639,81 @@ class GraphboundApp {
     return leftIsOutput ? values.slice(equalsIndex + 1) : values
   }
 
+  private valuesFormSolvedOutputVariable(values: Array<string | null>): boolean {
+    if (values.some((value) => value === null)) {
+      return false
+    }
+
+    return (
+      (values.length === 1 && this.valueIsOutputVariable(values[0])) ||
+      (values.length === 2 && this.valueIsNumberText(values[0]) && this.valueIsOutputVariable(values[1]))
+    )
+  }
+
+  private valuesHaveOutputVariableImplicitProductOnLeft(
+    values: Array<string | null>,
+    equalsIndex: number,
+  ): boolean {
+    const leftValues = values.slice(0, equalsIndex)
+    const leftConcreteValues = leftValues.filter((value): value is string => Boolean(value))
+
+    for (let index = 0; index < leftValues.length - 1; index += 1) {
+      const current = leftValues[index]
+      const next = leftValues[index + 1]
+
+      if (!current || !next) {
+        continue
+      }
+
+      if (this.valueIsOutputVariable(current) && this.valueCanImplicitlyMultiply(next)) {
+        return true
+      }
+
+      const scaledSolvedOutput =
+        index === 0 &&
+        leftConcreteValues.length === 2 &&
+        this.valueIsNumberText(current) &&
+        this.valueIsOutputVariable(next)
+
+      if (
+        !scaledSolvedOutput &&
+        this.valueCanImplicitlyMultiplyIntoOutput(current) &&
+        this.valueIsOutputVariable(next)
+      ) {
+        return true
+      }
+    }
+
+    return false
+  }
+
+  private valueIsOutputVariable(value: string | null | undefined): boolean {
+    return value === 'y' || value === 'r'
+  }
+
+  private valueCanImplicitlyMultiply(value: string | null | undefined): boolean {
+    return (
+      this.valueIsNumberText(value) ||
+      this.valueIsVariable(value) ||
+      value === 'π' ||
+      value === 'pi' ||
+      value === 'sin' ||
+      value === '('
+    )
+  }
+
+  private valueCanImplicitlyMultiplyIntoOutput(value: string | null | undefined): boolean {
+    return (
+      this.valueIsNumberText(value) ||
+      value === 'x' ||
+      value === 'y' ||
+      value === 'r' ||
+      this.valueIsTheta(value) ||
+      value === 'π' ||
+      value === 'pi'
+    )
+  }
+
   private valueIsNumberText(value: string | null | undefined): boolean {
     return Boolean(value && /^-?\d+(?:\.\d+)?$/.test(value))
   }
@@ -2390,11 +2737,7 @@ class GraphboundApp {
     }
 
     const previous = values[index - 1]
-    if (previous !== '=') {
-      return false
-    }
-
-    return !this.valuesFormSolvedOutputVariable(values.slice(0, index - 1))
+    return previous === '='
   }
 
   private valueCanStartUnaryOperand(value: string | null | undefined): boolean {
@@ -2415,13 +2758,15 @@ class GraphboundApp {
     )
   }
 
-  private valuesFormSolvedOutputVariable(values: Array<string | null>): boolean {
-    const leftValues = values.filter((value): value is string => Boolean(value))
+  private valueCannotPrecedeRightParenthesis(value: string | null | undefined): boolean {
     return (
-      (leftValues.length === 1 && (leftValues[0] === 'y' || leftValues[0] === 'r')) ||
-      (leftValues.length === 2 &&
-        this.valueIsNumberText(leftValues[0]) &&
-        (leftValues[1] === 'y' || leftValues[1] === 'r'))
+      value === '(' ||
+      value === 'sin' ||
+      value === '+' ||
+      value === '-' ||
+      value === '/' ||
+      value === '^' ||
+      value === '='
     )
   }
 
@@ -3055,10 +3400,6 @@ class GraphboundApp {
     return this.equationPartValue(sectionId, layout.part)
   }
 
-  private layoutIsSuperscript(layout: TokenLayout | undefined): boolean {
-    return layout?.part.displayStyle === 'superscript'
-  }
-
   private bareFunctionPrimaryEnd(
     values: Array<string | null>,
     tokenLayouts: TokenLayout[],
@@ -3091,38 +3432,6 @@ class GraphboundApp {
     return this.bareFunctionPrimaryEnd(values, tokenLayouts, index)
   }
 
-  private bareFunctionPowerEnd(
-    values: Array<string | null>,
-    tokenLayouts: TokenLayout[],
-    startIndex: number,
-  ): number | null {
-    const initialEndIndex = this.bareFunctionUnaryEnd(values, tokenLayouts, startIndex)
-
-    if (initialEndIndex === null) {
-      return null
-    }
-
-    let endIndex: number = initialEndIndex
-
-    while (true) {
-      const nextIndex = endIndex + 1
-      if (this.layoutIsSuperscript(tokenLayouts[nextIndex])) {
-        endIndex = nextIndex
-        continue
-      }
-
-      if (values[nextIndex] !== '^') {
-        return endIndex
-      }
-
-      const exponentEnd = this.bareFunctionUnaryEnd(values, tokenLayouts, nextIndex + 1)
-      if (exponentEnd === null) {
-        return null
-      }
-      endIndex = exponentEnd
-    }
-  }
-
   private inferredBareFunctionArgumentRange(
     values: Array<string | null>,
     tokenLayouts: TokenLayout[],
@@ -3136,11 +3445,11 @@ class GraphboundApp {
     }
 
     if (firstValue === '+' || firstValue === '-') {
-      const endIndex = this.bareFunctionPowerEnd(values, tokenLayouts, startIndex + 1)
+      const endIndex = this.bareFunctionUnaryEnd(values, tokenLayouts, startIndex + 1)
       return endIndex === null ? null : { startIndex, endIndex }
     }
 
-    const endIndex = this.bareFunctionPowerEnd(values, tokenLayouts, startIndex)
+    const endIndex = this.bareFunctionUnaryEnd(values, tokenLayouts, startIndex)
     return endIndex === null ? null : { startIndex, endIndex }
   }
 
@@ -3670,16 +3979,35 @@ class GraphboundApp {
   }
 
   private goalVisualScale(boosted: boolean): number {
-    if (!boosted || this.zoomLevel >= GOAL_VISUAL_BOOST_ZOOM_THRESHOLD) {
+    if (!boosted) {
       return 1
     }
 
-    const progress = 1 - clamp(
-      (this.zoomLevel - MIN_ZOOM_LEVEL) / (GOAL_VISUAL_BOOST_ZOOM_THRESHOLD - MIN_ZOOM_LEVEL),
+    const zoomOutProgress = clamp(
+      (MAX_ZOOM_LEVEL - this.zoomLevel) / (MAX_ZOOM_LEVEL - MIN_ZOOM_LEVEL),
       0,
       1,
     )
-    return lerp(1, GOAL_VISUAL_MAX_BOOST, easeOutCubic(progress))
+
+    if (zoomOutProgress <= GOAL_VISUAL_BOOST_START_ZOOM_OUT) {
+      return 1
+    }
+
+    const boostProgress =
+      (zoomOutProgress - GOAL_VISUAL_BOOST_START_ZOOM_OUT) /
+      (1 - GOAL_VISUAL_BOOST_START_ZOOM_OUT)
+    const boostStartScreenScale = lerp(
+      MAX_ZOOM_LEVEL,
+      MIN_ZOOM_LEVEL,
+      GOAL_VISUAL_BOOST_START_ZOOM_OUT,
+    )
+    const targetScreenScale = lerp(
+      boostStartScreenScale,
+      GOAL_VISUAL_MAX_SCREEN_SCALE,
+      smoothStep(boostProgress),
+    )
+
+    return Math.max(1, targetScreenScale / Math.max(this.zoomLevel, MIN_ZOOM_LEVEL))
   }
 
   private goalAtPoint(point: Point): { sectionId: string; goal: GoalDefinition } | null {
@@ -4153,7 +4481,7 @@ class GraphboundApp {
 
     const section = this.sectionById.get(sectionId)
     const goal = section?.goals.find((candidate) => candidate.id === goalId)
-    const targetSectionId = goal?.unlocks[0] ?? null
+    const targetSectionId = this.firstNewSectionUnlockId(goal)
     const extraContentRects = targetSectionId ? [this.boardWorldRect(targetSectionId)] : []
     const runtime = this.sectionRuntimes.get(sectionId)
     const from = runtime?.fuseCameraFrom
@@ -4177,6 +4505,10 @@ class GraphboundApp {
     }, extraContentRects)
   }
 
+  private firstNewSectionUnlockId(goal: GoalDefinition | null | undefined): string | null {
+    return goal?.unlocks.find((unlockId) => !this.unlockedSections.has(unlockId)) ?? null
+  }
+
   private dogRect(sectionId: string): Rect | null {
     void sectionId
     return null
@@ -4198,6 +4530,8 @@ class GraphboundApp {
       result?.achievedGoalIds.find((goalId) => !this.completedGoals.has(`${sectionId}:${goalId}`)) ??
       null
     runtime.targetFillProgress = 0
+    runtime.targetCelebrationProgress = 0
+    runtime.targetCelebrationQueued = false
     runtime.fuseProgress = 0
     runtime.fuseCameraProgress = 0
     runtime.fuseCameraFrom = null
@@ -4225,7 +4559,7 @@ class GraphboundApp {
 
     if (animated && runtime.animatingGoalId) {
       const goal = section.goals.find((candidate) => candidate.id === runtime.animatingGoalId)
-      const targetSectionId = goal?.unlocks[0] ?? null
+      const targetSectionId = this.firstNewSectionUnlockId(goal)
       runtime.fuseCameraFrom = { ...this.camera }
       runtime.fuseCameraFromScale = this.layout.worldScale
       if (targetSectionId) {
@@ -4240,6 +4574,8 @@ class GraphboundApp {
 
     runtime.plotProgress = animated ? 0 : 1
     runtime.targetFillProgress = !animated && runtime.animatingGoalId ? 1 : 0
+    runtime.targetCelebrationProgress = !animated && runtime.animatingGoalId ? 1 : 0
+    runtime.targetCelebrationQueued = false
     runtime.fuseProgress = !animated && runtime.animatingGoalId ? 1 : 0
     runtime.fuseCameraProgress = !animated && runtime.animatingGoalId ? 1 : 0
     runtime.animating = animated
@@ -4272,7 +4608,7 @@ class GraphboundApp {
 
     const newGoalsUnlockSection = newGoals.some((goalId) => {
       const goal = section.goals.find((candidate) => candidate.id === goalId)
-      return Boolean(goal?.unlocks.length)
+      return Boolean(this.firstNewSectionUnlockId(goal))
     })
 
     const newlyUnlockedSections = this.unlockSectionsForGoals(sectionId, newGoals)
@@ -4300,6 +4636,9 @@ class GraphboundApp {
     runtime.animatingGoalId = null
     runtime.plotProgress = runtime.plotResult.hasVisiblePath ? 1 : 0
     runtime.targetFillProgress = runtime.pendingGoalIds.length > 0 ? 1 : runtime.targetFillProgress
+    runtime.targetCelebrationProgress =
+      runtime.pendingGoalIds.length > 0 ? 1 : runtime.targetCelebrationProgress
+    runtime.targetCelebrationQueued = false
     runtime.fuseProgress = runtime.pendingGoalIds.length > 0 ? 1 : runtime.fuseProgress
     runtime.fuseCameraProgress = runtime.pendingGoalIds.length > 0 ? 1 : runtime.fuseCameraProgress
     runtime.fuseCameraFrom = null
@@ -4494,6 +4833,16 @@ class GraphboundApp {
       }
     }
 
+    for (let index = this.celebrationConfetti.length - 1; index >= 0; index -= 1) {
+      const burst = this.celebrationConfetti[index]
+      burst.ageMs += deltaMs
+      if (burst.ageMs >= burst.lifetimeMs) {
+        this.celebrationConfetti.splice(index, 1)
+      } else {
+        keepGoing = true
+      }
+    }
+
     for (let index = this.graphiteDust.length - 1; index >= 0; index -= 1) {
       const dust = this.graphiteDust[index]
       dust.ageMs += deltaMs
@@ -4637,13 +4986,32 @@ class GraphboundApp {
         if (runtime.targetFillProgress < 1) {
           continue
         }
-        continue
+      }
+
+      if (runtime.animatingGoalId && runtime.targetCelebrationProgress < 1) {
+        if (!runtime.targetCelebrationQueued) {
+          this.queueGoalCelebration(section.id, runtime.animatingGoalId)
+          runtime.targetCelebrationQueued = true
+          runtime.statusMessage = 'celebrating'
+          this.statusMessage = runtime.statusMessage
+        }
+
+        runtime.targetCelebrationProgress = clamp(
+          runtime.targetCelebrationProgress + deltaMs / TARGET_CELEBRATION_DURATION_MS,
+          0,
+          1,
+        )
+        keepGoing = true
+
+        if (runtime.targetCelebrationProgress < 1) {
+          continue
+        }
       }
 
       const animatingGoal = runtime.animatingGoalId
         ? section.goals.find((candidate) => candidate.id === runtime.animatingGoalId)
         : null
-      const animatingGoalUnlocksPuzzle = Boolean(animatingGoal?.unlocks.length)
+      const animatingGoalUnlocksPuzzle = Boolean(this.firstNewSectionUnlockId(animatingGoal))
 
       if (
         animatingGoalUnlocksPuzzle &&
@@ -5904,14 +6272,20 @@ class GraphboundApp {
 
   private plotPixelsPerMs(sectionId: string): number | null {
     const runtime = this.sectionRuntimes.get(sectionId)
-    const plotPoints = runtime?.plotResult?.points
+    const plotResult = runtime?.plotResult
 
-    if (!plotPoints || plotPoints.length < 2) {
+    if (!plotResult || plotResult.points.length < 2) {
       return null
     }
 
-    const screenPoints = plotPoints.map((point) => this.graphPointToScreen(sectionId, point))
-    const length = polylineLength(screenPoints)
+    const plotSegments =
+      plotResult.segments && plotResult.segments.length > 0
+        ? plotResult.segments
+        : [plotResult.points]
+    const screenSegments = plotSegments
+      .filter((segment) => segment.length > 1)
+      .map((segment) => segment.map((point) => this.graphPointToScreen(sectionId, point)))
+    const length = polylineSegmentsLength(screenSegments)
 
     if (length <= 0) {
       return null
@@ -6661,6 +7035,93 @@ class GraphboundApp {
     this.context.restore()
   }
 
+  private variableGlyph(value: string | null | undefined): string | null {
+    if (value === 'x' || value === 'y' || value === 'r') {
+      return value
+    }
+
+    if (this.valueIsTheta(value)) {
+      return 'θ'
+    }
+
+    return null
+  }
+
+  private drawVariableGlyph(
+    value: string,
+    center: Point,
+    fontSize: number,
+    seedKey: string,
+  ): boolean {
+    const glyph = this.variableGlyph(value)
+    if (!glyph) {
+      return false
+    }
+
+    const wobble = (seededUnit(`variable-glyph:${seedKey}`) - 0.5) * 0.035
+
+    const displayGlyph =
+      glyph === 'x'
+        ? '𝑥'
+        : glyph === 'y'
+          ? '𝑦'
+          : glyph === 'r'
+            ? '𝑟'
+            : '𝜃'
+
+    this.context.save()
+    this.context.fillStyle = INK
+    this.context.textAlign = 'center'
+    this.context.textBaseline = 'middle'
+    this.context.font = `${Math.round(fontSize * 1.08)}px 'STIX Two Math', 'Cambria Math', Georgia, 'Times New Roman', serif`
+    this.context.translate(center.x, center.y)
+    this.context.rotate(-0.075 + wobble)
+
+    if (glyph === 'x') {
+      this.context.scale(1.08, 1)
+    } else if (glyph === 'y') {
+      this.context.translate(0, -fontSize * 0.02)
+      this.context.scale(1.04, 1.04)
+    } else if (glyph === 'r') {
+      this.context.translate(fontSize * 0.03, fontSize * 0.01)
+      this.context.scale(1.04, 1)
+    } else {
+      this.context.translate(0, fontSize * 0.02)
+      this.context.scale(0.98, 1.05)
+    }
+
+    this.context.fillText(displayGlyph, 0, fontSize * 0.03)
+    this.context.restore()
+    return true
+  }
+
+  private drawEquationPrefixText(prefix: 'y' | 'r', x: number, y: number, fontSize: number): void {
+    const variableWidth = fontSize * 0.56
+    const gap = fontSize * 0.36
+    this.drawVariableGlyph(prefix, { x: x + variableWidth / 2, y }, fontSize * 1.02, `prefix:${prefix}`)
+    this.context.save()
+    this.context.fillStyle = INK
+    this.context.font = `${Math.round(fontSize)}px 'Short Stack', cursive`
+    this.context.textBaseline = 'middle'
+    this.context.fillText('=', x + variableWidth + gap, y)
+    this.context.restore()
+  }
+
+  private drawEquationFixedToken(value: string, rect: Rect, seedKey: string): void {
+    const fontSize = Math.round(EQUATION_FONT_SIZE * this.layout.worldScale)
+    const center = {
+      x: rect.x + rect.width / 2 - rect.width * 0.18,
+      y: rect.y + rect.height / 2,
+    }
+
+    if (this.drawVariableGlyph(value, center, fontSize * 1.08, seedKey)) {
+      return
+    }
+
+    this.context.font = `${fontSize}px 'Short Stack', cursive`
+    this.context.fillText(value, center.x, center.y)
+  }
+
   private drawTile(
     rect: Rect,
     tile: TileDefinition,
@@ -6718,10 +7179,19 @@ class GraphboundApp {
 
     context.save()
     context.fillStyle = INK
-    context.font = `${Math.round(rect.height * 0.46)}px 'Short Stack', cursive`
     context.textAlign = 'center'
     context.textBaseline = 'middle'
-    context.fillText(tile.label, rect.x + rect.width / 2, rect.y + rect.height / 2 + 1)
+    if (tile.role === 'variable') {
+      this.drawVariableGlyph(
+        tile.label,
+        { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 + 1 },
+        rect.height * 0.58,
+        `tile:${seedKey}:label`,
+      )
+    } else {
+      context.font = `${Math.round(rect.height * 0.46)}px 'Short Stack', cursive`
+      context.fillText(tile.label, rect.x + rect.width / 2, rect.y + rect.height / 2 + 1)
+    }
     context.restore()
   }
 
@@ -6842,15 +7312,12 @@ class GraphboundApp {
         runtime.plotResult.segments && runtime.plotResult.segments.length > 0
           ? runtime.plotResult.segments
           : [runtime.plotResult.points]
+      const screenSegments = plotSegments
+        .filter((segment) => segment.length > 1)
+        .map((segment) => segment.map((point) => this.graphPointToScreen(sectionId, point)))
+      const visibleSegments = progressivePolylineSegments(screenSegments, progress)
 
-      for (const segment of plotSegments) {
-        if (segment.length <= 1) {
-          continue
-        }
-
-        const plotPoints = segment.map((point) => this.graphPointToScreen(sectionId, point))
-        const visiblePoints = partialPolyline(plotPoints, progress)
-
+      for (const visiblePoints of visibleSegments) {
         if (visiblePoints.length > 1) {
           this.context.save()
           this.context.strokeStyle = PLOT_GLOW
@@ -6892,17 +7359,20 @@ class GraphboundApp {
     this.context.font = `${Math.round(EQUATION_FONT_SIZE * this.layout.worldScale)}px 'Short Stack', cursive`
     this.context.textBaseline = 'middle'
     if (!this.usesCustomEquationDisplay(sectionId)) {
-      this.context.fillText(`${this.equationPrefix(sectionId)} =`, prefixX, equationY)
+      this.drawEquationPrefixText(
+        this.equationPrefix(sectionId),
+        prefixX,
+        equationY,
+        EQUATION_FONT_SIZE * this.layout.worldScale,
+      )
     }
 
     for (const token of tokenLayouts) {
       if (token.part.type === 'fixed') {
-        const fontSize = Math.round(EQUATION_FONT_SIZE * this.layout.worldScale)
-        this.context.font = `${fontSize}px 'Short Stack', cursive`
-        this.context.fillText(
+        this.drawEquationFixedToken(
           token.part.value,
-          token.rect.x + token.rect.width / 2 - token.rect.width * 0.18,
-          token.rect.y + token.rect.height / 2,
+          token.rect,
+          `fixed:${sectionId}:${token.part.value}:${token.rect.x.toFixed(1)}`,
         )
         continue
       }
@@ -6980,7 +7450,7 @@ class GraphboundApp {
             : baseColor
           : `rgba(45, 38, 32, ${this.lockedGoalAlpha()})`
         const alpha = unlocked && solved ? SOLVED_GOAL_ALPHA : 1
-        const boosted = !solved && fillProgress < 0.999
+        const boosted = unlocked && !solved && fillProgress < 0.999
 
         if (unlocked && !solved && fillProgress < 0.999) {
           this.drawGoalGlow(section.id, goal, color)
@@ -7139,6 +7609,109 @@ class GraphboundApp {
         },
       )
       this.context.restore()
+    }
+  }
+
+  private drawCelebrationConfetti(): void {
+    if (this.celebrationConfetti.length === 0) {
+      return
+    }
+
+    for (const burst of this.celebrationConfetti) {
+      const origin = this.worldToScreen(burst.world)
+
+      for (const [index, particle] of burst.particles.entries()) {
+        const delayedAge = burst.ageMs - particle.delayMs
+        if (delayedAge <= 0) {
+          continue
+        }
+
+        const localProgress = clamp(
+          delayedAge / Math.max(1, burst.lifetimeMs - particle.delayMs),
+          0,
+          1,
+        )
+        const seconds = delayedAge / 1000
+        const fadeIn = clamp(localProgress / 0.14, 0, 1)
+        const fadeOut = clamp((1 - localProgress) / 0.34, 0, 1)
+        const alpha = fadeIn * fadeOut * 0.92
+        if (alpha <= 0) {
+          continue
+        }
+
+        const wobble = Math.sin(localProgress * Math.PI * 2 + particle.angle) *
+          particle.wobble *
+          localProgress
+        const x = origin.x + particle.vx * seconds + wobble
+        const y = origin.y + particle.vy * seconds + 0.5 * particle.gravity * seconds * seconds
+        const angle = particle.angle + particle.spin * localProgress
+        const size = particle.size * clamp(this.zoomLevel, 0.75, 1.08)
+        const stroke = mixColors(particle.color, INK, 0.18, alpha)
+        const seedKey = `${burst.id}:particle:${index}`
+
+        if (particle.shape === 'box') {
+          const cos = Math.cos(angle)
+          const sin = Math.sin(angle)
+          const corners = [
+            { x: -size * 0.55, y: -size * 0.36 },
+            { x: size * 0.55, y: -size * 0.36 },
+            { x: size * 0.55, y: size * 0.36 },
+            { x: -size * 0.55, y: size * 0.36 },
+            { x: -size * 0.55, y: -size * 0.36 },
+          ].map((point) => ({
+            x: x + point.x * cos - point.y * sin,
+            y: y + point.x * sin + point.y * cos,
+          }))
+          this.drawRoughPolyline(corners, seedKey, {
+            stroke,
+            strokeWidth: Math.max(1, 1.25 * this.layout.worldScale),
+            roughness: 1.15,
+            bowing: 0.8,
+          })
+        } else if (particle.shape === 'spark') {
+          const arm = size * 0.78
+          for (let armIndex = 0; armIndex < 2; armIndex += 1) {
+            const baseAngle = angle + armIndex * (Math.PI / 2)
+            this.drawRoughPolyline(
+              [
+                { x: x + Math.cos(baseAngle) * arm, y: y + Math.sin(baseAngle) * arm },
+                {
+                  x: x + Math.cos(baseAngle + Math.PI) * arm,
+                  y: y + Math.sin(baseAngle + Math.PI) * arm,
+                },
+              ],
+              `${seedKey}:spark:${armIndex}`,
+              {
+                stroke,
+                strokeWidth: Math.max(1, 1.35 * this.layout.worldScale),
+                roughness: 1.1,
+                bowing: 0.7,
+              },
+            )
+          }
+        } else {
+          const length = size * 1.8
+          this.drawRoughPolyline(
+            [
+              {
+                x: x - Math.cos(angle) * length * 0.5,
+                y: y - Math.sin(angle) * length * 0.5,
+              },
+              {
+                x: x + Math.cos(angle) * length * 0.5,
+                y: y + Math.sin(angle) * length * 0.5,
+              },
+            ],
+            seedKey,
+            {
+              stroke,
+              strokeWidth: Math.max(1, 1.55 * this.layout.worldScale),
+              roughness: 1.2,
+              bowing: 0.7,
+            },
+          )
+        }
+      }
     }
   }
 
@@ -7390,6 +7963,7 @@ class GraphboundApp {
     this.drawGraphiteDust()
     this.drawWorldLinksOverlay()
     this.drawGraphCompleteFlourishes()
+    this.drawCelebrationConfetti()
     this.drawTray()
     this.drawTileUnlockAnimations()
     this.drawInspectedGoalOverlay()
@@ -7430,15 +8004,19 @@ class GraphboundApp {
           expression: this.placementExpression(section.id),
           goalsSolved: runtime?.solvedGoalIds ?? [],
           pendingGoals: runtime?.pendingGoalIds ?? [],
+          celebrationProgress: Number((runtime?.targetCelebrationProgress ?? 0).toFixed(2)),
           plot: runtime?.plotResult?.screenLabel ?? null,
         }
       })
+    const runtimeAnimating = [...this.sectionRuntimes.values()].some((runtime) => runtime.animating)
 
     return JSON.stringify({
       mode:
         this.victoryScreenVisible
           ? 'victory'
           : this.cameraTween ||
+              runtimeAnimating ||
+              this.celebrationConfetti.length > 0 ||
               sections.some((section) => section.reveal < 1) ||
               this.keyboardVelocity.x !== 0 ||
               this.keyboardVelocity.y !== 0
@@ -7457,6 +8035,7 @@ class GraphboundApp {
       zoom: Number(this.zoomLevel.toFixed(2)),
       inspectedGoal: this.inspectedGoalKey(),
       victory: this.victoryScreenVisible,
+      victoryScreenShown: this.victoryScreenShown,
       completedPuzzles: this.completedPuzzleCount(),
       totalPuzzles: this.sections.length,
       unlockedTiles: [...this.unlockedTiles],
@@ -7464,6 +8043,7 @@ class GraphboundApp {
       selectedTile: this.selectedTileId,
       selectedPuzzle: this.tileFocusSectionId,
       startLevelOverride: this.startLevelOverride,
+      confettiBursts: this.celebrationConfetti.length,
       sections,
       statusMessage: this.statusMessage,
     })
@@ -7484,6 +8064,7 @@ declare global {
       placeTile: (tileId: TileId, slotId: string) => void
       animatePlaceTile: (tileId: TileId, slotId: string) => void
       startAtLevel: (levelNumber: number) => void
+      previewIntendedSolution: (sectionId: string, goalId: string) => IntendedPreviewResult
       getState: () => unknown
       getInteractionRects: () => unknown
       getLayoutIssues: () => Array<{ kind: string; a: string; b: string }>

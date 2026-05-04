@@ -2,6 +2,8 @@
 
 This document captures gameplay, UX, layout, and polish requirements pulled from the project direction and repeated user feedback. It is intended to support regression checks.
 
+Explicit authoring direction may override these requirements for a specific puzzle. When that happens, keep the implementation intentional and document the exception instead of adding hidden per-puzzle placement rules.
+
 ## Quantifiable Requirements
 
 These requirements should be testable with numbers, fixed pass/fail checks, or deterministic inspection.
@@ -37,6 +39,7 @@ These requirements should be testable with numbers, fixed pass/fail checks, or d
 - [ ] Equations never end with an operator such as `+` or `-`.
 - [ ] `+` cannot be placed immediately after `-`, and `-` cannot be placed immediately after `+`.
 - [ ] A blank square represents exactly one placed tile.
+- [ ] Slot tile allowlists are never customized for one specific puzzle. Tile placement follows the same shared syntax and unlock rules everywhere.
 - [ ] Absolute-value bars are fixed notation, not tiles.
 
 ### Target Shapes
@@ -53,7 +56,8 @@ These requirements should be testable with numbers, fixed pass/fail checks, or d
 ### Puzzle Authoring Safety
 
 - [ ] `puzzles.json` is the single source of truth for authored puzzle data. `PUZZLES.md` is generated from it with `npm run generate-puzzles`, and solution-finding tooling reads `puzzles.json` by default.
-- [ ] Except for onboarding puzzles `1` and `2`, each puzzle solution unlocks exactly one thing: either one puzzle, one new tile, or the terminal victory state, never more than one.
+- [ ] Except for onboarding puzzles `1` and `2`, each puzzle solution unlocks at most one thing: either one puzzle, one new tile, or the terminal victory state, never more than one.
+- [ ] Non-late-game puzzle solutions must unlock exactly one thing. Late-game puzzle solutions, currently puzzle numbers `35` and higher, may unlock nothing as long as the world remains beatable and full completion still requires solving every target.
 - [ ] Puzzle `1` unlocks puzzle `2` and a new tile; puzzle `2` unlocks puzzle `3` and a new tile.
 - [ ] Intended solutions never use a leading `+` or empty parentheses `()`.
 - [ ] Each intended solution may appear only once across the whole game; rearrangements that canonicalize to the same equation, such as `y = 2 + x` and `y = x + 2`, count as the same intended solution.

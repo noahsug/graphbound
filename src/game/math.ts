@@ -286,34 +286,6 @@ function functionUnaryEnd(tokens: ResolvedToken[], startIndex: number): number |
   return functionPrimaryEnd(tokens, index)
 }
 
-function functionPowerEnd(tokens: ResolvedToken[], startIndex: number): number | null {
-  const initialEndIndex = functionUnaryEnd(tokens, startIndex)
-
-  if (initialEndIndex === null) {
-    return null
-  }
-
-  let endIndex: number = initialEndIndex
-
-  while (true) {
-    const next = tokens[endIndex + 1]
-    if (next?.style === 'superscript') {
-      endIndex += 1
-      continue
-    }
-
-    if (next?.style !== 'normal' || next.text !== '^') {
-      return endIndex
-    }
-
-    const exponentEnd = functionUnaryEnd(tokens, endIndex + 2)
-    if (exponentEnd === null) {
-      return null
-    }
-    endIndex = exponentEnd
-  }
-}
-
 function inferredFunctionArgumentRange(
   tokens: ResolvedToken[],
   functionIndex: number,
@@ -326,11 +298,11 @@ function inferredFunctionArgumentRange(
   }
 
   if (first.text === '+' || first.text === '-') {
-    const endIndex = functionPowerEnd(tokens, startIndex + 1)
+    const endIndex = functionUnaryEnd(tokens, startIndex + 1)
     return endIndex === null ? null : { startIndex, endIndex }
   }
 
-  const endIndex = functionPowerEnd(tokens, startIndex)
+  const endIndex = functionUnaryEnd(tokens, startIndex)
   return endIndex === null ? null : { startIndex, endIndex }
 }
 
@@ -558,7 +530,7 @@ class TokenParser {
       return expression
     }
 
-    return this.parsePower()
+    return this.parseUnary()
   }
 
   private parseAdditive(): string {
@@ -1029,7 +1001,8 @@ function visibleCartesianSegments(expression: string, axes: GraphAxes): PlotPoin
       },
     }
   }
-  const clippedVisibleSegment = (rawSamples: PlotPoint[]): PlotPoint[] => {
+  const clippedVisibleSegments = (rawSamples: PlotPoint[]): PlotPoint[][] => {
+    const segments: PlotPoint[][] = []
     const points: PlotPoint[] = []
     const pushPoint = (point: PlotPoint) => {
       const clamped = {
@@ -1045,6 +1018,20 @@ function visibleCartesianSegments(expression: string, axes: GraphAxes): PlotPoin
         return
       }
       points.push(clamped)
+    }
+    const finishSegment = () => {
+      if (points.length === 1 && pointEdges(points[0], axes).length > 0) {
+        const guide = fallbackBoundaryGuidePoint(points[0])
+        if (guide) {
+          points.unshift(guide)
+        }
+      }
+
+      if (points.length > 1) {
+        segments.push([...points])
+      }
+
+      points.length = 0
     }
     const pushBoundaryContact = (
       contact: PlotPoint,
@@ -1083,46 +1070,34 @@ function visibleCartesianSegments(expression: string, axes: GraphAxes): PlotPoin
         pushPoint(current)
       } else if (previousInside && !currentInside) {
         if (clipped) {
-          if (clippedSegmentIsContact(clipped)) {
-            pushBoundaryContact(clipped.end, current, false)
-          } else {
-            pushPoint(clipped.end)
-          }
+          pushPoint(clipped.end)
         }
+        finishSegment()
       } else if (!previousInside && currentInside) {
+        finishSegment()
         if (clipped) {
-          if (clippedSegmentIsContact(clipped)) {
-            pushBoundaryContact(clipped.start, previous, true)
-          } else {
-            pushPoint(clipped.start)
-          }
+          pushPoint(clipped.start)
         }
         pushPoint(current)
       } else if (clipped) {
+        finishSegment()
         if (clippedSegmentIsContact(clipped)) {
           pushBoundaryContact(clipped.start, previous, true)
-        } else {
-          pushPoint(clipped.start)
-          pushPoint(clipped.end)
         }
+        finishSegment()
       }
 
       previous = current
       previousInside = currentInside
     }
 
-    if (points.length === 1 && pointEdges(points[0], axes).length > 0) {
-      const guide = fallbackBoundaryGuidePoint(points[0])
-      if (guide) {
-        points.unshift(guide)
-      }
-    }
+    finishSegment()
 
-    return points
+    return segments
   }
 
   return rawSegments
-    .map(clippedVisibleSegment)
+    .flatMap(clippedVisibleSegments)
     .filter((points) => points.length > 1)
 }
 
