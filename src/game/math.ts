@@ -448,14 +448,24 @@ function buildFullEquationExpression(
   const equalsIndex = equalsIndexes[0]
   const leftTokens = tokens.slice(0, equalsIndex)
   const rightTokens = tokens.slice(equalsIndex + 1)
+  const left = new TokenParser(leftTokens).parseExpression()
   const right = new TokenParser(rightTokens).parseExpression()
-  const solvedY = solvedVariableExpression(leftTokens, 'y', right)
+  const leftUsesOutputVariable = tokensUseOutputVariables(leftTokens)
   const rightUsesOutputVariable = tokensUseOutputVariables(rightTokens)
+  const solvedY = solvedVariableExpression(leftTokens, 'y', right)
 
   if (solvedY && !rightUsesOutputVariable) {
     return {
       kind: 'explicit-cartesian',
       expression: solvedY,
+    }
+  }
+
+  const solvedRightY = solvedVariableExpression(rightTokens, 'y', left)
+  if (solvedRightY && !leftUsesOutputVariable) {
+    return {
+      kind: 'explicit-cartesian',
+      expression: solvedRightY,
     }
   }
 
@@ -468,7 +478,14 @@ function buildFullEquationExpression(
     }
   }
 
-  const left = new TokenParser(leftTokens).parseExpression()
+  const solvedRightR = solvedVariableExpression(rightTokens, 'r', left)
+  if (solvedRightR && !leftUsesOutputVariable) {
+    return {
+      kind: 'explicit-polar',
+      expression: solvedRightR,
+    }
+  }
+
   return {
     kind:
       section.coordinateMode === 'polar' || tokensUsePolarVariables(tokens)
