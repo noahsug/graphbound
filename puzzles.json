@@ -976,14 +976,14 @@
     {
       "id": "33a",
       "name": "Sine Mirror",
-      "equation": "□ ( □ ) □ □",
-      "intendedSolution": "sin(y) = x",
+      "equation": "□ □ □ □",
+      "intendedSolution": "sin y = x",
       "unlocksPuzzle": "36 Pi Vault",
       "unlocksTile": "none",
       "axes": {
         "x": {
-          "min": -2,
-          "max": 3
+          "min": -5,
+          "max": 5
         },
         "y": {
           "min": -5,
@@ -991,8 +991,30 @@
         }
       },
       "target": {
-        "x": 1,
-        "y": 1.5
+        "x": -1,
+        "y": 5
+      }
+    },
+    {
+      "id": "33b",
+      "name": "Sine Mirror",
+      "equation": "□ □ □ □",
+      "intendedSolution": "sin x = y",
+      "unlocksPuzzle": "36 Pi Vault",
+      "unlocksTile": "none",
+      "axes": {
+        "x": {
+          "min": -5,
+          "max": 5
+        },
+        "y": {
+          "min": -5,
+          "max": 5
+        }
+      },
+      "target": {
+        "x": 5,
+        "y": -1
       }
     },
     {
@@ -1064,8 +1086,8 @@
     {
       "id": "37a",
       "name": "Half Gate",
-      "equation": "y = 5sin(pi x / □□ □ □",
-      "intendedSolution": "y = 5sin(pi x / 2) + 5",
+      "equation": "y = sin(x ^ □ □ □",
+      "intendedSolution": "y = sin(x ^ 2) 5",
       "unlocksPuzzle": "38 Paren Echo",
       "unlocksTile": "none",
       "axes": {
@@ -1074,13 +1096,13 @@
           "max": 5
         },
         "y": {
-          "min": 0,
-          "max": 10
+          "min": -5,
+          "max": 5
         }
       },
       "target": {
-        "x": 1,
-        "y": 10
+        "x": 1.5,
+        "y": 4
       }
     },
     {

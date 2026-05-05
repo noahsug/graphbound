@@ -170,13 +170,15 @@ function resolveEquationTokens(
   return tokens
 }
 
-function formatDisplayExpression(tokens: ResolvedToken[]): string {
+function formatDisplayExpression(tokens: ResolvedToken[], inferFunctionParens = true): string {
   if (tokens.length === 0) {
     return '_'
   }
 
   const parts: string[] = []
-  const { openBefore, closeAfter } = inferredFunctionParenInsertions(tokens)
+  const { openBefore, closeAfter } = inferFunctionParens
+    ? inferredFunctionParenInsertions(tokens)
+    : { openBefore: new Set<number>(), closeAfter: new Set<number>() }
 
   for (const [index, token] of tokens.entries()) {
     if (openBefore.has(index)) {
@@ -226,7 +228,7 @@ export function formatEquationLabel(
 ): string {
   const displayParts = equationPartsForDisplay(section)
   const tokens = resolveEquationTokens(displayParts, placements, includePlaceholders)
-  const expression = tokens ? formatDisplayExpression(tokens) : '_'
+  const expression = tokens ? formatDisplayExpression(tokens, !section.displayEquation) : '_'
   return section.displayEquation ? expression : `${equationPrefix(section)} = ${expression}`
 }
 
@@ -766,6 +768,10 @@ function buildExpression(
       return buildFullEquationExpression(section, tokens)
     }
 
+    if (section.displayEquation) {
+      return null
+    }
+
     if (tokens.some((token) => token.style === 'normal' && (token.text === 'for' || token.text === ';'))) {
       return {
         kind: section.coordinateMode === 'polar' ? 'explicit-polar' : 'explicit-cartesian',
@@ -776,15 +782,7 @@ function buildExpression(
     const expression = new TokenParser(tokens).parseExpression()
 
     if (tokensUseOutputVariables(tokens)) {
-      const outputVariable = equationPrefix(section)
-
-      return {
-        kind:
-          section.coordinateMode === 'polar' || outputVariable === 'r' || tokensUsePolarVariables(tokens)
-            ? 'implicit-polar'
-            : 'implicit-cartesian',
-        expression: `((${outputVariable}) - (${expression}))`,
-      }
+      return null
     }
 
     return {

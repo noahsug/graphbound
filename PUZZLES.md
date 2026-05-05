@@ -50,9 +50,10 @@ Authoring requirements live in `REQUIREMENTS.md`.
 | 30a | Witch Window | y = 2sin(x) □ □ | y = 2sin(x) + 5 | 32 Spiral Loft | none | 0 to 5 | -2 to 8 | (4, 3.5) |
 | 31a | Serpentine | y = □x / (x ^ 2 + □) □ □ | y = 5x / (x ^ 2 + 2) + 0 | 33 Sine Mirror | none | -2 to 4 | -2 to 4 | (1.5, 1.5) |
 | 32a | Spiral Loft | □ = x sin(x) + □ | y = x sin(x) + 2 | 36 Pi Vault | none | 0 to 5 | -2 to 5 | (2, 4) |
-| 33a | Sine Mirror | □ ( □ ) □ □ | sin(y) = x | 36 Pi Vault | none | -2 to 3 | -5 to 5 | (1, 1.5) |
+| 33a | Sine Mirror | □ □ □ □ | sin y = x | 36 Pi Vault | none | -5 to 5 | -5 to 5 | (-1, 5) |
+| 33b | Sine Mirror | □ □ □ □ | sin x = y | 36 Pi Vault | none | -5 to 5 | -5 to 5 | (5, -1) |
 | 36a | Pi Vault | y = x □ 2 □ □ | y = x ^ 2 / pi | 35 Sine Dial | none | 0 to 5 | 0 to 10 | (5, 8) |
 | 35a | Sine Dial | y □ □sin(x) + 5 □ 0 | y = pi sin(x) + 5 + 0 | 37 Half Gate | none | 0 to 5 | -8 to 8 | (1, 7.5) |
 | 35b | Sine Dial | y □ □sin(x) + 5 □ 0 | y + pi sin(x) + 5 = 0 | 37 Half Gate | none | 0 to 5 | -8 to 8 | (1, -7.5) |
-| 37a | Half Gate | y = 5sin(pi x / □□ □ □ | y = 5sin(pi x / 2) + 5 | 38 Paren Echo | none | 0 to 5 | 0 to 10 | (1, 10) |
+| 37a | Half Gate | y = sin(x ^ □ □ □ | y = sin(x ^ 2) 5 | 38 Paren Echo | none | 0 to 5 | -5 to 5 | (1.5, 4) |
 | 38a | Paren Echo | y = □sin(pi x) □ □x ^ 2 / □) | y = 5sin(pi x) + (x ^ 2 / pi) | victory | none | 0 to 5 | 0 to 12 | (4.5, 11.5) |

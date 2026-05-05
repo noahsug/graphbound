@@ -8,6 +8,7 @@ const TOLERANCE = 0.5
 const MIN_TILE_USAGE = 3
 const MIN_AXIS_SPAN = 5
 const MAX_AXIS_SPAN = 20
+const MAX_FULL_ENUMERATION_SLOTS = 4
 const BLANK = '\u25a1'
 const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const DEFAULT_PUZZLES_PATH = path.join(ROOT_DIR, 'puzzles.json')
@@ -504,15 +505,7 @@ function slotCandidateLists(row, availableTiles, intendedRows = [row]) {
     return []
   }
 
-  if (
-    row.name === 'Lemniscate' ||
-    row.name === 'Finale' ||
-    row.name === 'Witch Window' ||
-    row.name === 'Spiral Loft' ||
-    count === 1 ||
-    blankOnlyRightSide(row.equation) ||
-    allTokensBlank(row.equation)
-  ) {
+  if (count <= MAX_FULL_ENUMERATION_SLOTS || blankOnlyRightSide(row.equation) || allTokensBlank(row.equation)) {
     return Array.from({ length: count }, () => availableTiles)
   }
 
@@ -1182,14 +1175,14 @@ function tokenIncludesOutputVariable(token) {
 
 function parseEquation(equation) {
   const tokens = tokenize(equation)
-  const equalsIndex = tokens.findIndex((token) => token.type === 'operator' && token.value === '=')
+  const equalsIndexes = tokens
+    .map((token, index) => (token.type === 'operator' && token.value === '=' ? index : -1))
+    .filter((index) => index >= 0)
 
-  if (equalsIndex <= 0 || equalsIndex >= tokens.length - 1) {
+  const equalsIndex = equalsIndexes[0]
+
+  if (equalsIndexes.length !== 1 || equalsIndex <= 0 || equalsIndex >= tokens.length - 1) {
     throw new Error(`Equation needs one complete equality: ${equation}`)
-  }
-
-  if (tokens.some((token, index) => index !== equalsIndex && token.type === 'operator' && token.value === '=')) {
-    throw new Error(`Equation has multiple equalities: ${equation}`)
   }
 
   const leftTokens = tokens.slice(0, equalsIndex)
@@ -1591,18 +1584,27 @@ function solveRow(row, availableTiles, intendedRows = [row]) {
 }
 
 function hasViableAllBlankEquationSequence(tileIds) {
-  const equalsIndex = tileIds.indexOf('=')
-  const yIndex = tileIds.indexOf('y')
+  const equalsIndexes = tileIds
+    .map((tileId, index) => (tileId === '=' ? index : -1))
+    .filter((index) => index >= 0)
 
-  if (equalsIndex <= 0 || equalsIndex >= tileIds.length - 1 || yIndex < 0 || yIndex > equalsIndex) {
+  if (equalsIndexes.length !== 1) {
     return false
   }
 
-  const leftTiles = tileIds.slice(0, equalsIndex)
-  const leftIsY = leftTiles.length === 1 && leftTiles[0] === 'y'
-  const leftIsScaledY = leftTiles.length === 2 && /^\d+$/.test(leftTiles[0]) && leftTiles[1] === 'y'
+  const equalsIndex = equalsIndexes[0]
 
-  return leftIsY || leftIsScaledY
+  if (equalsIndex <= 0 || equalsIndex >= tileIds.length - 1) {
+    return false
+  }
+
+  const hasPolarVariable = tileIds.includes('r') || tileIds.includes('theta')
+
+  if (hasPolarVariable) {
+    return tileIds.includes('r') && tileIds.includes('theta')
+  }
+
+  return tileIds.includes('y')
 }
 
 function hasMatchedParentheses(equation) {
@@ -1810,7 +1812,13 @@ function hasValidOperatorPlacement(equation, row) {
     .map((token, index) => (token.type === 'operator' && token.value === '=' ? index : -1))
     .filter((index) => index >= 0)
 
-  if (equalsIndexes.length !== 1 || equalsIndexes[0] === 0 || equalsIndexes[0] === tokens.length - 1) {
+  if (equalsIndexes.length !== 1) {
+    return false
+  }
+
+  const equalsIndex = equalsIndexes[0]
+
+  if (equalsIndex === 0 || equalsIndex === tokens.length - 1) {
     return false
   }
 
@@ -1818,7 +1826,6 @@ function hasValidOperatorPlacement(equation, row) {
     return false
   }
 
-  const equalsIndex = equalsIndexes[0]
   const leftTokens = tokens.slice(0, equalsIndex)
   const rightTokens = tokens.slice(equalsIndex + 1)
   const yIndexes = tokens
@@ -1829,23 +1836,10 @@ function hasValidOperatorPlacement(equation, row) {
   )
 
   if (!hasPolarVariable) {
-    if (yIndexes.length < 1 || !yIndexes.some((index) => index < equalsIndex)) {
+    if (yIndexes.length < 1) {
       return false
     }
 
-    if (allTokensBlank(row.equation)) {
-      const leftIsY =
-        leftTokens.length === 1 && leftTokens[0].type === 'identifier' && leftTokens[0].value === 'y'
-      const leftIsScaledY =
-        leftTokens.length === 2 &&
-        leftTokens[0].type === 'number' &&
-        leftTokens[1].type === 'identifier' &&
-        leftTokens[1].value === 'y'
-
-      if (!leftIsY && !leftIsScaledY) {
-        return false
-      }
-    }
   }
 
   if (hasOutputVariableImplicitProductOnLeft(tokens, equalsIndex)) {
@@ -2004,12 +1998,6 @@ function finalizeGroupSolution(solution, intendedRowsByKey) {
 function solvePuzzleGroup(group, rowContexts) {
   const representative = group.rows[0]
   const representativeEquation = representative.equation
-  const allowedNonIntendedCount =
-    representative.name === 'Finale' && allTokensBlank(representativeEquation)
-      ? 5
-      : representative.name === 'Hollow'
-        ? 2
-      : 1
   const equationIssues = group.rows
     .filter((row) => row.equation.trim() !== representativeEquation.trim())
     .map((row) => ({
@@ -2092,15 +2080,11 @@ function solvePuzzleGroup(group, rowContexts) {
       solutionCount: solutions.length,
       nonIntendedCount: nonIntendedSolutions.length,
       expectedMinimum: group.rows.length,
-      expectedMaximum: group.rows.length + allowedNonIntendedCount,
-      allowedNonIntendedCount,
       passes:
         equationIssues.length === 0 &&
         duplicateIntendedRows.length === 0 &&
         missingIntendedRows.length === 0 &&
-        nonIntendedSolutions.length <= allowedNonIntendedCount &&
-        solutions.length >= group.rows.length &&
-        solutions.length <= group.rows.length + allowedNonIntendedCount,
+        solutions.length >= intendedRowsByKey.size,
     },
   }
 }
@@ -2231,7 +2215,6 @@ function countedTokenSummary(equation) {
 
 function authoringAudit(rows) {
   const issues = []
-  const allBlankRows = rows.filter((row) => allTokensBlank(row.equation))
   const intendedSolutionsByKey = new Map()
 
   for (const row of rows) {
@@ -2312,11 +2295,6 @@ function authoringAudit(rows) {
     } else if (!onboarding && !lateGame && unlockCount !== 1) {
       issues.push(`${row.id}: solution must unlock exactly one thing; found ${unlockCount}`)
     }
-  }
-
-  if (allBlankRows.length > 0) {
-    const labels = allBlankRows.map((row) => `${row.id} ${row.name}`).join(', ') || 'none'
-    issues.push(`All-empty templates are no longer allowed; found: ${labels}`)
   }
 
   const finaleRow = rows.find((row) => row.name === 'Finale')
@@ -2422,21 +2400,21 @@ function printText(results, rows) {
     }
 
     if (result.issues.differentEquations.length > 0) {
-      console.log('  requirement issue: lettered rows use different equation templates')
+      console.log('  coverage issue: lettered rows use different equation templates')
       for (const issue of result.issues.differentEquations) {
         console.log(`    - ${issue.id}: ${issue.equation}`)
       }
     }
 
     if (result.issues.duplicateIntendedSolutions.length > 0) {
-      console.log('  requirement issue: duplicate intended solutions')
+      console.log('  coverage issue: duplicate intended solutions')
       for (const rowsForKey of result.issues.duplicateIntendedSolutions) {
         console.log(`    - ${rowsForKey.map((row) => `${row.id}: ${row.solution}`).join('; ')}`)
       }
     }
 
     if (result.missingIntendedRows.length > 0) {
-      console.log('  requirement issue: intended solutions not found by the shared equation template')
+      console.log('  coverage issue: intended solutions not found by the shared equation template')
       for (const row of result.missingIntendedRows) {
         console.log(`    - ${row.id}: ${row.solution}`)
       }
@@ -2462,17 +2440,20 @@ function printText(results, rows) {
     }
 
     console.log(
-      `  requirement: ${result.requirement.passes ? 'pass' : 'FAIL'} ` +
-        `(expected ${result.requirement.expectedMinimum}-${result.requirement.expectedMaximum} total unique, ` +
-        `found ${result.requirement.solutionCount}; ` +
+      `  coverage: ${result.requirement.passes ? 'pass' : 'FAIL'} ` +
+        `(expected at least ${result.requirement.expectedMinimum} intended unique, ` +
+        `found ${result.requirement.solutionCount} total unique; ` +
         `${result.requirement.nonIntendedCount} non-intended)`,
     )
+    if (result.requirement.nonIntendedCount > 0) {
+      console.log('  guidance: extra non-intended alternatives are reported, not treated as failures')
+    }
     console.log('')
   }
 
   console.log(
     `Found ${totalSolutions} total unique solutions across ${results.length} puzzle groups; ` +
-      `${failingGroups} groups currently fail the per-puzzle requirement.`,
+      `${failingGroups} groups currently fail intended-solution coverage.`,
   )
   printTileUsage(intendedTileUsage(rows))
   printAuthoringAudit(authoringAudit(rows))

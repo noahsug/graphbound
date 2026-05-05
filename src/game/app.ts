@@ -614,6 +614,20 @@ function rectsIntersect(a: Rect, b: Rect, inset = 0): boolean {
   )
 }
 
+function isTextEditingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) {
+    return false
+  }
+
+  return (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement ||
+    (target instanceof HTMLElement && target.isContentEditable) ||
+    Boolean(target.closest('[contenteditable="true"]'))
+  )
+}
+
 function rectIntersectionArea(a: Rect, b: Rect): number {
   const left = Math.max(a.x, b.x)
   const right = Math.min(a.x + a.width, b.x + b.width)
@@ -3454,6 +3468,10 @@ class GraphboundApp {
   }
 
   private inferredFunctionParens(sectionId: string, tokenLayouts: TokenLayout[]): InferredFunctionParens[] {
+    if (this.usesCustomEquationDisplay(sectionId)) {
+      return []
+    }
+
     const values = tokenLayouts.map((layout) => this.equationLayoutValue(sectionId, layout))
     const ranges: InferredFunctionParens[] = []
 
@@ -5386,6 +5404,10 @@ class GraphboundApp {
   }
 
   private handleKeyDown = (event: KeyboardEvent): void => {
+    if (isTextEditingTarget(event.target)) {
+      return
+    }
+
     void this.audio.unlock()
     const key = event.key.toLowerCase()
 
@@ -5426,6 +5448,10 @@ class GraphboundApp {
   }
 
   private handleKeyUp = (event: KeyboardEvent): void => {
+    if (isTextEditingTarget(event.target)) {
+      return
+    }
+
     const key = event.key.toLowerCase()
     if (!this.isMovementKey(key)) {
       return
