@@ -1667,59 +1667,6 @@ function tokenIsOutputVariable(token) {
   return tokenIsIdentifier(token, 'y') || tokenIsIdentifier(token, 'r')
 }
 
-function tokenCanImplicitlyMultiply(token) {
-  if (!token) {
-    return false
-  }
-
-  if (token.type === 'number') {
-    return true
-  }
-
-  if (token.type === 'identifier') {
-    return ['x', 'y', 'r', 'theta', 'pi', 'sin'].includes(token.value)
-  }
-
-  return token.type === 'operator' && token.value === '('
-}
-
-function tokenCanImplicitlyMultiplyIntoOutput(token) {
-  if (!token) {
-    return false
-  }
-
-  if (token.type === 'number') {
-    return true
-  }
-
-  return token.type === 'identifier' && ['x', 'y', 'r', 'theta', 'pi'].includes(token.value)
-}
-
-function hasOutputVariableImplicitProductOnLeft(tokens, equalsIndex) {
-  const leftTokens = tokens.slice(0, equalsIndex)
-
-  for (let index = 0; index < leftTokens.length - 1; index += 1) {
-    const current = leftTokens[index]
-    const next = leftTokens[index + 1]
-
-    if (tokenIsOutputVariable(current) && tokenCanImplicitlyMultiply(next)) {
-      return true
-    }
-
-    const scaledSolvedOutput =
-      index === 0 &&
-      leftTokens.length === 2 &&
-      current.type === 'number' &&
-      tokenIsOutputVariable(next)
-
-    if (!scaledSolvedOutput && tokenCanImplicitlyMultiplyIntoOutput(current) && tokenIsOutputVariable(next)) {
-      return true
-    }
-  }
-
-  return false
-}
-
 function hasRequiredVariablePairs(equation) {
   const relevantTokens = tokensWithoutSolvedOutputVariable(tokenize(equation))
   const hasX = relevantTokens.some((token) => tokenIsIdentifier(token, 'x'))
@@ -1840,10 +1787,6 @@ function hasValidOperatorPlacement(equation, row) {
       return false
     }
 
-  }
-
-  if (hasOutputVariableImplicitProductOnLeft(tokens, equalsIndex)) {
-    return false
   }
 
   if (tokensFormSolvedOutputVariable(leftTokens) && rightTokens.some(tokenIsOutputVariable)) {

@@ -662,3 +662,10 @@ Original prompt: Create a GitHub repo for this web game project, write a detaile
 - Updated the intended-solutions gallery search so it matches only authored intended solution text, while still handling compact searches like `r=`, `sin(x)`, `pi`, and `theta`; Ctrl-A/Cmd-A now selects the search contents cleanly.
 - Persisted a `victoryScreenShown` flag so the “Graphbound complete” panel appears once, can be dismissed, and does not reappear after reload or later completion checks.
 - Regenerated `PUZZLES.md` and verified with focused `npm run find-solutions -- 27 29 31 36`, full `npm run find-solutions`, `npm run build`, the required Playwright client at `output/batch-polish-client/`, solutions search checks at `output/solutions-search-focused/`, and victory persistence checks at `output/victory-once-focused/`.
+
+## 2026-05-05
+
+- Removed the Sine Dial placement-time and solution-audit guards that rejected implicit products involving an output variable on the left side of `=`, so syntactically valid equations like `y x 2 sin(x) + 5 = 0` can be assembled instead of forcing only solved-output forms.
+- Verified with `npm run build`, focused and full `npm run find-solutions` passes, the required Playwright client at `output/web-game/slot-validation-fix-client/`, and a focused browser/debug check confirming `x`, `sin`, `5`, `0`, `π`, and `y` all land in Sine Dial's first slot after `2` and `=` are placed.
+- Tightened custom/full-equation placement validity so a partial expression with no `=` remains valid only while an interior empty slot can still become `=`; once Sine Dial reaches `y x 2 sin(x) + 5 □ 0`, non-`=` tiles are rejected and `=` is accepted.
+- Verified the forced-equals case with `npm run build`, the required Playwright client at `output/web-game/slot-validation-fix-client/`, and a focused browser/debug check saved as `output/web-game/slot-validation-fix-client/sine-dial-equals-required.png`.

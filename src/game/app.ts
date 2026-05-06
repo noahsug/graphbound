@@ -2541,6 +2541,10 @@ class GraphboundApp {
       return false
     }
 
+    if (!this.equationCanStillContainEquals(sectionId, values)) {
+      return false
+    }
+
     for (const equalsIndex of equalsIndexes) {
       if (equalsIndex === 0 || equalsIndex === values.length - 1) {
         return false
@@ -2554,10 +2558,6 @@ class GraphboundApp {
     for (const equalsIndex of equalsIndexes) {
       const leftValues = values.slice(0, equalsIndex)
       const rightValues = values.slice(equalsIndex + 1)
-
-      if (this.valuesHaveOutputVariableImplicitProductOnLeft(values, equalsIndex)) {
-        return false
-      }
 
       if (
         this.valuesFormSolvedOutputVariable(leftValues) &&
@@ -2618,6 +2618,47 @@ class GraphboundApp {
     return true
   }
 
+  private equationCanStillContainEquals(
+    sectionId: string,
+    values: Array<string | null>,
+  ): boolean {
+    if (!this.usesCustomEquationDisplay(sectionId) || values.includes('=')) {
+      return true
+    }
+
+    const section = this.sectionById.get(sectionId)
+    if (!section || !this.tileAllowedForSection(sectionId, '=')) {
+      return false
+    }
+
+    const parts = this.equationDisplayParts(sectionId)
+    return parts.some((part, index) => {
+      if (
+        part.type !== 'slot' ||
+        values[index] !== null ||
+        index === 0 ||
+        index === values.length - 1
+      ) {
+        return false
+      }
+
+      const slot = section.slots.find((candidate) => candidate.id === part.slotId)
+      if (!slot?.allowedTiles.includes('=')) {
+        return false
+      }
+
+      const previous = values[index - 1]
+      const next = values[index + 1]
+      const valuesWithEquals = [...values]
+      valuesWithEquals[index] = '='
+
+      return (
+        !this.valueIsEquationOperator(previous) &&
+        (!this.valueIsEquationOperator(next) || this.valueIsUnarySign(valuesWithEquals, index + 1))
+      )
+    })
+  }
+
   private equationCanSatisfyVariablePairs(values: Array<string | null>): boolean {
     const relevantValues = this.valuesWithoutSolvedOutputVariable(values)
     const hasEmptySlot = relevantValues.some((value) => value === null)
@@ -2664,68 +2705,8 @@ class GraphboundApp {
     )
   }
 
-  private valuesHaveOutputVariableImplicitProductOnLeft(
-    values: Array<string | null>,
-    equalsIndex: number,
-  ): boolean {
-    const leftValues = values.slice(0, equalsIndex)
-    const leftConcreteValues = leftValues.filter((value): value is string => Boolean(value))
-
-    for (let index = 0; index < leftValues.length - 1; index += 1) {
-      const current = leftValues[index]
-      const next = leftValues[index + 1]
-
-      if (!current || !next) {
-        continue
-      }
-
-      if (this.valueIsOutputVariable(current) && this.valueCanImplicitlyMultiply(next)) {
-        return true
-      }
-
-      const scaledSolvedOutput =
-        index === 0 &&
-        leftConcreteValues.length === 2 &&
-        this.valueIsNumberText(current) &&
-        this.valueIsOutputVariable(next)
-
-      if (
-        !scaledSolvedOutput &&
-        this.valueCanImplicitlyMultiplyIntoOutput(current) &&
-        this.valueIsOutputVariable(next)
-      ) {
-        return true
-      }
-    }
-
-    return false
-  }
-
   private valueIsOutputVariable(value: string | null | undefined): boolean {
     return value === 'y' || value === 'r'
-  }
-
-  private valueCanImplicitlyMultiply(value: string | null | undefined): boolean {
-    return (
-      this.valueIsNumberText(value) ||
-      this.valueIsVariable(value) ||
-      value === 'π' ||
-      value === 'pi' ||
-      value === 'sin' ||
-      value === '('
-    )
-  }
-
-  private valueCanImplicitlyMultiplyIntoOutput(value: string | null | undefined): boolean {
-    return (
-      this.valueIsNumberText(value) ||
-      value === 'x' ||
-      value === 'y' ||
-      value === 'r' ||
-      this.valueIsTheta(value) ||
-      value === 'π' ||
-      value === 'pi'
-    )
   }
 
   private valueIsNumberText(value: string | null | undefined): boolean {
